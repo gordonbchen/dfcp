@@ -213,11 +213,151 @@ PP[cal(R_1)] (product_(l=1)^(L-1) PP[cal(Q)_l|cal(R)_(l-1)]) (product_(l=1)^(L-1
 (product_(b in cal(Q)_l) Gamma(\#b - d_l))
 $
 
+$a_l, b_l$ are the clusters for sequence $i$ at location $l$ in $cal(R), cal(Q)$.
 
-#let todo(body) = box(
-  fill: rgb("#ff6666"),
-  stroke: rgb("#cc4444"),
-  inset: (x: 6pt, y: 4pt),
-  [*TODO:* #body],
+$
+cal(R)_1 ~ "CRP"(R, alpha, 0) \
+
+PP[a_1 = a | cal(R)^(-i)_1] =& cases(
+  (\#a) / (N-1 + alpha)      wide & a in cal(R)^(-i)    wide & "join existing",
+  (alpha) / (N-1 + alpha)    wide & a = emptyset        wide & "join new"
+) \ \
+
+
+cal(Q)_l ~ "CRP"(cal(R)_l, 0, d_l) \
+PP[b_l = b | a_l = a, cal(R)^(-i)_l, cal(Q)^(-i)_l] =& cases(
+  (\#b - d_l) / (\#a)            wide & a in cal(R)^(-i)_l and b in cal(Q)^(-i)_l  wide & "cluster to cluster",
+  (\#F_l (a) med d_l) / (\#a)    wide & a in cal(R)^(-i)_l and b = emptyset  wide & "cluster to singleton",
+  1                      wide & a = emptyset = b      wide & "singleton to singleton"
+) \ \
+
+
+cal(R)_(l+1) ~ "CRP"(cal(Q)_l, alpha \/ d, 0) \
+
+PP[a_(l+1) = a | b_l = b, cal(R)^(-i)_(l+1), cal(Q)^(-i)_l] =& cases(
+  (d_l \#C_l (a)) / (alpha + d_l \#Q^(-i)_l) wide & a in cal(R)^(-i)_(l+1) and b = emptyset       wide & "singleton to cluster",
+  alpha / (alpha + d_l \#Q^(-i)_l)  wide & a = emptyset = b                              wide & "singleton to singleton",
+  1          wide & a in cal(R)^(-i)_(l+1) and b in C_l (a)        wide & "follows into cluster"
 )
-#todo[Question: 4.10 eqs dont' include prior probs?]
+$
+
+$F_l (a) = {b in cal(Q)_l : b subset.eq a}$ are fragements of $a in cal(R)_l$.
+
+$C_l (a) = {b in cal(Q)_l : b subset.eq a}$ are fragments that get coagulated into $a in cal(R)_(l+1)$.
+
+== Messages
+messages: prob of observations to the right after taking sequence $i$ out
+
+$
+m_C^l (a) =& PP[x_(i, l+1:L) | a_l = a, cal(R)^(-i)_(l:L), cal(Q)^(-i)_(l:L-1)] \
+
+=& sum_(b in cal(Q)^(-i)_l union {emptyset}) PP[b_l = b | a_l = a, cal(R)^(-i)_l, cal(Q)^(-i)_l] med  m^l_F (b) \
+
+=& cases(
+  m_F^l (b=emptyset) wide a = emptyset,
+
+  1 / (\#a) [sum_(b in F_l (a)) (\#b -d_l) m_F^l (b) + \#F_l(a) d_l m_F^l (b=emptyset)]  wide a in cal(R)^(-i)_l
+)
+\ \ \
+
+
+m_F^l (b) =& PP[x_(i, l+1:L) | b_l = b, cal(R)^(-i)_(l:L), cal(Q)^(-i)_(l:L-1)] \
+
+=& sum_(a in cal(R)^(-i)_(l+1) union {emptyset}) PP[a_(l+1) = a | b_l = b, cal(R)^(-i)_l, cal(Q)^(-i)_l] med Lambda(x_(i,l+1) | a) med m^(l+1)_C (a) \
+
+=& cases(
+  Lambda(x_(i,l+1) | a) med m^(l+1)_C (a)  wide  b in cal(Q)^(-i)_l  wide  a "st" b in C_l (a),
+
+  1 / (alpha + d_l \#Q^(-i)_l) [alpha Lambda(x_(i,l+1) | emptyset) med m^(l+1)_C (emptyset) 
+  + sum_(a in cal(R)^(-i)_(l+1)) d_l \#C_l (a) Lambda(x_(i,l+1) | a) med m^(l+1)_C (a)]
+  wide b = emptyset
+)
+$
+
+== Likelihood $Lambda$
+$a != emptyset$, match cluster allele: $Lambda(x | a) = delta(x_(i,l) = theta_(a,l))$ \ \
+
+$a = emptyset$, $beta_l ~ "Beta"(gamma_l / 2, gamma_l / 2)$, $theta_(a,l) ~ "Bernoulli"(beta_l)$
+
+$
+Lambda(x | a=emptyset) = cases(
+  (gamma_l\/2 + n_(1,l)) / (gamma_l + n_(0,l) + n_(1, l)) wide x = 1,
+  (gamma_l\/2 + n_(0,l)) / (gamma_l + n_(0,l) + n_(1, l)) wide x = 0,
+)
+$
+
+$n_(1,l) = \#{a in cal(R)^(-i)_l : theta_(a, l) = 1}$ is the number of clusters that emit the major allele at location $l$.
+
+== Posteriors
+$
+PP[a_1 = a|x_i, cal(R)^(-i)_(1:L), cal(Q)^(-i)_(1:L-1)]
+
+prop & PP[a_1=a|cal(R)^(-i)_1] PP[x_(i 1)|a_1 = a] PP[x_(i, 2:L)|a_1=a, cal(R)^(-i)_(1:L), cal(Q)^(-i)_(1:L-1)] \
+
+prop & PP[a_1=a|cal(R)^(-i)_1] dot Lambda(x_(i 1)|a) dot m_C^1 (a) \ \ \
+
+
+PP[b_l = b|x_i, cal(R)^(-i)_(1:L), cal(Q)^(-i)_(1:L-1)]
+
+prop & PP[b_l = b|a_l = a, cal(R)^(-i)_l, cal(Q)^(-i)_l] PP[x_(i, l+1:L) | b_l = b, cal(R)^(-i)_(l:L), cal(Q)^(-i)_(l:L-1)] \
+
+prop & PP[b_l = b|a_l = a, cal(R)^(-i)_l, cal(Q)^(-i)_l] m_F^l (b) \ \ \
+
+
+PP[a_l = a|x_i, cal(R)^(-i)_(1:L), cal(Q)^(-i)_(1:L-1)]
+
+prop & PP[a_l = a|b_(l-1) = b, cal(R)^(-i)_l, cal(Q)^(-i)_(l-1)] PP[x_(i, l)|a] PP[x_(i, l+1:L) | a_l = a, cal(R)^(-i)_(l:L), cal(Q)^(-i)_(l:L-1)] \
+
+prop & PP[a_l = a|b_(l-1) = b, cal(R)^(-i)_l, cal(Q)^(-i)_(l-1)] dot Lambda(x_(i, l) | a) dot m_C^l (a) \ \ \
+$
+
+== Slice sampling $alpha, d_l, gamma_l$
+TODO: many mistakes here
+- 4.9 R instead of Q in denom (not critical)
+- 4.10 doesn't have priors
+- 4.20 and 4.21: extra -L in alpha exp and +1 in d_l exponent
+
+
+$
+PP[alpha|cal(R), cal(Q), d] prop
+
+& PP[alpha]
+
+dot Gamma(alpha) / Gamma(alpha + N) med alpha^(sum_(l=1)^L \# cal(R)_l)
+
+dot product_(l=1)^(L-1) Gamma(alpha \/ d_l) / Gamma(alpha \/ d_l  + \#cal(Q)_l)) \
+
+
+
+PP[d_l|cal(R), cal(Q), alpha] prop
+
+& PP[d_l]
+
+dot (d_l^(\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1)) Gamma(alpha \/ d_l)) / (Gamma(1-d_l)^(\#cal(Q)_l) Gamma(alpha \/ d_l  + \#cal(Q)_l))
+
+dot product_(b in cal(Q)_l) Gamma(\#b - d_l) \ \
+
+
+PP[theta_(a l)|beta_l] =& beta_l^(theta_(a l)) (1-beta_l)^(1-theta_(a l)) \
+
+PP[theta_l|beta_l] =& beta_l^(n_(1 l)) (1-beta_l)^(n_(0 l)) wide n_(1 l) = \#{a in cal(R)_l : theta_(a l) = 1} \
+
+PP[beta_l|gamma_l] =& Gamma(gamma_l) / Gamma(gamma_l / 2)^2 beta_l^(gamma_l / 2 - 1) (1-beta_l)^(gamma_l / 2 - 1)  \
+
+
+PP[theta_l|gamma_l] =& integral_0^1 PP[theta_l|beta_l]PP[beta_l|gamma_l] d beta_l \
+
+=& integral_0^1 Gamma(gamma_l) / Gamma(gamma_l / 2)^2 beta_l^(gamma_l / 2 + n_(1 l) - 1) (1-beta_l)^(gamma_l / 2 + n_(0 l) - 1)  d beta_l \
+
+=& (Gamma(gamma_l) Gamma(gamma_l/2+n_(1 l)) Gamma(gamma_l/2+n_(0 1))) / 
+(Gamma(gamma_l/2)^2 Gamma(gamma_l + n_(1 l) +n_(0 l))) \
+
+
+PP[gamma_l|theta_l, cal(R)_l] prop& PP[gamma_l]
+  dot (Gamma(gamma_l) Gamma(gamma_l/2+n_(1 l)) Gamma(gamma_l/2+n_(0 1))) /
+  (Gamma(gamma_l/2)^2 Gamma(gamma_l + n_(1 l) +n_(0 l))) \
+$
+
+TODO: slice sampling, gamma_l symmetric beta for all?
+
+QUESTION: sequences in a cluster must agree for every single emission, otherwise likelihood is 0. this seems too hard a constraint. why not softer?
