@@ -358,6 +358,53 @@ PP[gamma_l|theta_l, cal(R)_l] prop& PP[gamma_l]
   (Gamma(gamma_l/2)^2 Gamma(gamma_l + n_(1 l) +n_(0 l))) \
 $
 
-TODO: slice sampling, gamma_l symmetric beta for all?
-
 QUESTION: sequences in a cluster must agree for every single emission, otherwise likelihood is 0. this seems too hard a constraint. why not softer?
+
+
+= Slice Sampling
+
+$
+u ~& "Uniform"(0, f(x)) \
+
+A_u =& {x' : f(x') >= u} \
+
+x' ~& "Uniform"(A_u)
+$
+
+Computing $A_u$ via stepping out and shrinkage
+
+$
+r ~ "Uniform"(0, 1) \
+
+L = x - r w \
+
+R = L + w \
+$
+
+Step out
+- while $f(L) > u$, $L <- L - w$
+- while $f(R) > u$, $R <- R + w$
+
+Shrinkage
+- $x' ~ "Uniform(L, R)"$
+- if $f(x') >= u$: accept
+- else
+  - if $x' > x: R = x'$
+  - if $x' < x: L = x'$
+
+== Log space
+$
+u ~& "Uniform"(0, f(x)) \
+
+u =& U f(x) wide U ~ "Uniform"(0, 1) \
+
+log u =& log U + log f(x) \ \ \
+
+PP[-log U <= x] =& PP[log U >= -x] \
+=& PP[U >= e^(-x)] \
+=& 1 - e^(-x) wide "so" -log U ~ "Exp"(lambda = 1) \ \ \
+
+E ~& "Exp"(lambda=1) \
+
+log u =& log f(x) - E
+$
