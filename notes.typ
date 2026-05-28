@@ -4,6 +4,13 @@
   #text(24pt, weight: "bold")[DFCP Notes]
 ]
 
+#let todo(body) = box(
+  fill: rgb("#ff6666"),
+  stroke: rgb("#cc4444"),
+  inset: (x: 6pt, y: 4pt),
+  [*TODO:* #body],
+)
+
 = 1.1
 - Allele: gene variant at a locus on a chromosome
 - Diploid: humans have 2 sets of chromosomes, 1 from mom and 1 from dad
@@ -312,7 +319,7 @@ prop & PP[a_l = a|b_(l-1) = b, cal(R)^(-i)_l, cal(Q)^(-i)_(l-1)] dot Lambda(x_(i
 $
 
 == Slice sampling $alpha, d_l, gamma_l$
-TODO: many mistakes here
+many mistakes here
 - 4.9 R instead of Q in denom (not critical)
 - 4.10 doesn't have priors
 - 4.20 and 4.21: extra -L in alpha exp and +1 in d_l exponent
@@ -408,3 +415,229 @@ E ~& "Exp"(lambda=1) \
 
 log u =& log f(x) - E
 $
+
+
+= ME paper
+Notation
+- $N$ haplotype sequences of length $L$
+- concentration param $alpha$, discount rates $d_l$
+- partition $cal(R)_l$ of sequences idxs $R$
+- clustering $G^i_C$ is all partition $cal(R)_l$ for $l in 1..L$
+
+Marginals
+- $cal(R)_l$ has marginal distribution $"CRP"(R, alpha, 0)$
+- $"Frag"(cal(R)_l, alpha, d)$ partitions each cluster $a in cal(R)_l$ by $"CRP"(a, alpha, d)$
+- $"Coag"(cal(R)_l, alpha, d)$ partitions all cluster into sets of clusters by $"CRP"(cal(R)_l, alpha, d)$, and coagulates those clusters together
+
+== CRP
+$
+cal(R)_l ~& "CRP"(R, alpha, 0) \
+
+PP[cal(R)_l=A] =& Gamma(alpha) / Gamma(alpha + N)  alpha^(\#A)  product_(a in A) Gamma(\#a)
+$
+
+== Frag
+$
+cal(Q)_l|cal(R)_l ~& "Frag"(cal(R)_l, 0, d) \
+
+PP[cal(Q)_l|cal(R)_l]
+
+=& product_(a in cal(R)_l) [(Gamma(\#F_a) d^(\#F_a-1))/(Gamma(\#a) Gamma(1-d)^(\#F_a)) product_(b in F_a) Gamma(\#b - d) ] \
+
+=& d^(\#cal(Q)_l - \#cal(R)_l) / Gamma(1-d)^(\#cal(Q)_l) [product_(a in cal(R)_l) Gamma(\#F_a)/Gamma(\#a)] [product_(b in cal(Q)_l) Gamma(\#b - d)] \
+
+F_a =& {b in cal(Q)_l: b subset.eq a}
+$
+
+== Coag
+$
+cal(R)_(l+1)|cal(Q)_l ~& "Coag"(cal(Q)_l, alpha\/d, 0) \
+
+PP[cal(R)_(l+1)|cal(Q)_l] =& Gamma(alpha\/d) / Gamma(alpha\/d + \#cal(Q))  (alpha\/d)^(\#cal(R)_(l+1))  product_(a in cal(R)_(l+1)) Gamma(\#C_a) \
+
+C_a =& {b in cal(Q)_l: b subset.eq a}
+$
+
+== Generative model
+$
+alpha ~& "Gamma"(tau_1, tau_2) \
+
+d_l ~& "Beta"(v_1, v_2) \ \
+
+
+cal(R)_l ~& "CRP"(R, alpha, 0) \
+
+cal(Q)_l|cal(R)_l ~& "Frag"(cal(R)_l, 0, d_l) \
+
+cal(R)_(l+1)|cal(Q)_l ~& "Coag"(cal(Q)_l, alpha\/d_l, 0) \ \
+
+
+gamma_l ~& "Gamma"(phi.alt_1, phi.alt_2) \
+
+beta_l|gamma_l ~& "Dirichlet"(gamma_(l,1) ... gamma_(l,2)) \ 
+
+theta_(l a)|beta_l ~& "Categorical"(beta_l) \ \
+
+
+x_(i l)|a_(i l) =& theta_(l a_(i l))
+$
+
+== Maximization Expectation
+- $p(C, Theta|cal(D))$ for cluster assignments $C$, model parameters $Theta$, and data $cal(D)$
+- $q(Theta) = p(Theta|C^*, cal(D))$
+- $C^* = "argmax"_C EE_q(Theta) [log p(C, Theta|cal(D))]$
+
+$
+p(G_C, gamma, alpha, d|cal(D)) =& p(G_c|gamma, alpha, d, cal(D)) p(gamma, alpha, d|cal(D)) \
+
+approx & delta(G_C, G^*_C) q(gamma, alpha, d)
+$
+
+Maximization
+- MAP estimate (max product) for $G_C$ by messages
+
+Mean field
+
+$
+log p(G_C, gamma, alpha, d, cal(D))
+=& log p(cal(D)|G_C, gamma, alpha, d) + log p(G_C|gamma, alpha, d) \
++& log p(alpha) + sum_(l=1)^L log p(gamma_l) + sum_(l=1)^(L-1) log p(d_l) \
+$
+
+Mean field assumption: $q(G_C, gamma, alpha, d) = q(G_C) q(alpha) product_(l=1)^L p(gamma_l) product_(l=1)^(L-1) p(d_l)$
+
+$
+log p(C, gamma, alpha, d, X)
+
+=& sum_(i=1)^N sum_(l=1)^L log Lambda(x_(i l)|a_(i l)) \
+
++& log[ Gamma(alpha) / Gamma(alpha + N) alpha^(\#cal(R)_1) product_(a in cal(R)_1) Gamma(\#a) ]\
+
++& log[ product_(l=1)^(L-1) ((d_l^(\#cal(Q)_l - \#cal(R)_l)) / (Gamma(1-d_l)^(\#cal(Q)_l)) (product_(a in cal(R)_l) Gamma(\#F_a) / Gamma(\#a)) (product_(b in cal(Q)_l) Gamma(\#b - d_l))) ]\
+
++& log [product_(l=1)^(L-1) (Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) (alpha\/d_l)^(\#cal(R)_(l+1)) product_(a in cal(R)_(l+1)) Gamma(\#C_a)) ]\
+
++& log "Gamma"(tau_1, tau_2) \
+
++& sum_(gamma_l) log "Gamma"(v_1, v_2) \
+
++& sum_(d_l) log "Beta"(psi_1, psi_2) \
+$
+
+== Variational updates
+=== $gamma_l$
+Rising factorial (Pochhammer function): $x^((n)) = (x)(x+1)(x+2)...(x+n-1)$
+
+$
+p(gamma_l|C, X, alpha, d) prop& p(X|C, gamma_l) p(gamma_l) \
+
+prop& p(gamma_l) dot Gamma(4 gamma_l) / Gamma(4 gamma_l + N) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) \
+
+prop& p(gamma_l) dot (gamma_l^((n_A)) gamma_l^((n_T)) gamma_l^((n_C)) gamma_l^((n_G))) / (4 gamma_l)^((N))
+$
+
+#todo[what is the actual variational update from here? laplace approx?]
+
+=== $alpha$
+$
+log q^*_alpha(alpha)
+
+prop& EE_(-alpha)[ log( Gamma(alpha) / Gamma(alpha + N) alpha^(\#cal(R)_1) ) ] \
+
++& sum_(l=1)^(L-1) EE_(-alpha)[ log (Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) (alpha\/d_l)^(\#cal(R)_(l+1))) ] \
++& EE_(-alpha)[ log "Gamma"(tau_1, tau_2) ] \ \ \
+
+
+prop& - sum_(i=0)^(N-1) log(alpha+i) \
+
++& sum_(l=1)^(L) \#cal(R)_l log alpha \
+
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-l) EE_(d_l)[ log (alpha\/d_l + i) ] \
+
++& (tau_1-1) log alpha - tau_2 alpha \ \ \
+$
+
+=== Delta method:
+$
+f(X) approx& f(mu) + f'(mu) (X-mu) + 1/2 f''(mu) (X-mu)^2 \
+
+EE[f(X)] approx& f(mu) + 1/2 f''(mu) sigma^2 \ \
+$
+
+$
+EE_(d_l)[log(alpha \/ d_l + i)] approx log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2)
+$
+
+
+=== $d_l$
+
+$
+log q_(d_l)^*(d_l)
+
+prop& log[ (d_l^(\#cal(Q)_l - \#cal(R)_l)) / (Gamma(1-d_l)^(\#cal(Q)_l)) product_(b in cal(Q)_l) Gamma(\#b - d_l) ]\
+
++& EE_(alpha) [log ( Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) (alpha\/d_l)^(\#cal(R)_(l+1)))]\
+
++& log "Beta"(v_1, v_2) \ \ \
+
+
+
+prop& (\#cal(Q)_l - \#cal(R)_l) log d_l - \#cal(Q)_l log Gamma(1-d_l) \
+
++& sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
+
+-& sum_(i=0)^(\#cal(Q)_l-1) EE_alpha [ log alpha \/ d + i ] - \#cal(R)_(l+1) log d_l \
+
++& (v_1-1) log d_l + (v_2-1) log (1-d_l)
+$
+
+delta approximation
+
+$
+EE_alpha [ log alpha \/ d + i ]
+
+approx& f(mu_alpha) + 1/2 f''(mu_alpha) sigma_alpha^2 \
+
+approx& log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2)
+$
+
+#todo[ 
+$EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l$
+
+Here we need a logistic tranform on d before laplace approx to keep $d in [0, 1]$?
+]
+
+
+=== Laplace approximation
+- log density $h(z) = log p(z)$
+
+- find mode $hat(z) = "argmax"_z h(z)$
+
+- taylor expansion: $h(z) approx h(hat(z)) + 1/2 h''(hat(z)) (z-hat(z))^2$
+  - $h(z) approx h(hat(z)) + h'(hat(z)) (z - hat(z)) + 1/2 h''(hat(z)) (z-hat(z))^2$
+  - $h'(hat(z)) = 0$ b/c $hat(z)$ is the mode
+
+- let $sigma^2 = - 1/(h''(hat(z)))$
+  - $h''(hat(z)) < 0$ since $hat(z)$ is a maximum
+
+- $h(z) approx h(hat(z)) - 1/(2 sigma^2)(z-hat(z))^2$
+
+- then $p(z) approx "exp"(h(hat(z))) "exp"(-1/(2 sigma^2) (z-hat(z))^2) ~ cal(N)(hat(z), -1/(h''(hat(z))))$
+
+
+=== Log space Laplace approx
+- $alpha > 0$. let $eta = log alpha$. laplace approx on $eta$ so exponentiating gives us a positive $alpha$
+- $q_alpha (alpha) prop exp(h(alpha))$
+- $q_eta (eta) = q_alpha (e^eta) |(d alpha) / (d eta)| = q_alpha (e^eta) e^eta$
+- $q_eta (eta) prop exp(h(e^eta)) e^eta$
+- let $hat(h) (eta) prop log q_eta (eta) prop h(e^eta) + eta$
+- laplace approx:
+  - solve $hat(eta) = "argmax"_eta hat(h)(eta)$
+  - $q_eta (eta) approx cal(N) (hat(eta), sigma_eta^2 = -1/ (hat(h)''(hat(eta))))$
+- so $q_alpha (alpha) approx "LogNormal"(hat(eta), sigma_eta^2)$
+- $EE[alpha] approx exp(hat(eta) + sigma_eta^2 / 2)$
+
+
+#todo[
+  Amortized bayesian inference
+]
