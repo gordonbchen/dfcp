@@ -668,7 +668,11 @@ prop& (\#cal(Q)_l - \#cal(R)_l) log d_l - \#cal(Q)_l log Gamma(1-d_l) \
 +& (v_1-1) log d_l + (v_2-1) log (1-d_l)
 $
 
-#todo[tell derek $ EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l $]
+#todo[
+  $ EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l $
+
+  also $EE_alpha [ log alpha \/ d + i ]$ doesn't need a delta approx for $i=0$.
+]
 
 
 
