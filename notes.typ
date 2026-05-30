@@ -1,9 +1,5 @@
 #set text(size: 12pt)
 
-#align(center)[
-  #text(24pt, weight: "bold")[DFCP Notes]
-]
-
 #let todo(body) = box(
   fill: rgb("#ff6666"),
   stroke: rgb("#cc4444"),
@@ -11,55 +7,12 @@
   [*TODO:* #body],
 )
 
-= 1.1
-- Allele: gene variant at a locus on a chromosome
-- Diploid: humans have 2 sets of chromosomes, 1 from mom and 1 from dad
-- Haplotype: a sequence on a chromosome, genotype = 2 haplotypes
-- Phased data: separates parental haplotypes
-- biallelic marker: 2 possible alleles
-  - diploid, minor can occur 0 (homozygous major allele), 1 (heterozygous allele), 2 (homozygous minor allele) times
-  - Single Nucleotide Polymorphism (SNP): 2 possible base pairs at a locus
-- Imputation: biallelic markers so binary (major / minor) $N times L$ matrix
 
-= 1.2
-- Kingman's Coalescent
-  - time going backwards
-  - all pairs merge at rate $1 / N_e$, where $N_e$ is the population size $PP["choose same parent"] = 1/N_e$
-  - time until next merge with $k$ lineages $~ "Exp"(lambda_k = 1/N_e binom(k, 2))$
-  - unions genetic material
-- coalescent with recombination
-  - kingman's coalescent + recombination
-  - recombination: $~ "Exp"(lambda_k = rho k \/ 2)$, split lineage in half
-  - splits genetic material
-- spatial repr of coalescent with recombination
-  - instead of time axis, move along chromosome
-  - recombination event = change tree
-  - not markov
-- mutations: Poisson process with rate $theta k(t)$, uniform locations $l ~ "Uniform"(0, 1)$
-- sequentially markov coalescent (SMC): markov approx of spation coalescent
-  - start of chromosome: genealogy sampled from kingman's coalescent
-  - markov jump process
-    - jumps happen with rate $rho L(l) \/ 2$, total branch length $L$ (sum of all edges) and location $l$
-    - choose point uniformly on geneaology: pick branch (edge) based on length, uniformly on branch
-    - regraft: choose time of reattachment by rate $rho / 2 k(t)$, extending cut branch back, then choose random lineage to attach to
-  - prune and regraft moving to right on chromosome
-- PAC (Product of Approximate Conditionals) model
-  - HMM, states $Z_(i,l) in {1..i-1}$, copying from previous sequence $Z_(i,l)$
-  - for sequence $i$: $i-1$ states (previous sequence)
-  - transition with probability $c_l$ to uniform random state
-  - noisy copying: copy with probability $theta$, otherwise random
-  - first sequence is just drawn uniform randomly from $2^L$ binary haplotypes
-  - problem: not exchangeable, depends on order of sequences considered
-    - can average over random orderings
-- fastPHASE (location dependent HMM)
-  - at each position, copies one of $K$ latent haplotype instead of previous sequence
-  - transition with prob $c_l$
-  - $pi_(l,k)$ to transition to latent haplotype $k$ at location $l$ (if transition occurs)
-  - learned allele emission frequencies
-  - exchangeable
-  - I THINK THIS ONE IS GOOD
-- STRUCTURE (sequence dependent HMM)
-  - transition prob based only on sequence idx
+#align(center)[
+  #text(24pt, weight: "bold")[DFCP Notes]
+]
+
+
 
 = CRP
 partiton $cal(R) ~ "CRP"(R, alpha)$
@@ -73,21 +26,20 @@ A &= {{1}, {2, 3, 7}, {4, 5}, {6}} \
 
 PP[A] &= alpha / (1-1+alpha) dot alpha / (2-1+alpha) dot 1 / (3-1+alpha) dot alpha / (4-1+alpha) dot 1 / (5-1+alpha)dot alpha / (6-1+alpha) dot 2 / (7-1+alpha) \
 
-&= alpha^(\#A) dot 1 / ((alpha) (alpha + 1) ... (alpha + \#R - 1)) dot product_(a in A) (\#a-1)!
-
+&= alpha^(\#A) dot 1 / ((alpha) (alpha + 1) ... (alpha + \#R - 1)) dot product_(a in A) (\#a-1)! \ \
 $
 
-
 $
-cal(R) ~ "CRP"(R, alpha) \
+cal(R) ~& "CRP"(R, alpha) \
 
-PP[cal(R) = A] =
-Gamma(alpha) / Gamma(alpha + \#R) alpha^(\#A) product_(a in A) Gamma(\#a)
+PP[cal(R) = A] =& Gamma(alpha) / Gamma(alpha + \#R) alpha^(\#A) product_(a in A) Gamma(\#a)
 $
 
 CRP is exchangeable. Probability does not depend on order of arrival, just on table sizes.
 
-== Discounted CRP
+
+
+= Discounted CRP
 $n$th customer
 - $PP["joins new table"] = (alpha + d K) / (n-1 + alpha)$
 
@@ -113,6 +65,8 @@ Prior partition block growth
 - undiscounted: $\#R = cal(O)(alpha log n)$
 - discounted: $\#R = cal(O)(n^d)$
 
+
+
 = Fragmentation
 $cal(Q) ~ "Frag"(cal(R), alpha=0, d)$
 
@@ -130,6 +84,8 @@ $
 
 $F_a = {b in cal(Q): b subset.eq a}$ are fragments of $a$.
 
+
+
 = Coagulation
 $cal(R) ~ "Coag"(cal(Q), alpha \/ d, 0)$
 
@@ -142,6 +98,8 @@ PP[cal(R)] &= Gamma(alpha\/d) / Gamma(alpha\/d + \#cal(Q)) (alpha\/d)^(\#A) prod
 $
 
 $C_a = {b in cal(Q): b subset.eq a}$ are all subsets coagulated into $a$.
+
+
 
 = Leave-one-out conditionals
 $a_i, b_i$ are the respective cluster assignments of $i$ in $cal(R), cal(Q)$.
@@ -177,6 +135,8 @@ PP[a_i=a|b_i=b, cal(R)^(-i), cal(Q)^(-i)] = cases(
   alpha / (alpha + d \#Q^(-i)) wide & "if" a = emptyset = b wide & "singleton to singleton" PP prop alpha / d
 )
 $
+
+
 
 = DFCP
 $cal(Q) ~ "CRP"(cal(R), 0, d)$
@@ -252,7 +212,9 @@ $F_l (a) = {b in cal(Q)_l : b subset.eq a}$ are fragements of $a in cal(R)_l$.
 
 $C_l (a) = {b in cal(Q)_l : b subset.eq a}$ are fragments that get coagulated into $a in cal(R)_(l+1)$.
 
-== Messages
+
+
+= Messages
 messages: prob of observations to the right after taking sequence $i$ out
 
 $
@@ -281,7 +243,9 @@ m_F^l (b) =& PP[x_(i, l+1:L) | b_l = b, cal(R)^(-i)_(l:L), cal(Q)^(-i)_(l:L-1)] 
 )
 $
 
-== Likelihood $Lambda$
+
+
+= Likelihood $Lambda$
 $a != emptyset$, match cluster allele: $Lambda(x | a) = delta(x_(i,l) = theta_(a,l))$ \ \
 
 $a = emptyset$, $beta_l ~ "Beta"(gamma_l / 2, gamma_l / 2)$, $theta_(a,l) ~ "Bernoulli"(beta_l)$
@@ -295,7 +259,9 @@ $
 
 $n_(1,l) = \#{a in cal(R)^(-i)_l : theta_(a, l) = 1}$ is the number of clusters that emit the major allele at location $l$.
 
-== Posteriors
+
+
+= Posteriors
 $
 PP[a_1 = a|x_i, cal(R)^(-i)_(1:L), cal(Q)^(-i)_(1:L-1)]
 
@@ -318,7 +284,9 @@ prop & PP[a_l = a|b_(l-1) = b, cal(R)^(-i)_l, cal(Q)^(-i)_(l-1)] PP[x_(i, l)|a] 
 prop & PP[a_l = a|b_(l-1) = b, cal(R)^(-i)_l, cal(Q)^(-i)_(l-1)] dot Lambda(x_(i, l) | a) dot m_C^l (a) \ \ \
 $
 
-== Slice sampling $alpha, d_l, gamma_l$
+
+
+= Slice sampling $alpha, d_l, gamma_l$
 many mistakes here
 - 4.9 R instead of Q in denom (not critical)
 - 4.10 doesn't have priors
@@ -365,7 +333,7 @@ PP[gamma_l|theta_l, cal(R)_l] prop& PP[gamma_l]
   (Gamma(gamma_l/2)^2 Gamma(gamma_l + n_(1 l) +n_(0 l))) \
 $
 
-QUESTION: sequences in a cluster must agree for every single emission, otherwise likelihood is 0. this seems too hard a constraint. why not softer?
+#todo[ sequences in a cluster must agree for every single emission, otherwise likelihood is 0. this seems too hard a constraint. why not softer? ]
 
 
 = Slice Sampling
@@ -417,6 +385,8 @@ log u =& log f(x) - E
 $
 
 
+
+#pagebreak()
 = ME paper
 Notation
 - $N$ haplotype sequences of length $L$
@@ -504,7 +474,11 @@ log p(G_C, gamma, alpha, d, cal(D))
 +& log p(alpha) + sum_(l=1)^L log p(gamma_l) + sum_(l=1)^(L-1) log p(d_l) \
 $
 
-Mean field assumption: $q(G_C, gamma, alpha, d) = q(G_C) q(alpha) product_(l=1)^L p(gamma_l) product_(l=1)^(L-1) p(d_l)$
+Mean field assumption:
+
+$
+q(G_C, gamma, alpha, d) = q(G_C) q(alpha) product_(l=1)^L p(gamma_l) product_(l=1)^(L-1) p(d_l)
+$
 
 $
 log p(C, gamma, alpha, d, X)
@@ -519,13 +493,15 @@ log p(C, gamma, alpha, d, X)
 
 +& log "Gamma"(tau_1, tau_2) \
 
-+& sum_(gamma_l) log "Gamma"(v_1, v_2) \
++& sum_(gamma_l) log "Gamma"(phi.alt_1, phi.alt_2) \
 
-+& sum_(d_l) log "Beta"(psi_1, psi_2) \
++& sum_(d_l) log "Beta"(v_1, v_2) \
 $
 
-== Variational updates
-=== $gamma_l$
+
+
+#pagebreak()
+= Variational update for $gamma_l$
 Rising factorial (Pochhammer function): $x^((n)) = (x)(x+1)(x+2)...(x+n-1)$
 
 $
@@ -536,11 +512,45 @@ prop& p(gamma_l) dot Gamma(4 gamma_l) / Gamma(4 gamma_l + N) product_(k in {A,T,
 prop& p(gamma_l) dot (gamma_l^((n_A)) gamma_l^((n_T)) gamma_l^((n_C)) gamma_l^((n_G))) / (4 gamma_l)^((N))
 $
 
-#todo[what is the actual variational update from here? laplace approx?]
 
-=== $alpha$
+me
+
 $
-log q^*_alpha(alpha)
+log q_(gamma_l) (gamma_l)
+
+prop& log( gamma_l^(phi.alt_1-1) e^(-phi.alt_2 gamma_l) ) \
+
++& log( Gamma(4 gamma_l) / Gamma(4 gamma_l + N) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) ) \ \ \
+
+
+prop& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l \
+
+-& sum_(i=0)^(N-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \
+$
+
+laplace approx in log space: same as $alpha$
+- $eta = log gamma_l$
+
+- solve $hat(eta) = "argmax"_eta [ hat(h)(eta) ]$ where $hat(h)(eta) = h(e^eta) + eta$
+
+- $q_eta (eta) approx cal(N)(hat(eta), sigma_eta^2 = -1/(hat(h)''(hat(eta))))$
+
+  $hat(h)''(hat(eta)) = hat(gamma)_l^2 h''(hat(gamma)) - 1$
+
+- $q_(gamma_l) (gamma_l) approx "LogNormal"(hat(eta), sigma_eta^2)$
+
+#todo[
+  what $gamma_l$ to use when calculating likelihood probabilities? what params to use during
+  computing messages and the maximization step? $EE[gamma_l]$?
+]
+
+
+
+
+#pagebreak()
+= Variational update for $alpha$
+$
+log q^*_alpha (alpha)
 
 prop& EE_(-alpha)[ log( Gamma(alpha) / Gamma(alpha + N) alpha^(\#cal(R)_1) ) ] \
 
@@ -552,12 +562,14 @@ prop& - sum_(i=0)^(N-1) log(alpha+i) \
 
 +& sum_(l=1)^(L) \#cal(R)_l log alpha \
 
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-l) EE_(d_l)[ log (alpha\/d_l + i) ] \
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) EE_(d_l)[ log (alpha\/d_l + i) ] \
 
 +& (tau_1-1) log alpha - tau_2 alpha \ \ \
 $
 
-=== Delta method:
+
+
+== Delta method
 $
 f(X) approx& f(mu) + f'(mu) (X-mu) + 1/2 f''(mu) (X-mu)^2 \
 
@@ -568,8 +580,74 @@ $
 EE_(d_l)[log(alpha \/ d_l + i)] approx log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2)
 $
 
+$
+log q^*_alpha (alpha)
+prop& - sum_(i=0)^(N-1) log(alpha+i) \
 
-=== $d_l$
++& sum_(l=1)^(L) \#cal(R)_l log alpha \
+
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [ log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) ] \
+
++& (tau_1-1) log alpha - tau_2 alpha \ \ \
+$
+
+
+
+== Laplace approx
+- $log p(z) prop h(z)$
+
+- find mode $hat(z) = "argmax"_z h(z)$
+
+- taylor expansion: $h(z) approx h(hat(z)) + 1/2 h''(hat(z)) (z-hat(z))^2$
+
+  - $h(z) approx h(hat(z)) + h'(hat(z)) (z - hat(z)) + 1/2 h''(hat(z)) (z-hat(z))^2$
+  - $h'(hat(z)) = 0$ b/c $hat(z)$ is the mode
+
+- let $sigma^2 = - 1/(h''(hat(z)))$
+
+  - $h''(hat(z)) < 0$ since $hat(z)$ is a maximum
+
+- $h(z) approx h(hat(z)) - 1/(2 sigma^2)(z-hat(z))^2$
+
+- $p(z) prop exp(h(z)) approx exp(h(hat(z))) exp(-1/(2 sigma^2) (z-hat(z))^2) ~ cal(N)(hat(z), -1/(h''(hat(z))))$
+
+
+
+== Laplace approx in log space
+- $alpha > 0$. let $eta = log alpha$
+
+- $q_eta (eta) = q_alpha (e^eta) |(d alpha) / (d eta)| = q_alpha (e^eta) e^eta$
+
+- $q_alpha (alpha) prop exp(h(alpha))$
+
+  $q_eta (eta) prop exp(h(e^eta)) e^eta$
+
+- $log q_eta (eta) prop hat(h) (eta) = h(e^eta) + eta$
+
+- laplace approx
+  - solve $hat(eta) = "argmax"_eta hat(h)(eta)$
+
+  - $q_eta (eta) approx cal(N) (hat(eta), sigma_eta^2 = -1/ (hat(h)''(hat(eta))))$
+
+- $hat(h)'(eta) = d/(d eta) [h(e^eta) + eta] = e^eta h'(e^eta) + 1 = alpha h'(alpha) + 1$
+
+  $hat(h)''(eta) = d/(d eta) [h'(e^eta) e^eta + 1] = e^(2eta) h''(e^eta) + e^eta h'(e^eta) =  alpha^2 h''(alpha) + alpha h'(alpha)$ \ \
+
+  $hat(h)'(hat(eta)) = hat(alpha) h'(hat(alpha)) + 1 = 0$, so $h'(hat(alpha)) = -1/hat(alpha)$
+
+  $hat(h)''(hat(eta)) = hat(alpha)^2 h''(hat(alpha)) -1$ \ \
+
+- $q_alpha (alpha) approx "LogNormal"(hat(eta), sigma_eta^2)$
+
+  $mu_alpha = exp(hat(eta) + sigma_eta^2 / 2)$
+
+  $sigma_alpha = (exp(sigma_eta^2) - 1) exp(2 hat(eta) + sigma_eta^2)$
+
+
+
+
+#pagebreak()
+= Variational update for $d_l$
 
 $
 log q_(d_l)^*(d_l)
@@ -581,7 +659,6 @@ prop& log[ (d_l^(\#cal(Q)_l - \#cal(R)_l)) / (Gamma(1-d_l)^(\#cal(Q)_l)) product
 +& log "Beta"(v_1, v_2) \ \ \
 
 
-
 prop& (\#cal(Q)_l - \#cal(R)_l) log d_l - \#cal(Q)_l log Gamma(1-d_l) \
 
 +& sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
@@ -591,53 +668,121 @@ prop& (\#cal(Q)_l - \#cal(R)_l) log d_l - \#cal(Q)_l log Gamma(1-d_l) \
 +& (v_1-1) log d_l + (v_2-1) log (1-d_l)
 $
 
-delta approximation
+#todo[tell derek $ EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l $]
+
+
+
+== Delta method
 
 $
 EE_alpha [ log alpha \/ d + i ]
 
 approx& f(mu_alpha) + 1/2 f''(mu_alpha) sigma_alpha^2 \
 
-approx& log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2)
+approx& log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2) \ \
 $
 
-#todo[ 
-$EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l$
+$
+log q_(d_l)^*(d_l)
 
-Here we need a logistic tranform on d before laplace approx to keep $d in [0, 1]$?
-]
+prop& (\#cal(Q)_l - \#cal(R)_l) log d_l - \#cal(Q)_l log Gamma(1-d_l) \
 
++& sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
 
-=== Laplace approximation
-- log density $h(z) = log p(z)$
+-& sum_(i=0)^(\#cal(Q)_l-1) [ log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2) ] - \#cal(R)_(l+1) log d_l \
 
-- find mode $hat(z) = "argmax"_z h(z)$
-
-- taylor expansion: $h(z) approx h(hat(z)) + 1/2 h''(hat(z)) (z-hat(z))^2$
-  - $h(z) approx h(hat(z)) + h'(hat(z)) (z - hat(z)) + 1/2 h''(hat(z)) (z-hat(z))^2$
-  - $h'(hat(z)) = 0$ b/c $hat(z)$ is the mode
-
-- let $sigma^2 = - 1/(h''(hat(z)))$
-  - $h''(hat(z)) < 0$ since $hat(z)$ is a maximum
-
-- $h(z) approx h(hat(z)) - 1/(2 sigma^2)(z-hat(z))^2$
-
-- then $p(z) approx "exp"(h(hat(z))) "exp"(-1/(2 sigma^2) (z-hat(z))^2) ~ cal(N)(hat(z), -1/(h''(hat(z))))$
++& (v_1-1) log d_l + (v_2-1) log (1-d_l)
+$
 
 
-=== Log space Laplace approx
-- $alpha > 0$. let $eta = log alpha$. laplace approx on $eta$ so exponentiating gives us a positive $alpha$
-- $q_alpha (alpha) prop exp(h(alpha))$
-- $q_eta (eta) = q_alpha (e^eta) |(d alpha) / (d eta)| = q_alpha (e^eta) e^eta$
-- $q_eta (eta) prop exp(h(e^eta)) e^eta$
-- let $hat(h) (eta) prop log q_eta (eta) prop h(e^eta) + eta$
-- laplace approx:
-  - solve $hat(eta) = "argmax"_eta hat(h)(eta)$
-  - $q_eta (eta) approx cal(N) (hat(eta), sigma_eta^2 = -1/ (hat(h)''(hat(eta))))$
-- so $q_alpha (alpha) approx "LogNormal"(hat(eta), sigma_eta^2)$
-- $EE[alpha] approx exp(hat(eta) + sigma_eta^2 / 2)$
+
+== Laplace approximation in logit space
+- $log q_d (d) prop h(d)$
+
+- let $d = sigma(psi) = 1 / (1+e^(-psi))$. then $psi = log d / (1-d)$
+
+- $q_psi (psi) = q_d (sigma(psi)) |(d d)/(d psi)| = q_d (d) dot d(1-d)$
+
+- $q_d (d) prop exp(h(d))$
+
+  $q_psi (psi) prop exp(h(sigma(psi))) dot d (1-d)$
+
+- $log q_psi (psi) prop hat(h)(psi) = h(d) + log d + log (1-d)$
+
+- laplace approx
+  - solve $psi_0 = "argmax"_psi hat(h)(psi)$
+
+  - $q_psi (psi) approx cal(N)(psi_0, sigma^2_psi = -1/(hat(h)''(psi_0)))$
+
+- $
+  hat(h)'(psi) =& d/(d psi) [h(d) + log d + log (1-d)] \
+  =& d/(d d) [h(d) + log d + log (1-d)] (d d)/(d psi) \
+  =& (h'(d) + 1/d - 1/(1-d)) dot d (1-d) \
+  =& d (1-d) dot h'(d) + 1-2d \
+  $
+
+  $
+  hat(h)''(psi) =& d/(d psi) [d (1-d) dot h'(d) + 1 - 2d] \
+  =& d/(d d) [d (1-d) dot h'(d) + 1 - 2d] (d d)/(d psi) \
+  =& [(1-2d)h'(d) + d(1-d) h''(d) - 2] dot d(1-d) \
+  $
+
+- $
+  hat(h)'(psi_0) =& d_0 (1-d_0) dot h'(d_0) + 1-2d_0 = 0 \
+
+  h'(d_0) =& (2d_0-1) / (d_0(1-d_0))
+  $
+
+  $
+  hat(h)''(psi_0) =& [(1-2d_0)h'(d_0) + d_0(1-d_0) h''(d_0) - 2] dot d_0(1-d_0) \
+  =& -(1-2d_0)^2 + [d_0(1-d_0)]^2 h''(d_0) - 2 d_0 (1-d_0) \
+  $
+
+- $q_psi (psi) approx cal(N)(psi_0, sigma_psi^2)$
+
+  $q_d (d) approx "LogitNormal"(psi_0, sigma_psi^2)$
+
+- 2nd order Delta approx for mean
+  $
+  EE[d] = EE[sigma(psi)] approx& sigma(psi_0) + 1/2 sigma_psi^2 dot sigma''(psi_0) \
+  approx& d_0 + 1/2 sigma_psi^2 (1-2d_0) dot d_0 (1-d_0) \ \ \
+
+  sigma'(psi_0) =& d_0 (1-d_0) \
+  sigma''(psi_0) =& (1-2d_0) dot d_0(1-d_0)
+  $
+
+- 1st order delta approx for variance
+  $
+  d =& sigma(psi) approx sigma(psi_0) + sigma'(psi_0) (psi - psi_0) \ \
+
+  "Var"[d] =& "Var"[sigma(psi)] \
+
+  approx& "Var"[sigma(psi_0) + sigma'(psi_0) (psi - psi_0)] \
+
+  approx& [sigma'(psi_0)]^2 "Var"[psi] \
+
+  approx& d_0^2 (1-d_0)^2 sigma_psi^2
+  $
+
+- 2nd order delta approx for variance
+
+$
+EE[d^2] = EE[sigma(psi)^2]
+
+approx& sigma(psi_0)^2 + 1/2 sigma_psi^2 dot lr(d^2/(d psi^2) [sigma(psi)^2] |)_(psi=psi_0) \
+
+approx& d_0^2 + 1/2 sigma_psi^2 dot (4 d_0 - 6d_0^2) dot d_0 (1-d_0) \ \ \
 
 
-#todo[
-  Amortized bayesian inference
-]
+lr(d/(d psi) [sigma(psi)^2] |)_(psi=psi_0) =& 2 d_0^2 (1-d_0) \
+
+lr(d^2/(d psi^2) [sigma(psi)^2] |)_(psi=psi_0) =& (4 d_0 - 6d_0^2) dot d_0 (1-d_0) \
+$
+
+$
+"Var"[d] = EE[d^2] - EE[d]^2
+approx& d_0^2 + 1/2 sigma_psi^2 dot (4 d_0 - 6d_0^2) dot d_0 (1-d_0) \
+
+-& (d_0 + 1/2 sigma_psi^2 (1-2d_0) dot d_0 (1-d_0))^2 \ \ \
+$
+
