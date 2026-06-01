@@ -794,9 +794,13 @@ $
 #pagebreak()
 = Maximization
 $C^* = "argmax"_C EE_q(Theta) [log p(C, Theta|cal(D))]$
+#todo[
+  notational issue: not really take out and put back 1 sequence at a time.
+
+  actually is $C_i^* = "argmax"_(C_i) EE_q(Theta) [log p(C, Theta|cal(D))]$
+]
 
 #todo[
-  - need expectations over $q(Theta)$ or just use $EE[Theta]$?
   - how to initialize clusters?
   - symmetric dirichlet? or is it 4 different $gamma_l$s?
 ]
@@ -827,47 +831,73 @@ $n_(k l) = \#{a in cal(R)^(-i)_l : theta_(a l) = k}$ is the number of clusters t
 
 $K$ = \# alleles.
 
+$
+EE_q log Lambda(x_(i l) | a) = cases(
+  cases(
+    0 wide& x_(i l) = theta_(a l),
+    -infinity wide& "otherwise"
+  )
+  wide& a != emptyset,
+
+  EE_(gamma_l)[ log (gamma_l + n_(k l)) ] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ]
+  wide& a = emptyset
+)
+$
 
 
 == Viterbi
 $
 m_F^l (b)
 
-=& max_(a in cal(R)_(l+1)^(-i) union {emptyset})
-  PP[a_(l+1)=a | b_l = b, cal(R)_(l+1)^(-i), cal(Q)_l^(-i)]
-  dot m_C^(l+1) (a) \
+=& max_(a in cal(R)_(l+1)^(-i) union {emptyset}) EE_q [
+  log PP[a_(l+1)=a | b_l = b, cal(R)_(l+1)^(-i), cal(Q)_l^(-i)]
+  + m_C^(l+1) (a) ] \
 
 =& cases(
-  1 / (alpha + d_l \#Q^(-i)_l) dot
-  max_(a in cal(R)_(l+1)^(-i) union {emptyset}) cases(
-    alpha med m^(l+1)_C (emptyset) wide& a = emptyset,
-    d_l \#C_l (a) med m^(l+1)_C (a) wide& a in cal(R)^(-i)_(l+1)
+  - EE_q [log (alpha + d_l \#Q^(-i)_l)]
+  + max_(a in cal(R)_(l+1)^(-i) union {emptyset}) cases(
+    EE_alpha [log alpha] + m^(l+1)_C (emptyset) wide& a = emptyset,
+    EE_(d_l)[log d_l] + log \#C_l (a) + m^(l+1)_C (a) wide& a in cal(R)^(-i)_(l+1)
   ) wide& b = emptyset,
 
-  m_C^(l+1)(a) wide& b in cal(Q)_l^(-i) wide a "st" b in C_l (a)
+  m_C^(l+1)(a) wide wide a "st" b in C_l (a) wide& b in cal(Q)_l^(-i)
 )
+
 
 \ \ \
 m_C^l (a)
 
-=& Lambda(x_(i, l)|a)
-  dot max_(b in cal(Q)_l^(-i) union {emptyset})
-  PP[b_l=b | a_l=a, cal(R)_l^(-i), cal(Q)_l^(-i)]
-  dot m_F^l (b) \
+=& EE_q [ log Lambda(x_(i, l)|a) ]
+  + max_(b in cal(Q)_l^(-i) union {emptyset}) EE_q [
+  log PP[b_l=b | a_l=a, cal(R)_l^(-i), cal(Q)_l^(-i)]
+  + m_F^l (b) ]\
 
-=& Lambda(x_(i, l)|a)
+=& EE_q [ log Lambda(x_(i, l)|a) ]
 
-dot cases(
++ cases(
   m_F^l (emptyset) wide& a = emptyset,
 
-  1 / (\#a) dot
-  max_(b in F_l (a) union {emptyset}) cases(
-    (\#b -d_l) m_F^l (b) wide& b in F_l (a),
-    \#F_l (a) d_l m_F^l (emptyset) wide& b = emptyset
+  -log \#a
+  + max_(b in F_l (a) union {emptyset}) cases(
+    EE_(d_l)[log (\#b -d_l)] + m_F^l (b) wide& b in F_l (a),
+    log \#F_l (a) + EE_(d_l)[log d_l] + m_F^l (emptyset) wide& b = emptyset
   )
   wide& a in cal(R)_l^(-i)
 )
 
 \ \ \
-m_C^L (a) =& Lambda(x_(i, L)|a)
+m_C^L (a) =& EE_q [ log Lambda(x_(i, L)|a) ]
 $
+
+#todo[
+  also variational families may be different after laplace approx.
+  are we moment matching or using normals?
+]
+
+Expectations needed
+- $EE_(gamma_l)[ log (gamma_l + n_(k l)) ]$
+- $EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ]$ 
+- $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
+- $EE_(d_l)[log( \#b - d_l)]$
+- $EE_alpha [log alpha]$
+- $EE_(d_l)[log d_l]$
