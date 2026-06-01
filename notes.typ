@@ -894,10 +894,53 @@ $
   are we moment matching or using normals?
 ]
 
-Expectations needed
+
+== $EE_alpha [log alpha]$
+$
+alpha ~& "Gamma"(tau_1, tau_2) \
+
+E_alpha [log alpha] =& psi(tau_1) - ln tau_2 wide wide psi "is digamma function" \ \ \
+
+
+alpha ~& "LogNormal"(mu_alpha, sigma^2_alpha) \
+E_alpha [log alpha] =& mu_alpha
+$
+
+== $EE_(d_l)[log d_l]$
+$
+d_l ~& "Beta"(v_1, v_2) \
+
+EE_(d_l)[log d_l] =& psi(v_1) - psi(v_1 + v_2) \ \ \
+$
+
+== Not closed form
+$
+EE_x [f(x)] approx& f(mu) + 1/2 sigma^2 f''(mu) \
+
+EE_x [log(a x + b)] approx& log(a mu + b) + 1/2 sigma^2 f''(mu) \
+approx& log(a mu + b) - 1/2 sigma^2 a^2 / (a mu + b)^2 \
+
+d / (d x) log(a x + b) =&  a / (a x + b) \
+d^2 / (d x^2) log(a x + b) =& (-a^2) / (a x + b)^2
+$
+
+
 - $EE_(gamma_l)[ log (gamma_l + n_(k l)) ]$
 - $EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ]$ 
-- $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
 - $EE_(d_l)[log( \#b - d_l)]$
-- $EE_alpha [log alpha]$
 - $EE_(d_l)[log d_l]$
+
+
+$EE_q [log (alpha + d_l \#Q^(-i)_l)]$
+- Let $Y = alpha + d_l \#Q^(-i)_l$
+
+- $
+  mu_Y =& mu_alpha + \#Q^(-i)_l mu_(d_l) \
+  sigma_Y^2 =& sigma^2_alpha + (\#Q^(-i)_l)^2 sigma^2_(d_l)
+  $
+
+  note that $alpha, d_l$ are independent by the mean field assumption.
+
+- $EE_q [log (alpha + d_l \#Q^(-i)_l)] = EE_Y [log Y]$
+
+#todo[quadrature or moment matching?]
