@@ -225,7 +225,7 @@ m_C^l (a) =& PP[x_(i, l+1:L) | a_l = a, cal(R)^(-i)_(l:L), cal(Q)^(-i)_(l:L-1)] 
 =& cases(
   m_F^l (b=emptyset) wide a = emptyset,
 
-  1 / (\#a) [sum_(b in F_l (a)) (\#b -d_l) m_F^l (b) + \#F_l(a) d_l m_F^l (b=emptyset)]  wide a in cal(R)^(-i)_l
+  1 / (\#a) [sum_(b in F_l (a)) (\#b -d_l) m_F^l (b) + \#F_l (a) d_l m_F^l (b=emptyset)]  wide a in cal(R)^(-i)_l
 )
 \ \ \
 
@@ -790,3 +790,84 @@ approx& d_0^2 + 1/2 sigma_psi^2 dot (4 d_0 - 6d_0^2) dot d_0 (1-d_0) \
 -& (d_0 + 1/2 sigma_psi^2 (1-2d_0) dot d_0 (1-d_0))^2 \ \ \
 $
 
+
+#pagebreak()
+= Maximization
+$C^* = "argmax"_C EE_q(Theta) [log p(C, Theta|cal(D))]$
+
+#todo[
+  - need expectations over $q(Theta)$ or just use $EE[Theta]$?
+  - how to initialize clusters?
+  - symmetric dirichlet? or is it 4 different $gamma_l$s?
+]
+
+
+== Likelihood
+$a != emptyset$
+$
+Lambda(x_(i l) | a) = cases(
+  1 wide& x_(i l) = theta_(a l),
+  0 wide& "otherwise"
+)
+$
+
+$a = emptyset$
+
+$
+beta_l ~ "Dirichlet"(gamma_l) \
+
+theta_(a l) ~ "Categorical"(beta_l)
+$
+
+$
+Lambda(x_(i l) = k | a=emptyset) = (gamma_l + n_(k l)) / (K gamma_l + \#cal(R)_l^(-i))
+$
+
+$n_(k l) = \#{a in cal(R)^(-i)_l : theta_(a l) = k}$ is the number of clusters that emit the allele $k$ at location $l$.
+
+$K$ = \# alleles.
+
+
+
+== Viterbi
+$
+m_F^l (b)
+
+=& max_(a in cal(R)_(l+1)^(-i) union {emptyset})
+  PP[a_(l+1)=a | b_l = b, cal(R)_(l+1)^(-i), cal(Q)_l^(-i)]
+  dot m_C^(l+1) (a) \
+
+=& cases(
+  1 / (alpha + d_l \#Q^(-i)_l) dot
+  max_(a in cal(R)_(l+1)^(-i) union {emptyset}) cases(
+    alpha med m^(l+1)_C (emptyset) wide& a = emptyset,
+    d_l \#C_l (a) med m^(l+1)_C (a) wide& a in cal(R)^(-i)_(l+1)
+  ) wide& b = emptyset,
+
+  m_C^(l+1)(a) wide& b in cal(Q)_l^(-i) wide a "st" b in C_l (a)
+)
+
+\ \ \
+m_C^l (a)
+
+=& Lambda(x_(i, l)|a)
+  dot max_(b in cal(Q)_l^(-i) union {emptyset})
+  PP[b_l=b | a_l=a, cal(R)_l^(-i), cal(Q)_l^(-i)]
+  dot m_F^l (b) \
+
+=& Lambda(x_(i, l)|a)
+
+dot cases(
+  m_F^l (emptyset) wide& a = emptyset,
+
+  1 / (\#a) dot
+  max_(b in F_l (a) union {emptyset}) cases(
+    (\#b -d_l) m_F^l (b) wide& b in F_l (a),
+    \#F_l (a) d_l m_F^l (emptyset) wide& b = emptyset
+  )
+  wide& a in cal(R)_l^(-i)
+)
+
+\ \ \
+m_C^L (a) =& Lambda(x_(i, L)|a)
+$
