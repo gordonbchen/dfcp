@@ -60,7 +60,7 @@ def coag(clusters: list[list[int]], alpha: float, d: float) -> list[list[int]]:
     return coagulated
 
 
-def generate(HP: HyperParams) -> tuple[np.ndarray, list[list[int]], list[list[int]]]:
+def generate(HP: HyperParams) -> tuple[np.ndarray, list[list[list[int]]], list[list[list[int]]]]:
     # Params.
     alpha = gamma.rvs(a=HP.tau_1, scale=1/HP.tau_2)
     d = beta.rvs(a=HP.v_1, b=HP.v_2, size=HP.L-1)
