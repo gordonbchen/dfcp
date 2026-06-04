@@ -180,33 +180,27 @@ def me(x: np.ndarray, HP: HyperParams):
     pprint(qs)
 
     # Expectation.
-    res = minimize_scalar(lambda eta: -ll_log_alpha(eta, d, HP, rs, qs),
+    res = minimize_scalar(lambda eta: -(ll_alpha(np.exp(eta), d, HP, rs, qs) + eta),
                           method="bounded", bounds=(-10, 10))
     assert res.success, res.message
     eta_mode = res.x
     print(eta_mode)
     eta_var = -1/ll_log_alpha_d2(np.exp(eta_mode), d, HP, rs, qs)
-    assert eta_var > 0
+    assert eta_var > 0, eta_var
     print(eta_var)
     alpha = lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
 
     # TODO: gamma updates are wrong. eta_var < 0.
     for l in range(HP.L):
-        res = minimize_scalar(lambda eta: -ll_log_gammal(eta, HP, segregated_rs[l]),
+        res = minimize_scalar(lambda eta: -(ll_gammal(np.exp(eta), HP, segregated_rs[l]) + eta),
                               method="bounded", bounds=(-10, 10))
         assert res.success, res.message
         eta_mode = res.x
         print(eta_mode)
         eta_var = -1/ll_log_gammal_d2(np.exp(eta_mode), HP, segregated_rs[l])
-        assert eta_var > 0
+        assert eta_var > 0, eta_var
         print(eta_var)
         gammal[l] = lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
-
-
-def ll_log_alpha(
-    eta: float, d: np.ndarray, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
-) -> float:
-    return ll_alpha(np.exp(eta), d, HP, rs, qs) + eta
 
 
 def ll_alpha(
@@ -243,10 +237,6 @@ def ll_log_alpha_d2(
 
 # def d2_finite_diff(f, x: float, eps: float = 1e-9) -> float:
 #     return (f(x+2*eps) - 2*f(x+eps) + f(x)) / (eps*eps)
-
-
-def ll_log_gammal(eta: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
-    return ll_gammal(np.exp(eta), HP, segregated_l) + eta
 
 
 def ll_gammal(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
