@@ -3,7 +3,8 @@ import uuid
 from pprint import pprint
 
 import numpy as np
-from scipy.stats import gamma, beta, mode
+from scipy.stats import gamma, beta, mode, lognorm
+from scipy.optimize import minimize_scalar
 
 from generate import generate, HyperParams
 
@@ -178,6 +179,55 @@ def me(x: np.ndarray, HP: HyperParams):
     print("qs:")
     pprint(qs)
 
+    # Expectation.
+    res = minimize_scalar(lambda eta: -ll_log_alpha(eta, d, HP, rs, qs),
+                          method="bounded", bounds=(-10, 10))
+    assert res.success, res.message
+    eta_mode = res.x
+    print(eta_mode)
+    eta_var = -1/ll_log_alpha_d2(np.exp(eta_mode), d, HP, rs, qs)
+    assert eta_var > 0
+    print(eta_var)
+    alpha = lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
+
+
+def ll_log_alpha(
+    eta: float, d: np.ndarray, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
+) -> float:
+    return ll_alpha(np.exp(eta), d, HP, rs, qs) + eta
+
+
+def ll_alpha(
+    alpha: float, d: np.ndarray, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
+) -> float:
+    ll = -np.log(alpha + np.arange(HP.N)).sum()
+    ll += sum([len(r) * np.log(alpha) for r in rs])
+    ll -= sum([
+        np.log(alpha/d[l].mean()+i)+0.5*d[l].var()*alpha*alpha+2*alpha*i*d[l].mean()
+        /(d[l].mean()**2 * (alpha+i*d[l].mean())**2)
+        for l in range(1, HP.L-1)
+        for i in range(len(qs[l]))
+    ])
+    ll += (HP.tau_1-1)*np.log(alpha) - HP.tau_2*alpha
+    return ll
+
+
+def ll_log_alpha_d2(
+    alpha: float, d: np.ndarray, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
+) -> float:
+    d2 = (alpha*alpha / (alpha + np.arange(HP.N))**2).sum()
+    d2 -= sum([len(r) for r in rs])
+    d2 += alpha*alpha * sum([
+        1/(alpha+i*d[l].mean())**2 + 2*d[l].var()*i/(d[l].mean()*(alpha+i*d[l].mean())**3)
+        for l in range(1, HP.L-1)
+        for i in range(len(qs[l]))
+    ])
+    d2 -= HP.tau_1
+    return d2
+
+
+# def d2_finite_diff(f, x: float, eps: float = 1e-9) -> float:
+#     return (f(x+2*eps) - 2*f(x+eps) + f(x)) / (eps*eps)
 
 if __name__ == "__main__":
     # TODO: different HP for generate and me.
