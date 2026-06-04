@@ -190,6 +190,18 @@ def me(x: np.ndarray, HP: HyperParams):
     print(eta_var)
     alpha = lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
 
+    # TODO: gamma updates are wrong. eta_var < 0.
+    for l in range(HP.L):
+        res = minimize_scalar(lambda eta: -ll_log_gammal(eta, HP, segregated_rs[l]),
+                              method="bounded", bounds=(-10, 10))
+        assert res.success, res.message
+        eta_mode = res.x
+        print(eta_mode)
+        eta_var = -1/ll_log_gammal_d2(np.exp(eta_mode), HP, segregated_rs[l])
+        assert eta_var > 0
+        print(eta_var)
+        gammal[l] = lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
+
 
 def ll_log_alpha(
     eta: float, d: np.ndarray, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
@@ -202,12 +214,13 @@ def ll_alpha(
 ) -> float:
     ll = -np.log(alpha + np.arange(HP.N)).sum()
     ll += sum([len(r) * np.log(alpha) for r in rs])
-    ll -= sum([
-        np.log(alpha/d[l].mean()+i)+0.5*d[l].var()*alpha*alpha+2*alpha*i*d[l].mean()
-        /(d[l].mean()**2 * (alpha+i*d[l].mean())**2)
-        for l in range(1, HP.L-1)
-        for i in range(len(qs[l]))
-    ])
+    for l in range(1, HP.L-1):
+        idxs = np.arange(len(qs[l]))
+        ll -= (
+            np.log(alpha/d[l].mean()+idxs)
+            +0.5*d[l].var()*alpha*alpha+2*alpha*idxs*d[l].mean()
+            /(d[l].mean()**2 * (alpha+idxs*d[l].mean())**2)
+        ).sum()
     ll += (HP.tau_1-1)*np.log(alpha) - HP.tau_2*alpha
     return ll
 
@@ -217,17 +230,39 @@ def ll_log_alpha_d2(
 ) -> float:
     d2 = (alpha*alpha / (alpha + np.arange(HP.N))**2).sum()
     d2 -= sum([len(r) for r in rs])
-    d2 += alpha*alpha * sum([
-        1/(alpha+i*d[l].mean())**2 + 2*d[l].var()*i/(d[l].mean()*(alpha+i*d[l].mean())**3)
-        for l in range(1, HP.L-1)
-        for i in range(len(qs[l]))
-    ])
+    for l in range(1, HP.L-1):
+        idxs = np.arange(len(qs[l]))
+        d2 += alpha*alpha * (
+            1/(alpha+idxs*d[l].mean())**2
+            + 2*d[l].var()*idxs
+            / (d[l].mean()*(alpha+idxs*d[l].mean())**3)
+        ).sum()
     d2 -= HP.tau_1
     return d2
 
 
 # def d2_finite_diff(f, x: float, eps: float = 1e-9) -> float:
 #     return (f(x+2*eps) - 2*f(x+eps) + f(x)) / (eps*eps)
+
+
+def ll_log_gammal(eta: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
+    return ll_gammal(np.exp(eta), HP, segregated_l) + eta
+
+
+def ll_gammal(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
+    ll = (HP.phi_1-1)*np.log(gamma) - HP.phi_2*gamma
+    ll -= np.log(4*gamma + np.arange(HP.N)).sum()
+    ll += sum([np.log(gamma + np.arange(len(seg))).sum() for seg in segregated_l])
+    return ll
+
+
+def ll_log_gammal_d2(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
+    d2 = HP.tau_1 + gamma*gamma * (
+        (16 / (4*gamma + np.arange(HP.N))).sum()
+        - sum([((gamma + np.arange(len(seg)))**-2).sum() for seg in segregated_l])
+    )
+    return d2
+
 
 if __name__ == "__main__":
     # TODO: different HP for generate and me.
