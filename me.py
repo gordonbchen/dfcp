@@ -3,7 +3,9 @@ import uuid
 from pprint import pprint
 
 import numpy as np
+from numpy.polynomial.hermite import hermgauss
 from scipy import stats, special, optimize
+from line_profiler import profile
 
 from generate import generate, HyperParams
 
@@ -66,6 +68,7 @@ class Cluster:
         self.seq_assignments[idx][self.l] = self
 
 
+@profile
 def me(x: np.ndarray, HP: HyperParams):
     # Init parameters.
     alpha = stats.gamma(a=HP.tau_1, scale=1/HP.tau_2)
@@ -329,6 +332,20 @@ class logitnorm_gen(stats.rv_continuous):
 
     def fit(self, data, **kwargs):
         return stats.norm.fit(special.logit(data), **kwargs)
+
+    def _stats(self, m, s):
+        # TODO: wtf is this magic?
+        nodes, weights = hermgauss(50)
+
+        # If Y ~ N(0,1), then Y = sqrt(2) * nodes under Hermite quadrature.
+        z = m + np.sqrt(2) * s * nodes
+        x = special.expit(z)
+
+        mean = np.sum(weights * x) / np.sqrt(np.pi)
+        second_moment = np.sum(weights * x**2) / np.sqrt(np.pi)
+        var = second_moment - mean**2
+
+        return mean, var, None, None
 
 
 logitnorm = logitnorm_gen(a=0.0, b=1.0, name="logitnorm", shapes="m, s")
