@@ -781,7 +781,14 @@ prop& (\#cal(Q)_l - \#cal(R)_l) log d_l - \#cal(Q)_l log Gamma(1-d_l) \
 
 -& sum_(i=0)^(\#cal(Q)_l-1) EE_alpha [ log alpha \/ d + i ] - \#cal(R)_(l+1) log d_l \
 
-+& (v_1-1) log d_l + (v_2-1) log (1-d_l)
++& (v_1-1) log d_l + (v_2-1) log (1-d_l) \ \ \
+
+
+prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2-1) log (1-d_l) \
+
+-& \#cal(Q)_l log Gamma(1-d_l) + sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
+
+-& sum_(i=0)^(\#cal(Q)_l-1) EE_alpha [ log alpha \/ d + i ] - \#cal(R)_(l+1) log d_l \
 $
 
 #todo[
@@ -805,13 +812,11 @@ $
 $
 log q_(d_l)^*(d_l)
 
-prop& (\#cal(Q)_l - \#cal(R)_l) log d_l - \#cal(Q)_l log Gamma(1-d_l) \
+prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2-1) log (1-d_l) \
 
-+& sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
+-& \#cal(Q)_l log Gamma(1-d_l) + sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
 
--& sum_(i=0)^(\#cal(Q)_l-1) [ log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2) ] - \#cal(R)_(l+1) log d_l \
-
-+& (v_1-1) log d_l + (v_2-1) log (1-d_l)
+-& sum_(i=0)^(\#cal(Q)_l-1) [ log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2) ] \ \ \
 $
 
 
@@ -905,6 +910,52 @@ approx& d_0^2 + 1/2 sigma_psi^2 dot (4 d_0 - 6d_0^2) dot d_0 (1-d_0) \
 
 -& (d_0 + 1/2 sigma_psi^2 (1-2d_0) dot d_0 (1-d_0))^2 \ \ \
 $
+
+
+== derivs
+$
+log q_(d_l)^*(d_l) prop& h(d_l) \
+
+=& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2-1) log (1-d_l) \
+
+-& \#cal(Q)_l log Gamma(1-d_l) + sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
+
+-& sum_(i=0)^(\#cal(Q)_l-1) [ log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2) ] \ \ \
+$
+
+$
+h'(d_l)
+
+=& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) / d_l - (v_2-1)/ (1-d_l) \
+
++& \#cal(Q)_l dot psi(1-d_l) - sum_(b in cal(Q)_l) psi(\#b - d_l) \
+
+-& sum_(i=0)^(\#cal(Q)_l-1) [ -mu_alpha /(mu_alpha d_l + i d_l^2) + (i sigma_alpha^2) / (mu_alpha + i d_l)^3 ]
+\ \ \
+$
+
+$
+h''(d_l)
+
+=& (\#cal(R)_l - \#cal(Q)_l + \#cal(R)_(l+1) + 1 - v_1) / d_l^2 - (v_2-1)/ (1-d_l)^2 \
+
+-& \#cal(Q)_l dot psi_1(1-d_l) + sum_(b in cal(Q)_l) psi_1(\#b - d_l) \
+
+-& sum_(i=0)^(\#cal(Q)_l-1) [
+  (mu_alpha (mu_alpha + 2i d_l)) /(d_l^2 (mu_alpha + i d_l)^2)
+  - (3 i^2 sigma_alpha^2) / (mu_alpha + i d_l)^4
+] \ \ \
+$
+
+$
+hat(h)''(psi_0)
+
+=& -(1-2d_0)^2 + [d_0(1-d_0)]^2 h''(d_0) - 2 d_0 (1-d_0) \
+$
+
+#todo[check derivs]
+
+
 
 
 #pagebreak()
