@@ -537,12 +537,49 @@ laplace approx in log space: same as $alpha$
 
   $hat(h)''(hat(eta)) = hat(gamma)_l^2 h''(hat(gamma)) - 1$
 
-- $q_(gamma_l) (gamma_l) approx "LogNormal"(hat(eta), sigma_eta^2)$
+- $q_(gamma_l) (gamma_l) approx "LogNormal"(hat(eta), sigma_eta^2)$ \ \
 
-#todo[
-  what $gamma_l$ to use when calculating likelihood probabilities? what params to use during
-  computing messages and the maximization step? $EE[gamma_l]$?
-]
+$
+log q_(gamma_l) (gamma_l)
+
+prop& h(gamma_l) \
+
+=& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l \
+
+-& sum_(i=0)^(N-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \ \ \
+$
+
+$
+h'(gamma_l)
+
+=& (phi.alt_1 - 1) / gamma_l - phi.alt_2 \
+
+-& sum_(i=0)^(N-1) 4 / (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i) \ \ \
+$
+
+$
+h''(gamma_l)
+
+=& (1 - phi.alt_1) / gamma_l^2 \
+
++& sum_(i=0)^(N-1) 16 / (4 gamma_l + i)^2 - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i)^2 \ \ \
+$
+
+$
+hat(h)''(hat(eta))
+
+=& hat(gamma)_l^2 h''(hat(gamma)) - 1 \
+
+=& phi.alt_1
+
++ hat(gamma)_l^2 [
+  sum_(i=0)^(N-1) 16 / (4 hat(gamma)_l + i)^2
+
+  - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (hat(gamma)_l + i)^2
+] \ \ \
+$
+
+#todo[check derivs]
 
 
 
