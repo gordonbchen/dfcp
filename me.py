@@ -188,11 +188,10 @@ def me(x: np.ndarray, HP: HyperParams):
     )
     assert res.success, res.message
     eta_mode = res.x
-    print(eta_mode)
     eta_var = -1/ll_log_alpha_d2(np.exp(eta_mode), d, HP, rs, qs)
     assert eta_var > 0, eta_var
-    print(eta_var)
     alpha = stats.lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
+    print(f"alpha mean: {alpha.mean()}")
 
     for l in range(HP.L):
         # gamma update.
@@ -202,14 +201,12 @@ def me(x: np.ndarray, HP: HyperParams):
         )
         assert res.success, res.message
         eta_mode = res.x
-        print(eta_mode)
         eta_var = -1/ll_log_gammal_d2(np.exp(eta_mode), HP, segregated_rs[l])
         assert eta_var > 0, eta_var
-        print(eta_var)
         gamma[l] = stats.lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
 
         if l >= HP.L-1:
-            continue
+            break
         # d update.
         res = optimize.minimize_scalar(
             lambda eta: -ll_logit_dl(eta, alpha, HP, rs, qs, l),
@@ -217,11 +214,11 @@ def me(x: np.ndarray, HP: HyperParams):
         )
         assert res.success, res.message
         eta_mode = res.x
-        print(eta_mode)
         eta_var = -1/ll_logit_dl_d2(special.expit(eta_mode), alpha, HP, rs, qs, l)
         assert eta_var > 0, eta_var
-        print(eta_var)
-        d[l] = logitnorm(eta_mode, eta_var)
+        d[l] = logitnorm(m=eta_mode, s=eta_var)
+    print(f"gamma mean: {np.array([gamma[l].mean() for l in range(HP.L)])}")
+    print(f"d mean: {np.array([d[l].mean() for l in range(HP.L-1)])}")
 
 
 def ll_alpha(
@@ -316,7 +313,7 @@ def ll_logit_dl_d2(
 
 
 # https://stackoverflow.com/a/73084994
-class logitnorm(stats.rv_continuous):
+class logitnorm_gen(stats.rv_continuous):
 
     def _argcheck(self, m, s):
         return (s > 0.) & (m > -np.inf)
@@ -332,6 +329,9 @@ class logitnorm(stats.rv_continuous):
 
     def fit(self, data, **kwargs):
         return stats.norm.fit(special.logit(data), **kwargs)
+
+
+logitnorm = logitnorm_gen(a=0.0, b=1.0, name="logitnorm", shapes="m, s")
 
 
 if __name__ == "__main__":
