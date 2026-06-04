@@ -570,7 +570,7 @@ hat(h)''(hat(eta))
 
 =& hat(gamma)_l^2 h''(hat(gamma)) - 1 \
 
-=& phi.alt_1
+=& -phi.alt_1
 
 + hat(gamma)_l^2 [
   sum_(i=0)^(N-1) 16 / (4 hat(gamma)_l + i)^2

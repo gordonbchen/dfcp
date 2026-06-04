@@ -190,7 +190,6 @@ def me(x: np.ndarray, HP: HyperParams):
     print(eta_var)
     alpha = lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
 
-    # TODO: gamma updates are wrong. eta_var < 0.
     for l in range(HP.L):
         res = minimize_scalar(lambda eta: -(ll_gammal(np.exp(eta), HP, segregated_rs[l]) + eta),
                               method="bounded", bounds=(-10, 10))
@@ -247,9 +246,9 @@ def ll_gammal(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -
 
 
 def ll_log_gammal_d2(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
-    d2 = HP.tau_1 + gamma*gamma * (
-        (16 / (4*gamma + np.arange(HP.N))).sum()
-        - sum([((gamma + np.arange(len(seg)))**-2).sum() for seg in segregated_l])
+    d2 = -HP.tau_1 + gamma*gamma * (
+        (16 / (4*gamma + np.arange(HP.N))**2).sum()
+        - sum([(1/(gamma + np.arange(len(seg)))**2).sum() for seg in segregated_l])
     )
     return d2
 
