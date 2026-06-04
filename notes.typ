@@ -644,6 +644,85 @@ $
   $sigma_alpha = (exp(sigma_eta^2) - 1) exp(2 hat(eta) + sigma_eta^2)$
 
 
+== Deriv for variance
+$
+log q^*_alpha (alpha) prop& h(alpha) \
+
+=& - sum_(i=0)^(N-1) log(alpha+i)
+
++ sum_(l=1)^(L) \#cal(R)_l log alpha \
+
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [ log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) ] \
+
++& (tau_1-1) log alpha - tau_2 alpha \ \ \
+$
+
+$
+h'(alpha)
+
+=& - sum_(i=0)^(N-1) 1 / (alpha+i)
+
++ sum_(l=1)^(L) (\#cal(R)_l) / alpha \
+
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
+  1/(alpha + i mu_d)
+  + sigma_d^2 / (2 mu_d^2)
+  ((alpha + i mu_d)^2 (2 alpha + 2 i mu_d) - (alpha^2 + 2 alpha i mu_d) 2 (alpha + i mu_d) )
+  / (alpha + i mu_d)^4
+] \
+
++& (tau_1-1) / alpha - tau_2 \ \ \
+
+
+=& - sum_(i=0)^(N-1) 1 / (alpha+i)
+
++ sum_(l=1)^(L) (\#cal(R)_l) / alpha \
+
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
+  1/(alpha + i mu_d)
+  + (sigma_d^2 i) / mu_d
+  1 / (alpha + i mu_d)^2
+] \
+
++& (tau_1-1) / alpha - tau_2 \ \ \
+$
+
+$
+h''(alpha)
+
+=& sum_(i=0)^(N-1) 1 / (alpha+i)^2
+
+- sum_(l=1)^(L) (\#cal(R)_l) / alpha^2 \
+
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
+  -1/(alpha + i mu_d)^2
+  - (2 sigma_d^2 i ) / mu_d
+  1 / (alpha + i mu_d)^3
+] \
+
++& (1-tau_1) / alpha^2 \ \ \
+$
+
+$
+hat(h)''(hat(eta)) =& hat(alpha)^2 h''(hat(alpha)) -1 \
+
+=& sum_(i=0)^(N-1) hat(alpha)^2 / (hat(alpha)+i)^2
+
+- sum_(l=1)^(L) \#cal(R)_l \
+
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) hat(alpha)^2[
+  -1/(hat(alpha) + i mu_d)^2
+  - (2 sigma_d^2 i ) / mu_d
+  1 / (hat(alpha) + i mu_d)^3
+] \
+
+-& tau_1 \ \ \
+\ \
+$ 
+
+#todo[check derivs]
+
+
 
 
 #pagebreak()
