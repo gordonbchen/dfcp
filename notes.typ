@@ -694,9 +694,9 @@ h''(alpha)
 
 - sum_(l=1)^(L) (\#cal(R)_l) / alpha^2 \
 
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
-  -1/(alpha + i mu_d)^2
-  - (2 sigma_d^2 i ) / mu_d
++& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
+  1/(alpha + i mu_d)^2
+  + (2 sigma_d^2 i ) / mu_d
   1 / (alpha + i mu_d)^3
 ] \
 
@@ -710,9 +710,9 @@ hat(h)''(hat(eta)) =& hat(alpha)^2 h''(hat(alpha)) -1 \
 
 - sum_(l=1)^(L) \#cal(R)_l \
 
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) hat(alpha)^2[
-  -1/(hat(alpha) + i mu_d)^2
-  - (2 sigma_d^2 i ) / mu_d
++& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) hat(alpha)^2[
+  1/(hat(alpha) + i mu_d)^2
+  + (2 sigma_d^2 i ) / mu_d
   1 / (hat(alpha) + i mu_d)^3
 ] \
 
