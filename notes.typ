@@ -579,8 +579,6 @@ hat(h)''(hat(eta))
 ] \ \ \
 $
 
-#todo[check derivs]
-
 
 
 
@@ -717,8 +715,7 @@ h'(alpha)
 
 -& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
   1/(alpha + i mu_d)
-  + (sigma_d^2 i) / mu_d
-  1 / (alpha + i mu_d)^2
+  + (sigma_d^2 i^2) / (alpha + i mu_d)^3
 ] \
 
 +& (tau_1-1) / alpha - tau_2 \ \ \
@@ -733,8 +730,7 @@ h''(alpha)
 
 +& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
   1/(alpha + i mu_d)^2
-  + (2 sigma_d^2 i ) / mu_d
-  1 / (alpha + i mu_d)^3
+  + (3 sigma_d^2 i^2 ) / (alpha + i mu_d)^4
 ] \
 
 +& (1-tau_1) / alpha^2 \ \ \
@@ -747,17 +743,14 @@ hat(h)''(hat(eta)) =& hat(alpha)^2 h''(hat(alpha)) -1 \
 
 - sum_(l=1)^(L) \#cal(R)_l \
 
-+& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) hat(alpha)^2[
-  1/(hat(alpha) + i mu_d)^2
-  + (2 sigma_d^2 i ) / mu_d
-  1 / (hat(alpha) + i mu_d)^3
++& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) hat(alpha)^2 [
+  1/(alpha + i mu_d)^2
+  + (3 sigma_d^2 i^2 ) / (alpha + i mu_d)^4
 ] \
 
 -& tau_1 \ \ \
 \ \
 $ 
-
-#todo[check derivs]
 
 
 
@@ -950,8 +943,6 @@ hat(h)''(psi_0)
 
 =& -(1-2d_0)^2 + [d_0(1-d_0)]^2 h''(d_0) - 2 d_0 (1-d_0) \
 $
-
-#todo[check derivs]
 
 
 
