@@ -71,9 +71,14 @@ class Cluster:
 @profile
 def me(x: np.ndarray, HP: HyperParams):
     # Init parameters.
-    alpha = stats.gamma(a=HP.tau_1, scale=1/HP.tau_2)
-    d = [stats.beta(a=HP.v_1, b=HP.v_2) for _ in range(HP.L-1)]
-    gamma = [stats.gamma(a=HP.phi_1, scale=1/HP.phi_2) for _ in range(HP.L)]
+    mu_alpha = HP.tau_1 / HP.tau_2
+    sigma2_alpha = mu_alpha / HP.tau_2
+
+    mu_d = np.full(HP.L-1, HP.v_1 / (HP.v_1 + HP.v_2))
+    sigma2_d = np.full(HP.L-1, (HP.v_1 * HP.v_2) / ((HP.v_1 + HP.v_2)**2 * (HP.v_1 + HP.v_2 + 1)))
+
+    mu_gamma = np.full(HP.L, HP.phi_1 / HP.phi_2)
+    sigma2_gamma = mu_gamma / HP.phi_2
 
     # Init clusters.
     segregated_rs = [[set() for _ in range(HP.K)] for _ in range(HP.L)]
@@ -111,42 +116,50 @@ def me(x: np.ndarray, HP: HyperParams):
             ma = {}
             nkl = len(segregated_rs[l][x[i, l]])
             nRl = len(rs[l])
-
-            ma["new"] = (gamma[l].expect(lambda g: np.log(g + nkl) - np.log(HP.K * g + nRl)), None)
+            log_likelihood = (
+                delta_Elogx(mu_gamma[l], sigma2_gamma[l], b=nkl)
+                - delta_Elogx(mu_gamma[l], sigma2_gamma[l], a=HP.K, b=nRl)
+            )
+            ma["new"] = (log_likelihood, None)
             for a in rs[l]:
                 ma[a] = (0 if x[i, l] == a.emission else float("-infinity"), None)
             if l == HP.L - 1:
                 messages.append((ma,))
                 continue
 
+            # b-messages.
+            next_ma = messages[-1][0]
             mb = {}
             for b in qs[l]:
                 assert len(b.children) == 1
                 next_a = next(iter(b.children))
-                mb[b] = (messages[-1][0][next_a][0], next_a)
+                mb[b] = (next_ma[next_a][0], next_a)
 
             nQl = len(qs[l])
-            mu_y = alpha.mean() + nQl * d[l].mean()
-            sigma2_y = alpha.var() + nQl*nQl * d[l].var()
-            elogy = np.log(mu_y) - 0.5 * sigma2_y / (mu_y*mu_y)
-            next_ma = {}
-            next_ma["new"] = alpha.expect(np.log) + messages[-1][0]["new"][0]
-            for a in rs[l+1]:
-                next_ma[a] = d[l].expect(np.log) + np.log(len(a.parents)) + messages[-1][0][a][0]
-            next_a = max(next_ma, key=next_ma.get)
-            mb["new"] = (-elogy + next_ma[next_a], next_a)
+            mu_y = mu_alpha + nQl*mu_d[l]
+            sigma2_y = sigma2_alpha + nQl*nQl * sigma2_d[l]
+            elogy = delta_Elogx(mu_y, sigma2_y)
 
+            next_a_ll = {}
+            next_a_ll["new"] = delta_Elogx(mu_alpha, sigma2_alpha) + next_ma["new"][0]
+            for a in rs[l+1]:
+                next_a_ll[a] = delta_Elogx(mu_d[l], sigma2_d[l]) + np.log(len(a.parents)) + next_ma[a][0]
+            next_a = max(next_a_ll, key=next_a_ll.get)
+            mb["new"] = (-elogy + next_a_ll[next_a], next_a)
+
+            # a-messages.
             ma["new"] = (ma["new"][0] + mb["new"][0], "new")
             for a in rs[l]:
-                next_mb = {}
-                next_mb["new"] = np.log(len(a.children)) + d[l].expect(np.log) + mb["new"][0]
+                next_b_ll = {}
+                next_b_ll["new"] = np.log(len(a.children)) + delta_Elogx(mu_d[l], sigma2_d[l]) + mb["new"][0]
                 for b in a.children:
-                    next_mb[b] = d[l].expect(lambda x: np.log(len(b) - x)) + mb[b][0]
-                next_b = max(next_mb, key=next_mb.get)
-                ma[a] = (ma[a][0] - np.log(len(a)) + next_mb[next_b], next_b)
+                    next_b_ll[b] = delta_Elogx(mu_d[l], sigma2_d[l], a=-1, b=len(b)) + mb[b][0]
+                next_b = max(next_b_ll, key=next_b_ll.get)
+                ma[a] = (ma[a][0] - np.log(len(a)) + next_b_ll[next_b], next_b)
 
             messages.append((ma, mb))
 
+        # Backtrack for viterbi path.
         path = []
         for l, (ma, mb) in enumerate(reversed(messages[1:])):
             if l == 0:
@@ -185,74 +198,92 @@ def me(x: np.ndarray, HP: HyperParams):
     pprint(qs)
 
     # Expectation.
-    res = optimize.minimize_scalar(
-        lambda eta: -(ll_alpha(np.exp(eta), d, HP, rs, qs) + eta),
-        method="bounded", bounds=(-10, 10)
-    )
-    assert res.success, res.message
-    eta_mode = res.x
-    eta_var = -1/ll_log_alpha_d2(np.exp(eta_mode), d, HP, rs, qs)
-    assert eta_var > 0, eta_var
-    alpha = stats.lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
-    print(f"alpha mean: {alpha.mean()}")
+    # alpha update.
+    mu_alpha, sigma2_alpha = laplace_log_approx(ll_alpha, ll_log_alpha_d2,
+                                                args=(mu_d, sigma2_d, HP, rs, qs))
+    print(f"mu_alpha: {mu_alpha}")
+    print(f"sigma2_alpha: {sigma2_alpha}")
 
     for l in range(HP.L):
         # gamma update.
-        res = optimize.minimize_scalar(
-            lambda eta: -(ll_gammal(np.exp(eta), HP, segregated_rs[l]) + eta),
-            method="bounded", bounds=(-10, 10)
-        )
-        assert res.success, res.message
-        eta_mode = res.x
-        eta_var = -1/ll_log_gammal_d2(np.exp(eta_mode), HP, segregated_rs[l])
-        assert eta_var > 0, eta_var
-        gamma[l] = stats.lognorm(s=np.sqrt(eta_var), scale=np.exp(eta_mode))
+        mu_gamma[l], sigma2_gamma[l] = laplace_log_approx(ll_gammal, ll_log_gammal_d2,
+                                                          args=(HP, segregated_rs[l]))
 
         if l >= HP.L-1:
             break
         # d update.
         res = optimize.minimize_scalar(
-            lambda eta: -ll_logit_dl(eta, alpha, HP, rs, qs, l),
+            lambda eta: -ll_logit_dl(eta, mu_alpha, sigma2_alpha, HP, rs, qs, l),
             method="bounded", bounds=(-10, 10)
         )
         assert res.success, res.message
         eta_mode = res.x
-        eta_var = -1/ll_logit_dl_d2(special.expit(eta_mode), alpha, HP, rs, qs, l)
+        d_mode = special.expit(eta_mode)
+        eta_var = -1/ll_logit_dl_d2(d_mode, mu_alpha, sigma2_alpha, HP, rs, qs, l)
         assert eta_var > 0, eta_var
-        d[l] = logitnorm(m=eta_mode, s=eta_var)
-    print(f"gamma mean: {np.array([gamma[l].mean() for l in range(HP.L)])}")
-    print(f"d mean: {np.array([d[l].mean() for l in range(HP.L-1)])}")
+
+        mu_d[l] = d_mode + 0.5 * eta_var * (1-2*d_mode) * d_mode * (1-d_mode)
+        sigma2_d[l] = (
+            d_mode**2
+            + 0.5 * eta_var * (4*d_mode - 6*d_mode**2) * d_mode * (1-d_mode)
+            - mu_d[l]**2
+        )
+
+    print(f"mu_gamma: {mu_gamma}")
+    print(f"sigma2_gamma: {sigma2_gamma}")
+    print(f"mu_d: {mu_d}")
+    print(f"sigma2_d: {sigma2_d}")
+
+
+def delta_Elogx(mu: float, sigma2: float, a: float = 1.0, b: float = 0.0) -> float:
+    x = a*mu + b
+    return np.log(x) - 0.5 * sigma2 * a**2 / x**2
+
+
+def laplace_log_approx(ll_func, ll_log_d2_func, args: tuple = ()) -> tuple[float, float]:
+    res = optimize.minimize_scalar(
+        lambda eta: -(ll_func(np.exp(eta), *args) + eta),
+        method="bounded", bounds=(-10, 10)
+    )
+    assert res.success, res.message
+    eta_mode = res.x
+
+    eta_var = -1/ll_log_d2_func(np.exp(eta_mode), *args)
+    assert eta_var > 0, eta_var
+
+    mu = np.exp(eta_mode + eta_var/2)
+    sigma2 = (np.exp(eta_var) - 1) * np.exp(2*eta_mode + eta_var)
+    assert sigma2 > 0, sigma2
+    return mu, sigma2
 
 
 def ll_alpha(
-    alpha: float, d, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
+    alpha: float, mu_d: np.ndarray, sigma2_d: np.ndarray,
+    HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
 ) -> float:
     ll = -np.log(alpha + np.arange(HP.N)).sum()
     ll += sum([len(r) * np.log(alpha) for r in rs])
     for l in range(1, HP.L-1):
         idxs = np.arange(len(qs[l]))
-        mu_d = d[l].mean()
         ll -= (
-            np.log(alpha/mu_d+idxs)
-            +0.5*d[l].var()*alpha*alpha+2*alpha*idxs*mu_d
-            /(mu_d**2 * (alpha+idxs*mu_d)**2)
+            np.log(alpha/mu_d[l] + idxs)
+            + 0.5*sigma2_d[l] * (alpha**2 + 2*alpha*idxs*mu_d[l]) / (mu_d[l]**2 * (alpha + idxs*mu_d[l])**2)
         ).sum()
     ll += (HP.tau_1-1)*np.log(alpha) - HP.tau_2*alpha
     return ll
 
 
 def ll_log_alpha_d2(
-    alpha: float, d, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
+    alpha: float, mu_d: np.ndarray, sigma2_d: np.ndarray,
+    HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
 ) -> float:
-    d2 = (alpha*alpha / (alpha + np.arange(HP.N))**2).sum()
+    d2 = (alpha**2 / (alpha + np.arange(HP.N))**2).sum()
     d2 -= sum([len(r) for r in rs])
     for l in range(1, HP.L-1):
         idxs = np.arange(len(qs[l]))
-        mu_d = d[l].mean()
-        d2 += alpha*alpha * (
-            1/(alpha+idxs*mu_d)**2
-            + 2*d[l].var()*idxs
-            / (mu_d*(alpha+idxs*mu_d)**3)
+        d2 += alpha**2 * (
+            1 / (alpha + idxs*mu_d[l])**2
+            + 2*sigma2_d[l]*idxs / (mu_d[l] * (alpha+idxs*mu_d[l])**3)
         ).sum()
     d2 -= HP.tau_1
     return d2
@@ -278,77 +309,43 @@ def ll_log_gammal_d2(gamma: float, HP: HyperParams, segregated_l: list[set[Clust
 
 
 def ll_logit_dl(
-    eta: float, alpha, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]], l: int
+    eta: float, mu_alpha: float, sigma2_alpha: float,
+    HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]], l: int
 ) -> float:
     d = special.expit(eta)
-    return ll_dl(d, alpha, HP, rs, qs, l) + np.log(d) + np.log(1-d)
+    return ll_dl(d, mu_alpha, sigma2_alpha, HP, rs, qs, l) + np.log(d) + np.log(1-d)
 
 
 def ll_dl(
-    d: float, alpha, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]], l: int
+    d: float, mu_alpha: float, sigma2_alpha: float,
+    HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]], l: int
 ) -> float:
     nQl = len(qs[l])
     ll = (nQl - len(rs[l]) - len(rs[l+1]) + HP.v_1 - 1) * np.log(d)
     ll += (HP.v_2 - 1) * np.log(1 - d)
     ll += -nQl * special.loggamma(1-d) + sum([special.loggamma(len(b) - d) for b in qs[l]])
     idxs = np.arange(nQl)
-    ll -= (np.log(alpha.mean()/d + idxs) - alpha.var()/(2* (alpha.mean()+idxs*d)**2)).sum()
+    ll -= (np.log(mu_alpha/d + idxs) - sigma2_alpha/(2* (mu_alpha+idxs*d)**2)).sum()
     return ll
 
 
 def ll_logit_dl_d2(
-    d: float, alpha, HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]], l: int
+    d: float, mu_alpha: float, sigma2_alpha: float,
+    HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]], l: int
 ) -> float:
     nQl = len(qs[l])
     d2 = (len(rs[l]) - nQl + len(rs[l+1]) + 1 - HP.v_1) / (d*d)
     d2 += (HP.v_2 - 1) / (1 - d)**2
     d2 += -nQl * special.polygamma(1, 1-d) + sum([special.polygamma(1, len(b) - d) for b in qs[l]])
     idxs = np.arange(nQl)
-    mu_alpha = alpha.mean()
     d2 -= (
         (mu_alpha*(mu_alpha+2*idxs*d))/(d*d* (mu_alpha + idxs*d)**2)
-        - (3*idxs*idxs*alpha.var()/(mu_alpha+idxs*d)**4)
+        - (3*idxs*idxs*sigma2_alpha/(mu_alpha+idxs*d)**4)
     ).sum()
 
     d2 *= (d*(1-d)) ** 2
     d2 -= (1-2*d)**2 + 2*d*(1-d)
     return d2
-
-
-# https://stackoverflow.com/a/73084994
-class logitnorm_gen(stats.rv_continuous):
-
-    def _argcheck(self, m, s):
-        return (s > 0.) & (m > -np.inf)
-
-    def _pdf(self, x, m, s):
-        return stats.norm(loc=m, scale=s).pdf(special.logit(x))/(x*(1-x))
-
-    def _cdf(self, x, m, s):
-        return stats.norm(loc=m, scale=s).cdf(special.logit(x))
-
-    def _rvs(self, m, s, size=None, random_state=None):
-        return special.expit(m + s*random_state.standard_normal(size))
-
-    def fit(self, data, **kwargs):
-        return stats.norm.fit(special.logit(data), **kwargs)
-
-    def _stats(self, m, s):
-        # TODO: wtf is this magic?
-        nodes, weights = hermgauss(50)
-
-        # If Y ~ N(0,1), then Y = sqrt(2) * nodes under Hermite quadrature.
-        z = m + np.sqrt(2) * s * nodes
-        x = special.expit(z)
-
-        mean = np.sum(weights * x) / np.sqrt(np.pi)
-        second_moment = np.sum(weights * x**2) / np.sqrt(np.pi)
-        var = second_moment - mean**2
-
-        return mean, var, None, None
-
-
-logitnorm = logitnorm_gen(a=0.0, b=1.0, name="logitnorm", shapes="m, s")
 
 
 if __name__ == "__main__":
