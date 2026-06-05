@@ -906,9 +906,7 @@ $
 
 $
 "Var"[d] = EE[d^2] - EE[d]^2
-approx& d_0^2 + 1/2 sigma_psi^2 dot (4 d_0 - 6d_0^2) dot d_0 (1-d_0) \
-
--& (d_0 + 1/2 sigma_psi^2 (1-2d_0) dot d_0 (1-d_0))^2 \ \ \
+approx& d_0^2 + 1/2 sigma_psi^2 dot (4 d_0 - 6d_0^2) dot d_0 (1-d_0) - EE[d]^2 \
 $
 
 
