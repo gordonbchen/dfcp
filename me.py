@@ -282,7 +282,7 @@ def ll_log_alpha_d2(
         idxs = np.arange(len(qs[l]))
         d2 += alpha**2 * (
             1 / (alpha + idxs*mu_d[l])**2
-            + 2*sigma2_d[l]*idxs / (mu_d[l] * (alpha+idxs*mu_d[l])**3)
+            + 3*sigma2_d[l]*idxs**2 / (alpha+idxs*mu_d[l])**4
         ).sum()
     d2 -= HP.tau_1
     return d2
