@@ -43,7 +43,7 @@ class Cluster:
         return len(self.seqs)
 
     def __repr__(self) -> str:
-        return f"E {self.emission}   {self.seqs}"
+        return str(self.seqs)
 
     def add_child(self, child: Cluster):
         self.children.add(child)
@@ -102,7 +102,42 @@ def me(x: np.ndarray, HP: HyperParams):
     print("qs:")
     pprint(qs)
 
-    # Maximization.
+    # ME.
+    for step in range(10):
+        print(f"\n\nstep: {step}")
+        max_step(
+            x, HP,
+            mu_alpha, sigma2_alpha, mu_d, sigma2_d, mu_gamma, sigma2_gamma,
+            rs, qs, segregated_rs, r_assignments, q_assignments
+        )
+        print("rs:")
+        pprint(rs)
+        print("qs:")
+        pprint(qs)
+
+        mu_alpha, sigma2_alpha = expect_step(
+            x, HP,
+            mu_alpha, sigma2_alpha, mu_d, sigma2_d, mu_gamma, sigma2_gamma,
+            rs, qs, segregated_rs
+        )
+        print(f"mu_alpha: {mu_alpha}")
+        print(f"sigma2_alpha: {sigma2_alpha}")
+        print(f"mu_gamma:\n{mu_gamma}")
+        print(f"sigma2_gamma:\n{sigma2_gamma}")
+        print(f"mu_d:\n{mu_d}")
+        print(f"sigma2_d:\n{sigma2_d}")
+
+
+@profile
+def max_step(
+    x: np.ndarray, HP: HyperParams,
+    mu_alpha: float, sigma2_alpha: float,
+    mu_d: np.ndarray, sigma2_d: np.ndarray,
+    mu_gamma: np.ndarray, sigma2_gamma: np.ndarray,
+    rs: list[set[Cluster]], qs: list[set[Cluster]],
+    segregated_rs: list[list[set[Cluster]]],
+    r_assignments: list[list[Cluster]], q_assignments: list[list[Cluster]],
+) -> None:
     for i in range(HP.N):
         for a in r_assignments[i]:
             a.remove(i)
@@ -190,17 +225,21 @@ def me(x: np.ndarray, HP: HyperParams):
             if j + 1 < len(path) and path[j+1] != "new":
                 new_cluster.add_child(path[j+1])
             path[j] = new_cluster
-    print("rs:")
-    pprint(rs)
-    print("qs:")
-    pprint(qs)
 
+
+@profile
+def expect_step(
+    x: np.ndarray, HP: HyperParams,
+    mu_alpha: float, sigma2_alpha: float,
+    mu_d: np.ndarray, sigma2_d: np.ndarray,
+    mu_gamma: np.ndarray, sigma2_gamma: np.ndarray,
+    rs: list[set[Cluster]], qs: list[set[Cluster]],
+    segregated_rs: list[list[set[Cluster]]],
+) -> tuple[float, float]:
     # Expectation.
     # alpha update.
     mu_alpha, sigma2_alpha = laplace_log_approx(ll_alpha, ll_log_alpha_d2,
                                                 args=(mu_d, sigma2_d, HP, rs, qs))
-    print(f"mu_alpha: {mu_alpha}")
-    print(f"sigma2_alpha: {sigma2_alpha}")
 
     for l in range(HP.L):
         # gamma update.
@@ -227,11 +266,7 @@ def me(x: np.ndarray, HP: HyperParams):
             - mu_d[l]**2
         )
         assert sigma2_d[l] > 0, sigma2_d[l]
-
-    print(f"mu_gamma: {mu_gamma}")
-    print(f"sigma2_gamma: {sigma2_gamma}")
-    print(f"mu_d: {mu_d}")
-    print(f"sigma2_d: {sigma2_d}")
+    return mu_alpha, sigma2_alpha
 
 
 def delta_Elogx(mu: float, sigma2: float, a: float = 1.0, b: float = 0.0) -> float:
