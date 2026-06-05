@@ -3,7 +3,6 @@ import uuid
 from pprint import pprint
 
 import numpy as np
-from numpy.polynomial.hermite import hermgauss
 from scipy import stats, special, optimize
 from line_profiler import profile
 
