@@ -205,7 +205,7 @@ def me(x: np.ndarray, HP: HyperParams):
     for l in range(HP.L):
         # gamma update.
         mu_gamma[l], sigma2_gamma[l] = laplace_log_approx(ll_gammal, ll_log_gammal_d2,
-                                                          args=(HP, segregated_rs[l]))
+                                                          args=(HP, len(rs[l]), segregated_rs[l]))
 
         if l >= HP.L-1:
             break
@@ -291,16 +291,16 @@ def ll_log_alpha_d2(
 #     return (f(x+2*eps) - 2*f(x+eps) + f(x)) / (eps*eps)
 
 
-def ll_gammal(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
+def ll_gammal(gamma: float, HP: HyperParams, nRl: int, segregated_l: list[set[Cluster]]) -> float:
     ll = (HP.phi_1-1)*np.log(gamma) - HP.phi_2*gamma
-    ll -= np.log(HP.K*gamma + np.arange(HP.N)).sum()
+    ll -= np.log(HP.K*gamma + np.arange(nRl)).sum()
     ll += sum([np.log(gamma + np.arange(len(seg))).sum() for seg in segregated_l])
     return ll
 
 
-def ll_log_gammal_d2(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
+def ll_log_gammal_d2(gamma: float, HP: HyperParams, nRl: int, segregated_l: list[set[Cluster]]) -> float:
     d2 = -HP.phi_1 + gamma*gamma * (
-        (HP.K**2 / (HP.K*gamma + np.arange(HP.N))**2).sum()
+        (HP.K**2 / (HP.K*gamma + np.arange(nRl))**2).sum()
         - sum([(1/(gamma + np.arange(len(seg)))**2).sum() for seg in segregated_l])
     )
     return d2

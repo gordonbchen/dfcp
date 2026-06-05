@@ -507,9 +507,9 @@ Rising factorial (Pochhammer function): $x^((n)) = (x)(x+1)(x+2)...(x+n-1)$
 $
 p(gamma_l|C, X, alpha, d) prop& p(X|C, gamma_l) p(gamma_l) \
 
-prop& p(gamma_l) dot Gamma(4 gamma_l) / Gamma(4 gamma_l + N) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) \
+prop& p(gamma_l) dot Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) \
 
-prop& p(gamma_l) dot (gamma_l^((n_A)) gamma_l^((n_T)) gamma_l^((n_C)) gamma_l^((n_G))) / (4 gamma_l)^((N))
+prop& p(gamma_l) dot (gamma_l^((n_A)) gamma_l^((n_T)) gamma_l^((n_C)) gamma_l^((n_G))) / (4 gamma_l)^((\#cal(R)_l))
 $
 
 
@@ -520,12 +520,12 @@ log q_(gamma_l) (gamma_l)
 
 prop& log( gamma_l^(phi.alt_1-1) e^(-phi.alt_2 gamma_l) ) \
 
-+& log( Gamma(4 gamma_l) / Gamma(4 gamma_l + N) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) ) \ \ \
++& log( Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) ) \ \ \
 
 
 prop& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l \
 
--& sum_(i=0)^(N-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \
+-& sum_(i=0)^(\#cal(R)_l-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \
 $
 
 laplace approx in log space: same as $alpha$
@@ -546,7 +546,7 @@ prop& h(gamma_l) \
 
 =& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l \
 
--& sum_(i=0)^(N-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \ \ \
+-& sum_(i=0)^(\#cal(R)_l-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \ \ \
 $
 
 $
@@ -554,7 +554,7 @@ h'(gamma_l)
 
 =& (phi.alt_1 - 1) / gamma_l - phi.alt_2 \
 
--& sum_(i=0)^(N-1) 4 / (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i) \ \ \
+-& sum_(i=0)^(\#cal(R)_l-1) 4 / (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i) \ \ \
 $
 
 $
@@ -562,7 +562,7 @@ h''(gamma_l)
 
 =& (1 - phi.alt_1) / gamma_l^2 \
 
-+& sum_(i=0)^(N-1) 16 / (4 gamma_l + i)^2 - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i)^2 \ \ \
++& sum_(i=0)^(\#cal(R)_l-1) 16 / (4 gamma_l + i)^2 - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i)^2 \ \ \
 $
 
 $
@@ -573,7 +573,7 @@ hat(h)''(hat(eta))
 =& -phi.alt_1
 
 + hat(gamma)_l^2 [
-  sum_(i=0)^(N-1) 16 / (4 hat(gamma)_l + i)^2
+  sum_(i=0)^(\#cal(R)_l-1) 16 / (4 hat(gamma)_l + i)^2
 
   - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (hat(gamma)_l + i)^2
 ] \ \ \
