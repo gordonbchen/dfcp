@@ -226,6 +226,7 @@ def me(x: np.ndarray, HP: HyperParams):
             + 0.5 * eta_var * (4*d_mode - 6*d_mode**2) * d_mode * (1-d_mode)
             - mu_d[l]**2
         )
+        assert sigma2_d[l] > 0, sigma2_d[l]
 
     print(f"mu_gamma: {mu_gamma}")
     print(f"sigma2_gamma: {sigma2_gamma}")
