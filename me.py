@@ -85,7 +85,7 @@ def me(x: np.ndarray, HP: HyperParams):
     q_assignments = [[None for _ in range(HP.L-1)] for _ in range(HP.N)]
     rs = [set() for _ in range(HP.L)]
     qs = [set() for _ in range(HP.L-1)]
-    x_modes = stats.mode(x, axis=0)[0]
+    x_modes = stats.mode(x, axis=0).mode
     r = Cluster(seqs=set(range(HP.N)), cluster_group=rs[0],
                 seq_assignments=r_assignments, l=0,
                 seg_group=segregated_rs[0], emission=x_modes[0])
