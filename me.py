@@ -57,7 +57,7 @@ class Cluster:
                 parent.children.remove(self)
             for child in self.children:
                 child.parents.remove(self)
-            if self.emission:
+            if not self.emission is None:
                 self.seg_group[self.emission].remove(self)
             self.cluster_group.remove(self)
 
@@ -140,6 +140,7 @@ def me(x: np.ndarray, HP: HyperParams):
             elogy = delta_Elogx(mu_y, sigma2_y)
 
             next_a_ll = {}
+            # TODO: EE[log a] is closed form for log normal.
             next_a_ll["new"] = delta_Elogx(mu_alpha, sigma2_alpha) + next_ma["new"][0]
             for a in rs[l+1]:
                 next_a_ll[a] = delta_Elogx(mu_d[l], sigma2_d[l]) + np.log(len(a.parents)) + next_ma[a][0]
@@ -165,8 +166,6 @@ def me(x: np.ndarray, HP: HyperParams):
                 a = max(ma, key=lambda x: ma.get(x)[0])
                 path.append(a)
 
-            if l == HP.L-1:
-                break
             b = ma[a][1]
             path.append(b)
 
@@ -262,7 +261,7 @@ def ll_alpha(
 ) -> float:
     ll = -np.log(alpha + np.arange(HP.N)).sum()
     ll += sum([len(r) * np.log(alpha) for r in rs])
-    for l in range(1, HP.L-1):
+    for l in range(HP.L-1):
         idxs = np.arange(len(qs[l]))
         ll -= (
             np.log(alpha/mu_d[l] + idxs)
@@ -278,7 +277,7 @@ def ll_log_alpha_d2(
 ) -> float:
     d2 = (alpha**2 / (alpha + np.arange(HP.N))**2).sum()
     d2 -= sum([len(r) for r in rs])
-    for l in range(1, HP.L-1):
+    for l in range(HP.L-1):
         idxs = np.arange(len(qs[l]))
         d2 += alpha**2 * (
             1 / (alpha + idxs*mu_d[l])**2
@@ -294,14 +293,14 @@ def ll_log_alpha_d2(
 
 def ll_gammal(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
     ll = (HP.phi_1-1)*np.log(gamma) - HP.phi_2*gamma
-    ll -= np.log(4*gamma + np.arange(HP.N)).sum()
+    ll -= np.log(HP.K*gamma + np.arange(HP.N)).sum()
     ll += sum([np.log(gamma + np.arange(len(seg))).sum() for seg in segregated_l])
     return ll
 
 
 def ll_log_gammal_d2(gamma: float, HP: HyperParams, segregated_l: list[set[Cluster]]) -> float:
-    d2 = -HP.tau_1 + gamma*gamma * (
-        (16 / (4*gamma + np.arange(HP.N))**2).sum()
+    d2 = -HP.phi_1 + gamma*gamma * (
+        (HP.K**2 / (HP.K*gamma + np.arange(HP.N))**2).sum()
         - sum([(1/(gamma + np.arange(len(seg)))**2).sum() for seg in segregated_l])
     )
     return d2
@@ -334,7 +333,7 @@ def ll_logit_dl_d2(
 ) -> float:
     nQl = len(qs[l])
     d2 = (len(rs[l]) - nQl + len(rs[l+1]) + 1 - HP.v_1) / (d*d)
-    d2 += (HP.v_2 - 1) / (1 - d)**2
+    d2 -= (HP.v_2 - 1) / (1 - d)**2
     d2 += -nQl * special.polygamma(1, 1-d) + sum([special.polygamma(1, len(b) - d) for b in qs[l]])
     idxs = np.arange(nQl)
     d2 -= (
