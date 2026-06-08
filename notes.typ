@@ -1100,3 +1100,33 @@ $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
 - $EE_q [log (alpha + d_l \#Q^(-i)_l)] = EE_Y [log Y]$
 
 #todo[quadrature or moment matching?]
+
+
+
+
+
+#pagebreak()
+= Predictive checks
+- minor allele frequency distribution across variant sites
+
+== Linkage disequilibrium
+- 2 biallelic loci: A/a at locus 1, B/b at locus 2
+
+- independent: $p_(A B) = p_(A) p_(B)$
+
+- linkage disequilibrium (not indep): $p_(A B) != p_(A) p_(B)$
+
+  $D = p_(A B) - p_(A) p_(B)$
+
+  $D > 0: wide p_(A B) > p_(A) p_(B) wide$ AB more frequently than expected
+
+- $D = p_(A B) p_(a b) - p_(a B) p_(B a)$
+
+  determinant = 0: rank 1 matrix, outer product of marginals, decomposable = indep
+
+- $r^2 = D^2 / (p_(A) p_(a) p_(B) p_(b))$
+
+  $r^2 = 0 -> D = 0$, uncorrelated
+
+- LD decay curve: $1/(|cal(P)_d|) sum_((i, j) in cal(P)_d) r^2_(i,j)$ for all pairs $cal(P)_d$ in a distance bin $d$
+
