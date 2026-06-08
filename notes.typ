@@ -388,16 +388,6 @@ $
 
 #pagebreak()
 = ME paper
-Notation
-- $N$ haplotype sequences of length $L$
-- concentration param $alpha$, discount rates $d_l$
-- partition $cal(R)_l$ of sequences idxs $R$
-- clustering $G^i_C$ is all partition $cal(R)_l$ for $l in 1..L$
-
-Marginals
-- $cal(R)_l$ has marginal distribution $"CRP"(R, alpha, 0)$
-- $"Frag"(cal(R)_l, alpha, d)$ partitions each cluster $a in cal(R)_l$ by $"CRP"(a, alpha, d)$
-- $"Coag"(cal(R)_l, alpha, d)$ partitions all cluster into sets of clusters by $"CRP"(cal(R)_l, alpha, d)$, and coagulates those clusters together
 
 == CRP
 $
@@ -452,38 +442,33 @@ theta_(l a)|beta_l ~& "Categorical"(beta_l) \ \
 x_(i l)|a_(i l) =& theta_(l a_(i l))
 $
 
-== Maximization Expectation
-- $p(C, Theta|cal(D))$ for cluster assignments $C$, model parameters $Theta$, and data $cal(D)$
-- $q(Theta) = p(Theta|C^*, cal(D))$
-- $C^* = "argmax"_C EE_q(Theta) [log p(C, Theta|cal(D))]$
+
+
+
+#pagebreak()
+= Maximization Expectation
+- maximization: $C_i^* = "argmax"_(C_i) EE_q [log p(C, theta|cal(D))]$
+- expectation: $log q_i (theta_i) prop EE_(q_(-i))[ log p(theta_i |C^*, theta_(-i), cal(D)) ]$
+
+
+Mean field approx: $q(alpha, gamma, d) = q(alpha) product_(l=1)^L p(gamma_l) product_(l=1)^(L-1) p(d_l)$
+
 
 $
-p(G_C, gamma, alpha, d|cal(D)) =& p(G_c|gamma, alpha, d, cal(D)) p(gamma, alpha, d|cal(D)) \
+theta^* =& "argmin"_theta [ "KL"(q_theta (z) || p(z|x) )] \
 
-approx & delta(G_C, G^*_C) q(gamma, alpha, d)
+=& "argmin"_theta [ EE_(q_theta) [log q_theta (z)] - EE_(q_theta) [log p(z|x) ] ]\
+
+=& "argmax"_theta [ EE_(q_theta) [log p(z,x) ] - EE_(q_theta) [log q_theta (z)] ]\ \
+
+"ELBO"(q_theta) =& EE_(q_theta) [log p(z,x) ] - EE_(q_theta) [log q_theta (z)] \ \
 $
 
-Maximization
-- MAP estimate (max product) for $G_C$ by messages
-
-Mean field
-
-$
-log p(G_C, gamma, alpha, d, cal(D))
-=& log p(cal(D)|G_C, gamma, alpha, d) + log p(G_C|gamma, alpha, d) \
-+& log p(alpha) + sum_(l=1)^L log p(gamma_l) + sum_(l=1)^(L-1) log p(d_l) \
-$
-
-Mean field assumption:
-
-$
-q(G_C, gamma, alpha, d) = q(G_C) q(alpha) product_(l=1)^L p(gamma_l) product_(l=1)^(L-1) p(d_l)
-$
 
 $
 log p(C, gamma, alpha, d, X)
 
-=& sum_(i=1)^N sum_(l=1)^L log Lambda(x_(i l)|a_(i l)) \
+=& log( product_(l=1)^L Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) ) \
 
 +& log[ Gamma(alpha) / Gamma(alpha + N) alpha^(\#cal(R)_1) product_(a in cal(R)_1) Gamma(\#a) ]\
 
@@ -491,41 +476,55 @@ log p(C, gamma, alpha, d, X)
 
 +& log [product_(l=1)^(L-1) (Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) (alpha\/d_l)^(\#cal(R)_(l+1)) product_(a in cal(R)_(l+1)) Gamma(\#C_a)) ]\
 
-+& log "Gamma"(tau_1, tau_2) \
-
-+& sum_(gamma_l) log "Gamma"(phi.alt_1, phi.alt_2) \
-
-+& sum_(d_l) log "Beta"(v_1, v_2) \
++& log "Gamma"(tau_1, tau_2) + sum_(gamma_l) log "Gamma"(phi.alt_1, phi.alt_2) + sum_(d_l) log "Beta"(v_1, v_2)
 $
+
+$
+=& log Gamma(alpha) / Gamma(alpha + N) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
+
++& sum_(l=1)^(L-1) [
+  (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l
+
+  + (v_2 - 1) log (1 - d_l)
+
+  - \#cal(Q)_l log Gamma(1-d_l)
+
+  + sum_(b in cal(Q)_l) log Gamma(\#b - d_l)
+] \
+
++& sum_(l=1)^(L-1) log Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) \
+
++& sum_(l=1)^L [(phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l + log Gamma(K gamma_l) / Gamma(K gamma_l + \#cal(R)_l) + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l) ] \
+
++& sum_(a in cal(R)_1) log Gamma(\#a)
+
++ sum_(l=1)^(L-1) ( sum_(a in cal(R)_l) [ log Gamma(\#F_a) - log Gamma(\#a) ] + sum_(a in cal(R)_(l+1)) log Gamma(\#C_a) ) \
+\ \ \
+$
+
 
 
 
 #pagebreak()
 = Variational update for $gamma_l$
-Rising factorial (Pochhammer function): $x^((n)) = (x)(x+1)(x+2)...(x+n-1)$
-
 $
-p(gamma_l|C, X, alpha, d) prop& p(X|C, gamma_l) p(gamma_l) \
+log q^*_(gamma_l) (gamma_l)
 
-prop& p(gamma_l) dot Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) \
+prop& log p(gamma_l) + log p(X|C, gamma_l) \
 
-prop& p(gamma_l) dot (gamma_l^((n_A)) gamma_l^((n_T)) gamma_l^((n_C)) gamma_l^((n_G))) / (4 gamma_l)^((\#cal(R)_l))
-$
+prop& log( gamma_l^(phi.alt_1-1) e^(-phi.alt_2 gamma_l) )
 
-
-me
-
-$
-log q_(gamma_l) (gamma_l)
-
-prop& log( gamma_l^(phi.alt_1-1) e^(-phi.alt_2 gamma_l) ) \
-
-+& log( Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) ) \ \ \
++ log( Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) ) \
 
 
-prop& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l \
+prop& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l
 
--& sum_(i=0)^(\#cal(R)_l-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \
++ log Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l) \
+
+
+prop& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l
+
+- sum_(i=0)^(\#cal(R)_l-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \
 $
 
 laplace approx in log space: same as $alpha$
@@ -540,43 +539,23 @@ laplace approx in log space: same as $alpha$
 - $q_(gamma_l) (gamma_l) approx "LogNormal"(hat(eta), sigma_eta^2)$ \ \
 
 $
-log q_(gamma_l) (gamma_l)
+h'(gamma_l) =& (phi.alt_1 - 1) / gamma_l - phi.alt_2
 
-prop& h(gamma_l) \
+- sum_(i=0)^(\#cal(R)_l-1) 4 / (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i) \ \ \
 
-=& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l \
 
--& sum_(i=0)^(\#cal(R)_l-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \ \ \
-$
+h''(gamma_l) =& (1 - phi.alt_1) / gamma_l^2
 
-$
-h'(gamma_l)
++ sum_(i=0)^(\#cal(R)_l-1) 16 / (4 gamma_l + i)^2 - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i)^2 \ \ \
 
-=& (phi.alt_1 - 1) / gamma_l - phi.alt_2 \
 
--& sum_(i=0)^(\#cal(R)_l-1) 4 / (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i) \ \ \
-$
+hat(h)''(hat(eta)) =& hat(gamma)_l^2 h''(hat(gamma)) - 1 \
 
-$
-h''(gamma_l)
-
-=& (1 - phi.alt_1) / gamma_l^2 \
-
-+& sum_(i=0)^(\#cal(R)_l-1) 16 / (4 gamma_l + i)^2 - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i)^2 \ \ \
-$
-
-$
-hat(h)''(hat(eta))
-
-=& hat(gamma)_l^2 h''(hat(gamma)) - 1 \
-
-=& -phi.alt_1
-
-+ hat(gamma)_l^2 [
+=& -phi.alt_1 + hat(gamma)_l^2 [
   sum_(i=0)^(\#cal(R)_l-1) 16 / (4 hat(gamma)_l + i)^2
 
   - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (hat(gamma)_l + i)^2
-] \ \ \
+]
 $
 
 
@@ -587,43 +566,31 @@ $
 $
 log q^*_alpha (alpha)
 
-prop& EE_(-alpha)[ log( Gamma(alpha) / Gamma(alpha + N) alpha^(\#cal(R)_1) ) ] \
+prop& log Gamma(alpha) / Gamma(alpha + N) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
 
-+& sum_(l=1)^(L-1) EE_(-alpha)[ log (Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) (alpha\/d_l)^(\#cal(R)_(l+1))) ] \
-+& EE_(-alpha)[ log "Gamma"(tau_1, tau_2) ] \ \ \
++& sum_(l=1)^(L-1) EE_(d_l)[ log Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) ] \ \ \
 
 
-prop& - sum_(i=0)^(N-1) log(alpha+i) \
-
-+& sum_(l=1)^(L) \#cal(R)_l log alpha \
+prop& - sum_(i=0)^(N-1) log(alpha+i) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
 
 -& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) EE_(d_l)[ log (alpha\/d_l + i) ] \
-
-+& (tau_1-1) log alpha - tau_2 alpha \ \ \
 $
-
 
 
 == Delta method
 $
 f(X) approx& f(mu) + f'(mu) (X-mu) + 1/2 f''(mu) (X-mu)^2 \
 
-EE[f(X)] approx& f(mu) + 1/2 f''(mu) sigma^2 \ \
-$
+EE[f(X)] approx& f(mu) + 1/2 f''(mu) sigma^2 \ \ \
 
-$
-EE_(d_l)[log(alpha \/ d_l + i)] approx log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2)
-$
 
-$
+EE_(d_l)[log(alpha \/ d_l + i)] approx& log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) \ \ \
+
+
 log q^*_alpha (alpha)
-prop& - sum_(i=0)^(N-1) log(alpha+i) \
+prop& - sum_(i=0)^(N-1) log(alpha+i) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
 
-+& sum_(l=1)^(L) \#cal(R)_l log alpha \
-
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [ log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) ] \
-
-+& (tau_1-1) log alpha - tau_2 alpha \ \ \
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [ log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) ] \ \ \
 $
 
 
@@ -681,75 +648,45 @@ $
 
 == Deriv for variance
 $
-log q^*_alpha (alpha) prop& h(alpha) \
+h(alpha) =& - sum_(i=0)^(N-1) log(alpha+i) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
 
-=& - sum_(i=0)^(N-1) log(alpha+i)
-
-+ sum_(l=1)^(L) \#cal(R)_l log alpha \
-
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [ log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) ] \
-
-+& (tau_1-1) log alpha - tau_2 alpha \ \ \
+-& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [ log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) ] \ \ \
 $
 
 $
-h'(alpha)
-
-=& - sum_(i=0)^(N-1) 1 / (alpha+i)
-
-+ sum_(l=1)^(L) (\#cal(R)_l) / alpha \
-
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
-  1/(alpha + i mu_d)
-  + sigma_d^2 / (2 mu_d^2)
-  ((alpha + i mu_d)^2 (2 alpha + 2 i mu_d) - (alpha^2 + 2 alpha i mu_d) 2 (alpha + i mu_d) )
-  / (alpha + i mu_d)^4
-] \
-
-+& (tau_1-1) / alpha - tau_2 \ \ \
-
-
-=& - sum_(i=0)^(N-1) 1 / (alpha+i)
-
-+ sum_(l=1)^(L) (\#cal(R)_l) / alpha \
+h'(alpha) =& - sum_(i=0)^(N-1) 1/(alpha+i) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1)/alpha - tau_2 \
 
 -& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
   1/(alpha + i mu_d)
   + (sigma_d^2 i^2) / (alpha + i mu_d)^3
 ] \
-
-+& (tau_1-1) / alpha - tau_2 \ \ \
 $
 
 $
 h''(alpha)
 
-=& sum_(i=0)^(N-1) 1 / (alpha+i)^2
-
-- sum_(l=1)^(L) (\#cal(R)_l) / alpha^2 \
+=& sum_(i=0)^(N-1) 1 / (alpha+i)^2 + (1 - tau_1 - sum_(l=1)^(L) \#cal(R)_l) / alpha^2 \
 
 +& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
   1/(alpha + i mu_d)^2
   + (3 sigma_d^2 i^2 ) / (alpha + i mu_d)^4
 ] \
-
-+& (1-tau_1) / alpha^2 \ \ \
 $
 
 $
 hat(h)''(hat(eta)) =& hat(alpha)^2 h''(hat(alpha)) -1 \
 
-=& sum_(i=0)^(N-1) hat(alpha)^2 / (hat(alpha)+i)^2
 
-- sum_(l=1)^(L) \#cal(R)_l \
+=& - tau_1 - sum_(l=1)^(L) \#cal(R)_l \
 
-+& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) hat(alpha)^2 [
++& alpha^2 (
+sum_(i=0)^(N-1) 1 / (alpha+i)^2
+
++ sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
   1/(alpha + i mu_d)^2
   + (3 sigma_d^2 i^2 ) / (alpha + i mu_d)^4
-] \
+]) \ \ \
 
--& tau_1 \ \ \
-\ \
 $ 
 
 
@@ -758,34 +695,26 @@ $
 #pagebreak()
 = Variational update for $d_l$
 
+
 $
 log q_(d_l)^*(d_l)
 
-prop& log[ (d_l^(\#cal(Q)_l - \#cal(R)_l)) / (Gamma(1-d_l)^(\#cal(Q)_l)) product_(b in cal(Q)_l) Gamma(\#b - d_l) ]\
+prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2 - 1) log (1 - d_l) \
 
-+& EE_(alpha) [log ( Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) (alpha\/d_l)^(\#cal(R)_(l+1)))]\
+-& \#cal(Q)_l log Gamma(1-d_l) + sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
 
-+& log "Beta"(v_1, v_2) \ \ \
-
-
-prop& (\#cal(Q)_l - \#cal(R)_l) log d_l - \#cal(Q)_l log Gamma(1-d_l) \
-
-+& sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
-
--& sum_(i=0)^(\#cal(Q)_l-1) EE_alpha [ log alpha \/ d + i ] - \#cal(R)_(l+1) log d_l \
-
-+& (v_1-1) log d_l + (v_2-1) log (1-d_l) \ \ \
++& EE_alpha [ log Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) ] \ \ \
 
 
 prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2-1) log (1-d_l) \
 
 -& \#cal(Q)_l log Gamma(1-d_l) + sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
 
--& sum_(i=0)^(\#cal(Q)_l-1) EE_alpha [ log alpha \/ d + i ] - \#cal(R)_(l+1) log d_l \
+-& sum_(i=0)^(\#cal(Q)_l-1) EE_alpha [ log alpha \/ d + i ] \
 $
 
 #todo[
-  $ EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l $
+  Paper correction: $EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l$
 
   also $EE_alpha [ log alpha \/ d + i ]$ doesn't need a delta approx for $i=0$.
 ]
@@ -951,14 +880,15 @@ $
 = Maximization
 $C^* = "argmax"_C EE_q(Theta) [log p(C, Theta|cal(D))]$
 #todo[
-  notational issue: not really take out and put back 1 sequence at a time.
+  notational issue: take out and put back 1 sequence at a time.
 
-  actually is $C_i^* = "argmax"_(C_i) EE_q(Theta) [log p(C, Theta|cal(D))]$
+  should be $C_i^* = "argmax"_(C_i) EE_q(Theta) [log p(C, Theta|cal(D))]$
 ]
 
 #todo[
   - how to initialize clusters?
   - symmetric dirichlet? or is it 4 different $gamma_l$s?
+  - are the variational distributions different after update? moment matching or using normals?
 ]
 
 
@@ -1045,11 +975,6 @@ m_C^l (a)
 m_C^L (a) =& EE_q [ log Lambda(x_(i, L)|a) ]
 $
 
-#todo[
-  also variational families may be different after laplace approx.
-  are we moment matching or using normals?
-]
-
 
 == $EE_alpha [log alpha]$
 $
@@ -1098,8 +1023,6 @@ $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
   note that $alpha, d_l$ are independent by the mean field assumption.
 
 - $EE_q [log (alpha + d_l \#Q^(-i)_l)] = EE_Y [log Y]$
-
-#todo[quadrature or moment matching?]
 
 
 

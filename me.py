@@ -296,14 +296,14 @@ def ll_alpha(
     HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
 ) -> float:
     ll = -np.log(alpha + np.arange(HP.N)).sum()
-    ll += sum([len(r) * np.log(alpha) for r in rs])
+    ll += (sum([len(r) for r in rs]) + HP.tau_1 - 1) * np.log(alpha) 
+    ll -= HP.tau_2*alpha
     for l in range(HP.L-1):
         idxs = np.arange(len(qs[l]))
         ll -= (
             np.log(alpha/mu_d[l] + idxs)
             + 0.5*sigma2_d[l] * (alpha**2 + 2*alpha*idxs*mu_d[l]) / (mu_d[l]**2 * (alpha + idxs*mu_d[l])**2)
         ).sum()
-    ll += (HP.tau_1-1)*np.log(alpha) - HP.tau_2*alpha
     return ll
 
 
@@ -311,15 +311,13 @@ def ll_log_alpha_d2(
     alpha: float, mu_d: np.ndarray, sigma2_d: np.ndarray,
     HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
 ) -> float:
-    d2 = (alpha**2 / (alpha + np.arange(HP.N))**2).sum()
-    d2 -= sum([len(r) for r in rs])
+    d2 = (1 / (alpha + np.arange(HP.N))**2).sum()
     for l in range(HP.L-1):
         idxs = np.arange(len(qs[l]))
-        d2 += alpha**2 * (
-            1 / (alpha + idxs*mu_d[l])**2
-            + 3*sigma2_d[l]*idxs**2 / (alpha+idxs*mu_d[l])**4
-        ).sum()
-    d2 -= HP.tau_1
+        z = alpha + idxs*mu_d[l]
+        d2 += (1/z**2 + 3*sigma2_d[l]*idxs**2 / z**4).sum()
+    d2 *= alpha**2
+    d2 -= HP.tau_1 + sum([len(r) for r in rs])
     return d2
 
 
@@ -372,9 +370,10 @@ def ll_logit_dl_d2(
     d2 -= (HP.v_2 - 1) / (1 - d)**2
     d2 += -nQl * special.polygamma(1, 1-d) + sum([special.polygamma(1, len(b) - d) for b in qs[l]])
     idxs = np.arange(nQl)
+    z = mu_alpha + idxs*d
     d2 -= (
-        (mu_alpha*(mu_alpha+2*idxs*d))/(d*d* (mu_alpha + idxs*d)**2)
-        - (3*idxs*idxs*sigma2_alpha/(mu_alpha+idxs*d)**4)
+        (mu_alpha*(mu_alpha+2*idxs*d)) / (d*d* z**2)
+        - (3*idxs*idxs*sigma2_alpha / z**4)
     ).sum()
 
     d2 *= (d*(1-d)) ** 2
