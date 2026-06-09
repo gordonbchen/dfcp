@@ -221,7 +221,7 @@ class EarlyStopping:
             x = -x
         if self.min_val - x > self.tol:
             self.min_val = x
-            self.step_since_min = 0
+            self.steps_since_min = 0
         else:
             self.steps_since_min += 1
 
