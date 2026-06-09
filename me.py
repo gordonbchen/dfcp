@@ -13,7 +13,7 @@ class Cluster:
     def __init__(
         self, seqs: set[int], cluster_group: set[Cluster],
         seq_assignments: list[list[Cluster]], l: int,
-        seg_group: set[Cluster] = None, emission: int = None,
+        nkl: np.ndarray = None, emission: int = None,
     ):
         self.uuid = uuid.uuid4().int
 
@@ -26,9 +26,9 @@ class Cluster:
         self.l = l
 
         self.emission = emission
-        self.seg_group = seg_group
+        self.nkl = nkl
         if not self.emission is None:
-            self.seg_group[emission].add(self)
+            self.nkl[emission] += 1
 
         self.children = set()
         self.parents = set()
@@ -58,7 +58,7 @@ class Cluster:
             for child in self.children:
                 child.parents.remove(self)
             if not self.emission is None:
-                self.seg_group[self.emission].remove(self)
+                self.nkl[self.emission] -= 1
             self.cluster_group.remove(self)
 
     def add(self, idx: int):
@@ -80,7 +80,7 @@ def me(x: np.ndarray, HP: HyperParams):
     sigma2_gamma = mu_gamma / HP.phi_2
 
     # Init clusters.
-    segregated_rs = [[set() for _ in range(HP.K)] for _ in range(HP.L)]
+    nk = np.zeros((HP.L, HP.K))
     r_assignments = [[None for _ in range(HP.L)] for _ in range(HP.N)]
     q_assignments = [[None for _ in range(HP.L-1)] for _ in range(HP.N)]
     rs = [set() for _ in range(HP.L)]
@@ -88,14 +88,14 @@ def me(x: np.ndarray, HP: HyperParams):
     x_modes = stats.mode(x, axis=0).mode
     r = Cluster(seqs=set(range(HP.N)), cluster_group=rs[0],
                 seq_assignments=r_assignments, l=0,
-                seg_group=segregated_rs[0], emission=x_modes[0])
+                nkl=nk[0], emission=x_modes[0])
     for l in range(HP.L-1):
         q = Cluster(seqs=set(range(HP.N)), cluster_group=qs[l],
                     seq_assignments=q_assignments, l=l)
         r.add_child(q)
         r = Cluster(seqs=set(range(HP.N)), cluster_group=rs[l+1],
                     seq_assignments=r_assignments, l=l+1,
-                    seg_group=segregated_rs[l+1], emission=x_modes[l+1])
+                    nkl=nk[l+1], emission=x_modes[l+1])
         q.add_child(r)
     print("rs:")
     pprint(rs)
@@ -108,7 +108,7 @@ def me(x: np.ndarray, HP: HyperParams):
         max_step(
             x, HP,
             mu_alpha, sigma2_alpha, mu_d, sigma2_d, mu_gamma, sigma2_gamma,
-            rs, qs, segregated_rs, r_assignments, q_assignments
+            rs, qs, nk, r_assignments, q_assignments
         )
         print("rs:")
         pprint(rs)
@@ -118,7 +118,7 @@ def me(x: np.ndarray, HP: HyperParams):
         mu_alpha, sigma2_alpha = expect_step(
             x, HP,
             mu_alpha, sigma2_alpha, mu_d, sigma2_d, mu_gamma, sigma2_gamma,
-            rs, qs, segregated_rs
+            rs, qs, nk
         )
         print(f"mu_alpha: {mu_alpha}")
         print(f"sigma2_alpha: {sigma2_alpha}")
@@ -135,7 +135,7 @@ def max_step(
     mu_d: np.ndarray, sigma2_d: np.ndarray,
     mu_gamma: np.ndarray, sigma2_gamma: np.ndarray,
     rs: list[set[Cluster]], qs: list[set[Cluster]],
-    segregated_rs: list[list[set[Cluster]]],
+    nk: np.ndarray,
     r_assignments: list[list[Cluster]], q_assignments: list[list[Cluster]],
 ) -> None:
     for i in range(HP.N):
@@ -148,11 +148,9 @@ def max_step(
         for l in reversed(range(HP.L)):
             # Compute likelihood term for a-message.
             ma = {}
-            nkl = len(segregated_rs[l][x[i, l]])
-            nRl = len(rs[l])
             log_likelihood = (
-                delta_Elogx(mu_gamma[l], sigma2_gamma[l], b=nkl)
-                - delta_Elogx(mu_gamma[l], sigma2_gamma[l], a=HP.K, b=nRl)
+                delta_Elogx(mu_gamma[l], sigma2_gamma[l], b=nk[l, x[i, l]])
+                - delta_Elogx(mu_gamma[l], sigma2_gamma[l], a=HP.K, b=len(rs[l]))
             )
             ma["new"] = (log_likelihood, None)
             for a in rs[l]:
@@ -216,7 +214,7 @@ def max_step(
             if j % 2 == 0:
                 new_cluster = Cluster(seqs=set([i]), cluster_group=rs[l],
                                       seq_assignments=r_assignments, l=l,
-                                      seg_group=segregated_rs[l], emission=x[i, l])
+                                      nkl=nk[l], emission=x[i, l])
             else:
                 new_cluster = Cluster(seqs=set([i]), cluster_group=qs[l],
                                       seq_assignments=q_assignments, l=l)
@@ -234,7 +232,7 @@ def expect_step(
     mu_d: np.ndarray, sigma2_d: np.ndarray,
     mu_gamma: np.ndarray, sigma2_gamma: np.ndarray,
     rs: list[set[Cluster]], qs: list[set[Cluster]],
-    segregated_rs: list[list[set[Cluster]]],
+    nk: np.ndarray
 ) -> tuple[float, float]:
     # Expectation.
     # alpha update.
@@ -244,7 +242,7 @@ def expect_step(
     for l in range(HP.L):
         # gamma update.
         mu_gamma[l], sigma2_gamma[l] = laplace_log_approx(ll_gammal, ll_log_gammal_d2,
-                                                          args=(HP, len(rs[l]), segregated_rs[l]))
+                                                          args=(HP, len(rs[l]), nk[l]))
 
         if l >= HP.L-1:
             break
@@ -321,17 +319,17 @@ def ll_log_alpha_d2(
     return d2
 
 
-def ll_gammal(gamma: float, HP: HyperParams, nRl: int, segregated_l: list[set[Cluster]]) -> float:
+def ll_gammal(gamma: float, HP: HyperParams, nRl: int, nkl: np.ndarray) -> float:
     ll = (HP.phi_1-1)*np.log(gamma) - HP.phi_2*gamma
     ll += special.gammaln(HP.K*gamma) - special.gammaln(HP.K*gamma + nRl)
-    ll += sum([special.gammaln(gamma+len(seg)) for seg in segregated_l]) - HP.K*special.gammaln(gamma)
+    ll += special.gammaln(gamma+nkl).sum() - HP.K*special.gammaln(gamma)
     return ll
 
 
-def ll_log_gammal_d2(gamma: float, HP: HyperParams, nRl: int, segregated_l: list[set[Cluster]]) -> float:
+def ll_log_gammal_d2(gamma: float, HP: HyperParams, nRl: int, nkl: np.ndarray) -> float:
     d2 = -HP.phi_1 + gamma*gamma * (
         (HP.K**2 / (HP.K*gamma + np.arange(nRl))**2).sum()
-        - sum([(1/(gamma + np.arange(len(seg)))**2).sum() for seg in segregated_l])
+        - sum([(1/(gamma + np.arange(n))**2).sum() for n in nkl])
     )
     return d2
 
