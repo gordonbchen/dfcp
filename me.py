@@ -72,12 +72,18 @@ def me(x: np.ndarray, HP: HyperParams):
     # Init parameters.
     mu_alpha = HP.tau_1 / HP.tau_2
     sigma2_alpha = mu_alpha / HP.tau_2
+    mu_log_alpha = special.digamma(HP.tau_1) - np.log(HP.tau_2)
+    sigma2_log_alpha = special.polygamma(1, HP.tau_1)
 
     mu_d = np.full(HP.L-1, HP.v_1 / (HP.v_1 + HP.v_2))
     sigma2_d = np.full(HP.L-1, (HP.v_1 * HP.v_2) / ((HP.v_1 + HP.v_2)**2 * (HP.v_1 + HP.v_2 + 1)))
+    mu_log_d = np.full(HP.L-1, special.digamma(HP.v_1) - special.digamma(HP.v_1 + HP.v_2))
+    sigma2_logit_d = np.full(HP.L-1, float("-inf"))
 
     mu_gamma = np.full(HP.L, HP.phi_1 / HP.phi_2)
     sigma2_gamma = mu_gamma / HP.phi_2
+    mu_log_gamma = np.full(HP.L, special.digamma(HP.phi_1) - np.log(HP.phi_2))
+    sigma2_log_gamma = np.full(HP.L, special.polygamma(1, HP.phi_1))
 
     # Init clusters.
     nk = np.zeros((HP.L, HP.K))
@@ -103,11 +109,14 @@ def me(x: np.ndarray, HP: HyperParams):
     pprint(qs)
 
     # ME.
+    # TODO: early stoppping based on elbo.
     for step in range(10):
         print(f"\n\nstep: {step}")
         max_step(
             x, HP,
-            mu_alpha, sigma2_alpha, mu_d, sigma2_d, mu_gamma, sigma2_gamma,
+            mu_alpha, sigma2_alpha, mu_log_alpha,
+            mu_d, sigma2_d, mu_log_d,
+            mu_gamma, sigma2_gamma,
             rs, qs, nk, r_assignments, q_assignments
         )
         print("rs:")
@@ -115,9 +124,10 @@ def me(x: np.ndarray, HP: HyperParams):
         print("qs:")
         pprint(qs)
 
-        mu_alpha, sigma2_alpha = expect_step(
-            x, HP,
-            mu_alpha, sigma2_alpha, mu_d, sigma2_d, mu_gamma, sigma2_gamma,
+        mu_alpha, sigma2_alpha, mu_log_alpha, sigma2_log_alpha = expect_step(
+            HP,
+            mu_d, sigma2_d, mu_log_d, sigma2_logit_d,
+            mu_gamma, sigma2_gamma, mu_log_gamma, sigma2_log_gamma,
             rs, qs, nk
         )
         print(f"mu_alpha: {mu_alpha}")
@@ -127,12 +137,77 @@ def me(x: np.ndarray, HP: HyperParams):
         print(f"mu_d:\n{mu_d}")
         print(f"sigma2_d:\n{sigma2_d}")
 
+        elbo = calc_elbo(
+            HP,
+            mu_alpha, sigma2_alpha, mu_log_alpha, sigma2_log_alpha,
+            mu_d, sigma2_d, mu_log_d, sigma2_logit_d,
+            mu_gamma, sigma2_gamma, mu_log_gamma, sigma2_log_gamma,
+            rs, qs, nk
+        )
+        print(f"elbo: {elbo}")
+
+
+@profile
+def calc_elbo(
+    HP: HyperParams,
+    mu_alpha: float, sigma2_alpha: float, mu_log_alpha: float, sigma2_log_alpha: float,
+    mu_d: np.ndarray, sigma2_d: np.ndarray, mu_log_d: np.ndarray, sigma2_logit_d: np.ndarray,
+    mu_gamma: np.ndarray, sigma2_gamma: np.ndarray, mu_log_gamma: np.ndarray, sigma2_log_gamma: np.ndarray,
+    rs: list[set[Cluster]], qs: list[set[Cluster]],
+    nk: np.ndarray,
+) -> float:
+    elbo = delta_ElogGamma(mu_alpha, sigma2_alpha) - delta_ElogGamma(mu_alpha, sigma2_alpha, b=HP.N)
+    elbo += (sum(len(r) for r in rs)+HP.tau_1)*mu_log_alpha - HP.tau_2*mu_alpha  # -1 cancels out w/ alpha entropy.
+
+    for l in range(HP.L-1):
+        # -1s cancel out in dl entropy.
+        elbo += (len(qs[l])-len(rs[l])-len(rs[l+1])+HP.v_1) * mu_log_d[l]
+        elbo += HP.v_2 * delta_Elogx(mu_d[l], sigma2_d[l], a=-1, b=1)
+
+        elbo -= len(qs[l]) * delta_ElogGamma(mu_d[l], sigma2_d[l], a=-1, b=1)
+        elbo += sum(delta_ElogGamma(mu_d[l], sigma2_d[l], a=-1, b=len(b)) for b in qs[l])
+
+        # alpha and d term.
+        z = mu_alpha / mu_d[l]
+        dd2 = special.digamma(z)*(2*z/mu_d[l]**2) + special.polygamma(1, z)*z**2/mu_d[l]**2
+        elbo += delta_ElogGamma(mu_alpha, sigma2_alpha, a=1/mu_d[l]) + 0.5*sigma2_d[l]*dd2
+
+        z += len(qs[l])
+        dd2 = special.digamma(z)*(2*mu_alpha/mu_d[l]**3) + special.polygamma(1, z)*mu_alpha**2/mu_d[l]**4
+        elbo -= delta_ElogGamma(mu_alpha, sigma2_alpha, a=1/mu_d[l], b=len(qs[l])) + 0.5*sigma2_d[l]*dd2
+
+    elbo += (HP.phi_1*mu_log_gamma - HP.phi_2*mu_gamma).sum()  # -1 cancels out w/ gammal entropy.
+    for l in range(HP.L):
+        elbo += delta_ElogGamma(mu_gamma[l], sigma2_gamma[l], a=HP.K)
+        elbo -= delta_ElogGamma(mu_gamma[l], sigma2_gamma[l], a=HP.K, b=len(rs[l]))
+        elbo += sum(delta_ElogGamma(mu_gamma[l], sigma2_gamma[l], b=n) for n in nk[l])
+        elbo -= HP.K*delta_ElogGamma(mu_gamma[l], sigma2_gamma[l])
+
+    elbo += sum(special.gammaln(len(a)) for a in rs[0])
+    for l in range(HP.L-1):
+        elbo += sum(special.gammaln(len(a.children)) - special.gammaln(len(a)) for a in rs[l])
+        elbo += sum(special.gammaln(len(a.parents)) for a in rs[l+1])
+
+    # Variational entropy term.
+    elbo += normal_entropy(sigma2_log_alpha)
+    elbo += normal_entropy(sigma2_log_gamma).sum() + normal_entropy(sigma2_logit_d).sum()
+    return elbo
+
+
+def delta_ElogGamma(mu: float, sigma2: float, a: float = 1.0, b: float = 0.0) -> float:
+    x = a*mu + b
+    return special.gammaln(x) + 0.5*sigma2*a**2 * special.polygamma(1, x)
+
+
+def normal_entropy(sigma2: float) -> float:
+    return 0.5 * np.log(2*np.pi*np.e * sigma2)
+
 
 @profile
 def max_step(
     x: np.ndarray, HP: HyperParams,
-    mu_alpha: float, sigma2_alpha: float,
-    mu_d: np.ndarray, sigma2_d: np.ndarray,
+    mu_alpha: float, sigma2_alpha: float, mu_log_alpha: float,
+    mu_d: np.ndarray, sigma2_d: np.ndarray, mu_log_d: np.ndarray,
     mu_gamma: np.ndarray, sigma2_gamma: np.ndarray,
     rs: list[set[Cluster]], qs: list[set[Cluster]],
     nk: np.ndarray,
@@ -173,10 +248,9 @@ def max_step(
             elogy = delta_Elogx(mu_y, sigma2_y)
 
             next_a_ll = {}
-            # TODO: EE[log a] is closed form for log normal.
-            next_a_ll["new"] = delta_Elogx(mu_alpha, sigma2_alpha) + next_ma["new"][0]
+            next_a_ll["new"] = mu_log_alpha + next_ma["new"][0]
             for a in rs[l+1]:
-                next_a_ll[a] = delta_Elogx(mu_d[l], sigma2_d[l]) + np.log(len(a.parents)) + next_ma[a][0]
+                next_a_ll[a] = mu_log_d[l] + np.log(len(a.parents)) + next_ma[a][0]
             next_a = max(next_a_ll, key=next_a_ll.get)
             mb["new"] = (-elogy + next_a_ll[next_a], next_a)
 
@@ -184,7 +258,7 @@ def max_step(
             ma["new"] = (ma["new"][0] + mb["new"][0], "new")
             for a in rs[l]:
                 next_b_ll = {}
-                next_b_ll["new"] = np.log(len(a.children)) + delta_Elogx(mu_d[l], sigma2_d[l]) + mb["new"][0]
+                next_b_ll["new"] = np.log(len(a.children)) + mu_log_d[l] + mb["new"][0]
                 for b in a.children:
                     next_b_ll[b] = delta_Elogx(mu_d[l], sigma2_d[l], a=-1, b=len(b)) + mb[b][0]
                 next_b = max(next_b_ll, key=next_b_ll.get)
@@ -227,22 +301,23 @@ def max_step(
 
 @profile
 def expect_step(
-    x: np.ndarray, HP: HyperParams,
-    mu_alpha: float, sigma2_alpha: float,
-    mu_d: np.ndarray, sigma2_d: np.ndarray,
-    mu_gamma: np.ndarray, sigma2_gamma: np.ndarray,
+    HP: HyperParams,
+    mu_d: np.ndarray, sigma2_d: np.ndarray, mu_log_d: np.ndarray, sigma2_logit_d: np.ndarray,
+    mu_gamma: np.ndarray, sigma2_gamma: np.ndarray, mu_log_gamma: np.ndarray, sigma2_log_gamma: np.ndarray,
     rs: list[set[Cluster]], qs: list[set[Cluster]],
     nk: np.ndarray
-) -> tuple[float, float]:
+) -> tuple[float, float, float, float]:
     # Expectation.
     # alpha update.
-    mu_alpha, sigma2_alpha = laplace_log_approx(ll_alpha, ll_log_alpha_d2,
-                                                args=(mu_d, sigma2_d, HP, rs, qs))
+    mu_alpha, sigma2_alpha, mu_log_alpha, sigma2_log_alpha = laplace_log_approx(
+        ll_alpha, ll_log_alpha_d2, args=(mu_d, sigma2_d, HP, rs, qs)
+    )
 
     for l in range(HP.L):
         # gamma update.
-        mu_gamma[l], sigma2_gamma[l] = laplace_log_approx(ll_gammal, ll_log_gammal_d2,
-                                                          args=(HP, len(rs[l]), nk[l]))
+        mu_gamma[l], sigma2_gamma[l], mu_log_gamma[l], sigma2_log_gamma[l] = laplace_log_approx(
+            ll_gammal, ll_log_gammal_d2, args=(HP, len(rs[l]), nk[l])
+        )
 
         if l >= HP.L-1:
             break
@@ -264,7 +339,9 @@ def expect_step(
             - mu_d[l]**2
         )
         assert sigma2_d[l] > 0, sigma2_d[l]
-    return mu_alpha, sigma2_alpha
+        mu_log_d[l] = delta_Elogx(mu_d[l], sigma2_d[l])
+        sigma2_logit_d[l] = eta_var
+    return mu_alpha, sigma2_alpha, mu_log_alpha, sigma2_log_alpha
 
 
 def delta_Elogx(mu: float, sigma2: float, a: float = 1.0, b: float = 0.0) -> float:
@@ -272,7 +349,7 @@ def delta_Elogx(mu: float, sigma2: float, a: float = 1.0, b: float = 0.0) -> flo
     return np.log(x) - 0.5 * sigma2 * a**2 / x**2
 
 
-def laplace_log_approx(ll_func, ll_log_d2_func, args: tuple = ()) -> tuple[float, float]:
+def laplace_log_approx(ll_func, ll_log_d2_func, args: tuple = ()) -> tuple[float, float, float, float]:
     res = optimize.minimize_scalar(
         lambda eta: -(ll_func(np.exp(eta), *args) + eta),
         method="bounded", bounds=(-10, 10)
@@ -286,7 +363,7 @@ def laplace_log_approx(ll_func, ll_log_d2_func, args: tuple = ()) -> tuple[float
     mu = np.exp(eta_mode + eta_var/2)
     sigma2 = (np.exp(eta_var) - 1) * np.exp(2*eta_mode + eta_var)
     assert sigma2 > 0, sigma2
-    return mu, sigma2
+    return mu, sigma2, eta_mode, eta_var
 
 
 def ll_alpha(

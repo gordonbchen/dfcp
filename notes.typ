@@ -506,6 +506,37 @@ $
 
 
 #pagebreak()
+= Bivariate delta approx
+$
+f(x,y) approx& f(mu_x, mu_y) \
+
++& (x-mu_x) f_x (mu_x, mu_y) + (y-mu_y) f_y (mu_x, mu_y) \
+
++& 1/2 (x-mu_x)^2 f_(x x)(mu_x, mu_y) \
+
++& (x-mu_x)(y-mu_y) f_(x y)(mu_x, mu_y) \
+
++& 1/2 (y-mu_y)^2 f_(y y)(mu_x, mu_y) \ \
+
+EE_(x y) [f(x,y)] approx& f(mu_x, mu_y) + 1/2 sigma^2_x f_(x x)(mu_x, mu_y) + "Cov"(x, y) f_(x y)(mu_x, mu_y) + 1/2 sigma^2_y f_(y y)(mu_x, mu_y) \ \ \
+$
+
+By mean field approx, $"Cov"(x, y) = 0$.
+$
+EE_(x y) [f(x,y)] approx& f(mu_x, mu_y) + 1/2 sigma^2_x f_(x x)(mu_x, mu_y) + 1/2 sigma^2_y f_(y y)(mu_x, mu_y)
+$
+
+
+$
+(d)/(d d_l) log Gamma(alpha/d_l) =& psi(alpha/d_l) dot (-alpha)/d_l^2 \
+
+(d^2)/(d d_l^2) log Gamma(alpha/d_l) =& psi(alpha/d_l) dot (2 alpha)/d_l^3 + psi_1(alpha/d_l) dot alpha^2 / d_l^4
+$
+
+
+
+
+#pagebreak()
 = Variational update for $gamma_l$
 $
 log q^*_(gamma_l) (gamma_l)
