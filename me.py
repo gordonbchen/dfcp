@@ -295,7 +295,7 @@ def ll_alpha(
     alpha: float, mu_d: np.ndarray, sigma2_d: np.ndarray,
     HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]
 ) -> float:
-    ll = -np.log(alpha + np.arange(HP.N)).sum()
+    ll = special.gammaln(alpha) - special.gammaln(alpha + HP.N)
     ll += (sum([len(r) for r in rs]) + HP.tau_1 - 1) * np.log(alpha) 
     ll -= HP.tau_2*alpha
     for l in range(HP.L-1):
@@ -321,14 +321,10 @@ def ll_log_alpha_d2(
     return d2
 
 
-# def d2_finite_diff(f, x: float, eps: float = 1e-9) -> float:
-#     return (f(x+2*eps) - 2*f(x+eps) + f(x)) / (eps*eps)
-
-
 def ll_gammal(gamma: float, HP: HyperParams, nRl: int, segregated_l: list[set[Cluster]]) -> float:
     ll = (HP.phi_1-1)*np.log(gamma) - HP.phi_2*gamma
-    ll -= np.log(HP.K*gamma + np.arange(nRl)).sum()
-    ll += sum([np.log(gamma + np.arange(len(seg))).sum() for seg in segregated_l])
+    ll += special.gammaln(HP.K*gamma) - special.gammaln(HP.K*gamma + nRl)
+    ll += sum([special.gammaln(gamma+len(seg)) for seg in segregated_l]) - HP.K*special.gammaln(gamma)
     return ll
 
 

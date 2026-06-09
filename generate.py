@@ -9,6 +9,8 @@ from cli_params import CLIParams
 
 @dataclass
 class HyperParams(CLIParams):
+    seed: int = 0
+
     N: int = 8   # Num sequences.
     L: int = 16  # Seq length.
     K: int = 4   # Num alleles.
@@ -61,6 +63,10 @@ def coag(clusters: list[list[int]], alpha: float, d: float) -> list[list[int]]:
 
 
 def generate(HP: HyperParams) -> tuple[np.ndarray, list[list[list[int]]], list[list[list[int]]]]:
+    if HP.seed != 0:
+        np.random.seed(HP.seed)
+        random.seed(HP.seed)
+
     # Params.
     alpha = gamma.rvs(a=HP.tau_1, scale=1/HP.tau_2)
     d = beta.rvs(a=HP.v_1, b=HP.v_2, size=HP.L-1)
