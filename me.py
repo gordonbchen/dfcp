@@ -86,7 +86,7 @@ def me(x: np.ndarray, HP: HyperParams):
     sigma2_log_gamma = np.full(HP.L, special.polygamma(1, HP.phi_1))
 
     # Init clusters.
-    nk = np.zeros((HP.L, HP.K))
+    nk = np.zeros((HP.L, HP.K), dtype=np.int64)
     r_assignments = [[None for _ in range(HP.L)] for _ in range(HP.N)]
     q_assignments = [[None for _ in range(HP.L-1)] for _ in range(HP.N)]
     rs = [set() for _ in range(HP.L)]
