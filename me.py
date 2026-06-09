@@ -109,9 +109,9 @@ def me(x: np.ndarray, HP: HyperParams):
     pprint(qs)
 
     # ME.
-    # TODO: early stoppping based on elbo.
-    for step in range(10):
-        print(f"\n\nstep: {step}")
+    early_stop = EarlyStopping(patience=10, minimize=False, tol=1e-5)
+    while not early_stop.converged():
+        print(f"\n\nstep: {early_stop.step}")
         max_step(
             x, HP,
             mu_alpha, sigma2_alpha, mu_log_alpha,
@@ -145,6 +145,7 @@ def me(x: np.ndarray, HP: HyperParams):
             rs, qs, nk
         )
         print(f"elbo: {elbo}")
+        early_stop.update(elbo)
 
 
 @profile
@@ -201,6 +202,31 @@ def delta_ElogGamma(mu: float, sigma2: float, a: float = 1.0, b: float = 0.0) ->
 
 def normal_entropy(sigma2: float) -> float:
     return 0.5 * np.log(2*np.pi*np.e * sigma2)
+
+
+class EarlyStopping:
+    def __init__(self, patience: int, minimize: bool = True, tol: float = 1e-5):
+        self.patience = patience
+        self.minimize = minimize
+        self.tol = tol
+
+        self.step = 0
+
+        self.min_val = float("inf")
+        self.steps_since_min = 0
+
+    def update(self, x: float):
+        self.step += 1
+        if not self.minimize:
+            x = -x
+        if self.min_val - x > self.tol:
+            self.min_val = x
+            self.step_since_min = 0
+        else:
+            self.steps_since_min += 1
+
+    def converged(self) -> bool:
+        return self.steps_since_min > self.patience
 
 
 @profile
