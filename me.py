@@ -189,6 +189,8 @@ def calc_elbo(
         elbo += sum(special.gammaln(len(a.children)) - special.gammaln(len(a)) for a in rs[l])
         elbo += sum(special.gammaln(len(a.parents)) for a in rs[l+1])
 
+    # TODO: gamma and beta prior normalization terms for comparisons across hyperparams.
+
     # Variational entropy term.
     elbo += normal_entropy(sigma2_log_alpha)
     elbo += normal_entropy(sigma2_log_gamma).sum() + normal_entropy(sigma2_logit_d).sum()
