@@ -254,7 +254,7 @@ def viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]) -> None
 
         for r in rs[l]:
             d.edges([(cluster_names[r], cluster_names[child]) for child in r.children])
-    d.render("dfcp", format="png", view=True, cleanup=True)
+    d.render("dfcp", format="png", cleanup=True)
 
 
 @profile
