@@ -1,7 +1,6 @@
 from __future__ import annotations
 import uuid
 from argparse import ArgumentParser
-from pprint import pprint
 
 import graphviz
 import numpy as np
@@ -105,10 +104,6 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
                     seq_assignments=r_assignments, l=l+1,
                     nkl=nk[l+1], emission=x_modes[l+1])
         q.add_child(r)
-    print("rs:")
-    pprint(rs)
-    print("qs:")
-    pprint(qs)
 
     # ME.
     early_stop = EarlyStopping(patience=10, minimize=False, tol=1e-5)
@@ -121,11 +116,6 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
             mu_gamma, sigma2_gamma,
             rs, qs, nk, r_assignments, q_assignments
         )
-        print("rs:")
-        pprint(rs)
-        print("qs:")
-        pprint(qs)
-
         mu_alpha, sigma2_alpha, mu_log_alpha, sigma2_log_alpha = expect_step(
             HP,
             mu_d, sigma2_d, mu_log_d, sigma2_logit_d,
