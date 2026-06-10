@@ -273,22 +273,26 @@ def max_step(
             sigma2_y = sigma2_alpha + nQl*nQl * sigma2_d[l]
             elogy = delta_Elogx(mu_y, sigma2_y)
 
-            next_a_ll = {}
-            next_a_ll["new"] = mu_log_alpha + next_ma["new"][0]
+            best_a = "new"
+            best_a_ll = mu_log_alpha + next_ma["new"][0]
             for a in rs[l+1]:
-                next_a_ll[a] = mu_log_d[l] + np.log(len(a.parents)) + next_ma[a][0]
-            next_a = max(next_a_ll, key=next_a_ll.get)
-            mb["new"] = (-elogy + next_a_ll[next_a], next_a)
+                ll = mu_log_d[l] + np.log(len(a.parents)) + next_ma[a][0]
+                if ll > best_a_ll:
+                    best_a = a
+                    best_a_ll = ll
+            mb["new"] = (-elogy + best_a_ll, best_a)
 
             # a-messages.
             ma["new"] = (ma["new"][0] + mb["new"][0], "new")
             for a in rs[l]:
-                next_b_ll = {}
-                next_b_ll["new"] = np.log(len(a.children)) + mu_log_d[l] + mb["new"][0]
+                best_b = "new"
+                best_b_ll = np.log(len(a.children)) + mu_log_d[l] + mb["new"][0]
                 for b in a.children:
-                    next_b_ll[b] = delta_Elogx(mu_d[l], sigma2_d[l], a=-1, b=len(b)) + mb[b][0]
-                next_b = max(next_b_ll, key=next_b_ll.get)
-                ma[a] = (ma[a][0] - np.log(len(a)) + next_b_ll[next_b], next_b)
+                    ll = delta_Elogx(mu_d[l], sigma2_d[l], a=-1, b=len(b)) + mb[b][0]
+                    if ll > best_b_ll:
+                        best_b = b
+                        best_b_ll = ll
+                ma[a] = (ma[a][0] - np.log(len(a)) + best_b_ll, best_b)
 
             messages.append((ma, mb))
 
