@@ -1,16 +1,26 @@
+from __future__ import annotations
 import random
-from dataclasses import dataclass
+from argparse import ArgumentParser, Namespace
+from dataclasses import dataclass, asdict
 
 import numpy as np
 from scipy.stats import gamma, beta, dirichlet
 
-from cli_params import CLIParams
+
+class CLIParams:
+    def add_params(self, parser: ArgumentParser) -> CLIParams:
+        for k, v in asdict(self).items():
+            parser.add_argument(f"--{k}", type=type(v), default=v)
+        return self
+
+    def override_args(self, args: Namespace) -> CLIParams:
+        for k in asdict(self):
+            setattr(self, k, vars(args)[k])
+        return self
 
 
 @dataclass
 class HyperParams(CLIParams):
-    seed: int = 0
-
     N: int = 8   # Num sequences.
     L: int = 16  # Seq length.
     K: int = 4   # Num alleles.
@@ -62,10 +72,10 @@ def coag(clusters: list[list[int]], alpha: float, d: float) -> list[list[int]]:
     return coagulated
 
 
-def generate(HP: HyperParams) -> tuple[np.ndarray, list[list[list[int]]], list[list[list[int]]]]:
-    if HP.seed != 0:
-        np.random.seed(HP.seed)
-        random.seed(HP.seed)
+def generate(HP: HyperParams, seed: int = 0) -> tuple[np.ndarray, list[list[list[int]]], list[list[list[int]]]]:
+    if seed != 0:
+        np.random.seed(seed)
+        random.seed(seed)
 
     # Params.
     alpha = gamma.rvs(a=HP.tau_1, scale=1/HP.tau_2)
@@ -94,9 +104,13 @@ def generate(HP: HyperParams) -> tuple[np.ndarray, list[list[list[int]]], list[l
 
 
 if __name__ == "__main__":
-    HP = HyperParams().cli()
+    parser = ArgumentParser()
+    parser.add_argument("--seed", default=0, type=int)
+    HP = HyperParams().add_params(parser)
+    args = parser.parse_args()
+    HP.override_args(args)
 
-    x, rs, qs = generate(HP)
+    x, rs, qs = generate(HP, args.seed)
     print(f"r0: {rs[0]}")
     for l in range(HP.L-1):
         print(f"q{l}: {qs[l]}")

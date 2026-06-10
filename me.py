@@ -1,5 +1,6 @@
 from __future__ import annotations
 import uuid
+from argparse import ArgumentParser
 from pprint import pprint
 
 import graphviz
@@ -69,7 +70,7 @@ class Cluster:
 
 
 @profile
-def me(x: np.ndarray, HP: HyperParams):
+def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
     # Init parameters.
     mu_alpha = HP.tau_1 / HP.tau_2
     sigma2_alpha = mu_alpha / HP.tau_2
@@ -147,7 +148,9 @@ def me(x: np.ndarray, HP: HyperParams):
         )
         print(f"elbo: {elbo}")
         early_stop.update(elbo)
-    viz(HP, rs, qs)
+
+    if viz:
+        draw_viz(HP, rs, qs)
 
 
 @profile
@@ -233,7 +236,7 @@ class EarlyStopping:
         return self.steps_since_min > self.patience
 
 
-def viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]) -> None:
+def draw_viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]) -> None:
     d = graphviz.Digraph("dfcp", graph_attr={"rankdir": "LR"})
     cluster_names = {}
     for l in reversed(range(HP.L)):
@@ -254,7 +257,7 @@ def viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]) -> None
 
         for r in rs[l]:
             d.edges([(cluster_names[r], cluster_names[child]) for child in r.children])
-    d.render("dfcp", format="png", cleanup=True)
+    d.render("dfcp", format="png", view=True, cleanup=True)
 
 
 @profile
@@ -511,10 +514,15 @@ def ll_logit_dl_d2(
 
 
 if __name__ == "__main__":
-    # TODO: different HP for generate and me.
-    HP = HyperParams().cli()
-    x, _, _ = generate(HP)
+    parser = ArgumentParser()
+    parser.add_argument("--seed", default=0, type=int)
+    parser.add_argument("--viz", action="store_true")
+    HP = HyperParams().add_params(parser)
+    args = parser.parse_args()
+    HP.override_args(args)
+
+    x, _, _ = generate(HP, seed=args.seed)
     print(f"x:\n{x}")
 
-    me(x, HP)
+    me(x, HP, viz=args.viz)
 
