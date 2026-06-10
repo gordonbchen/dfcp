@@ -333,7 +333,6 @@ PP[gamma_l|theta_l, cal(R)_l] prop& PP[gamma_l]
   (Gamma(gamma_l/2)^2 Gamma(gamma_l + n_(1 l) +n_(0 l))) \
 $
 
-#todo[ sequences in a cluster must agree for every single emission, otherwise likelihood is 0. this seems too hard a constraint. why not softer? ]
 
 
 = Slice Sampling
@@ -754,11 +753,7 @@ prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2-1) log
 -& sum_(i=0)^(\#cal(Q)_l-1) EE_alpha [ log alpha \/ d + i ] \
 $
 
-#todo[
-  Paper correction: $EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l$
-
-  also $EE_alpha [ log alpha \/ d + i ]$ doesn't need a delta approx for $i=0$.
-]
+Paper correction: $EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l$
 
 
 
@@ -919,18 +914,9 @@ $
 
 #pagebreak()
 = Maximization
-$C^* = "argmax"_C EE_q(Theta) [log p(C, Theta|cal(D))]$
-#todo[
-  notational issue: take out and put back 1 sequence at a time.
+$C_i^* = "argmax"_(C_i) EE_q(Theta) [log p(C, Theta|cal(D))]$
 
-  should be $C_i^* = "argmax"_(C_i) EE_q(Theta) [log p(C, Theta|cal(D))]$
-]
-
-#todo[
-  - how to initialize clusters?
-  - symmetric dirichlet? or is it 4 different $gamma_l$s?
-  - are the variational distributions different after update? moment matching or using normals?
-]
+Paper correction: take out and put back 1 sequence at a time.
 
 
 == Likelihood
@@ -1093,4 +1079,13 @@ $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
   $r^2 = 0 -> D = 0$, uncorrelated
 
 - LD decay curve: $1/(|cal(P)_d|) sum_((i, j) in cal(P)_d) r^2_(i,j)$ for all pairs $cal(P)_d$ in a distance bin $d$
+
+
+#todo[
+  faster inference (N=2500 L=100000)
+
+  imputation
+
+  cluster init
+]
 
