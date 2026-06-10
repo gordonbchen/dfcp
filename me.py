@@ -156,11 +156,13 @@ def calc_elbo(
 ) -> float:
     elbo = delta_ElogGamma(mu_alpha, sigma2_alpha) - delta_ElogGamma(mu_alpha, sigma2_alpha, b=HP.N)
     elbo += (sum(len(r) for r in rs)+HP.tau_1)*mu_log_alpha - HP.tau_2*mu_alpha  # -1 cancels out w/ alpha entropy.
+    elbo += HP.tau_1*np.log(HP.tau_2) - special.gammaln(HP.tau_1)
 
     for l in range(HP.L-1):
         # -1s cancel out in dl entropy.
         elbo += (len(qs[l])-len(rs[l])-len(rs[l+1])+HP.v_1) * mu_log_d[l]
         elbo += HP.v_2 * delta_Elogx(mu_d[l], sigma2_d[l], a=-1, b=1)
+        elbo -= special.betaln(HP.v_1, HP.v_2)
 
         elbo -= len(qs[l]) * delta_ElogGamma(mu_d[l], sigma2_d[l], a=-1, b=1)
         elbo += sum(delta_ElogGamma(mu_d[l], sigma2_d[l], a=-1, b=len(b)) for b in qs[l])
@@ -176,6 +178,7 @@ def calc_elbo(
 
     elbo += (HP.phi_1*mu_log_gamma - HP.phi_2*mu_gamma).sum()  # -1 cancels out w/ gammal entropy.
     for l in range(HP.L):
+        elbo += HP.phi_1*np.log(HP.phi_2) - special.gammaln(HP.phi_1)
         elbo += delta_ElogGamma(mu_gamma[l], sigma2_gamma[l], a=HP.K)
         elbo -= delta_ElogGamma(mu_gamma[l], sigma2_gamma[l], a=HP.K, b=len(rs[l]))
         elbo += sum(delta_ElogGamma(mu_gamma[l], sigma2_gamma[l], b=n) for n in nk[l])
@@ -185,8 +188,6 @@ def calc_elbo(
     for l in range(HP.L-1):
         elbo += sum(special.gammaln(len(a.children)) - special.gammaln(len(a)) for a in rs[l])
         elbo += sum(special.gammaln(len(a.parents)) for a in rs[l+1])
-
-    # TODO: gamma and beta prior normalization terms for comparisons across hyperparams.
 
     # Variational entropy term.
     elbo += normal_entropy(sigma2_log_alpha)

@@ -480,21 +480,31 @@ log p(C, gamma, alpha, d, X)
 $
 
 $
-=& log Gamma(alpha) / Gamma(alpha + N) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
+=& log Gamma(alpha) / Gamma(alpha + N) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha 
+
++ tau_1 log tau_2 - log Gamma(tau_1) \
 
 +& sum_(l=1)^(L-1) [
   (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l
 
-  + (v_2 - 1) log (1 - d_l)
+  + (v_2 - 1) log (1 - d_l) - log B(v_1, v_2) \
 
-  - \#cal(Q)_l log Gamma(1-d_l)
+  &- \#cal(Q)_l log Gamma(1-d_l)
 
   + sum_(b in cal(Q)_l) log Gamma(\#b - d_l)
 ] \
 
 +& sum_(l=1)^(L-1) log Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) \
 
-+& sum_(l=1)^L [(phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l + log Gamma(K gamma_l) / Gamma(K gamma_l + \#cal(R)_l) + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l) ] \
++& sum_(l=1)^L [
+  phi.alt_1 log phi.alt_2 - log Gamma(phi.alt_1)
+
+  + (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l
+
+  + log Gamma(K gamma_l) / Gamma(K gamma_l + \#cal(R)_l)
+
+  + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l)
+] \
 
 +& sum_(a in cal(R)_1) log Gamma(\#a)
 
