@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 
 import graphviz
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy import stats, special, optimize
 from line_profiler import profile
 
@@ -106,7 +107,8 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
         q.add_child(r)
 
     # ME.
-    early_stop = EarlyStopping(patience=10, minimize=False, tol=1e-5)
+    if viz: log = Logger()
+    early_stop = EarlyStopping(patience=5, minimize=False, tol=1e-5)
     while not early_stop.converged():
         print(f"\n\nstep: {early_stop.step}")
         max_step(
@@ -138,9 +140,17 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
         )
         print(f"elbo: {elbo}")
         early_stop.update(elbo)
+        if viz:
+            log.log({
+                "elbo": elbo,
+                "mu_alpha": mu_alpha, "sigma2_alpha": sigma2_alpha,
+                "mu_d": mu_d, "sigma2_d": sigma2_d,
+                "mu_gamma": mu_gamma, "sigma2_gamma": sigma2_gamma,
+            })
 
     if viz:
-        draw_viz(HP, rs, qs)
+        draw_viz(HP, rs, qs, "clusters")
+        log.plot("log.png")
 
 
 @profile
@@ -201,6 +211,31 @@ def normal_entropy(sigma2: float) -> float:
     return 0.5 * np.log(2*np.pi*np.e * sigma2)
 
 
+class Logger:
+    def __init__(self):
+        self.vals = {}
+
+    def log(self, log_dict: dict) -> None:
+        for (k, v) in log_dict.items():
+            if k not in self.vals:
+                self.vals[k] = []
+            self.vals[k].append(v.copy())
+
+    def plot(self, save_path: str) -> None:
+        fig, axs = plt.subplots(ncols=len(self.vals), figsize=(len(self.vals)*8, 6))
+        fig.tight_layout(pad=2)
+        for (k, v), ax in zip(self.vals.items(), axs):
+            if isinstance(v[0], float):
+                ax.plot(v, color="blue")
+            elif isinstance(v[0], np.ndarray):
+                for i, vi in enumerate(v):
+                    ax.plot(vi, alpha=0.4 + 0.6*(i/(len(v)-1)), color="blue")
+            else:
+                raise ValueError(f"Logger does not support {k} of type {type(v)}")
+            ax.set_title(k)
+        fig.savefig(save_path)
+
+
 class EarlyStopping:
     def __init__(self, patience: int, minimize: bool = True, tol: float = 1e-5):
         self.patience = patience
@@ -226,7 +261,7 @@ class EarlyStopping:
         return self.steps_since_min > self.patience
 
 
-def draw_viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]) -> None:
+def draw_viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]], save_name: str) -> None:
     d = graphviz.Digraph("dfcp", graph_attr={"rankdir": "LR"})
     cluster_names = {}
     for l in reversed(range(HP.L)):
@@ -247,7 +282,7 @@ def draw_viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]) ->
 
         for r in rs[l]:
             d.edges([(cluster_names[r], cluster_names[child]) for child in r.children])
-    d.render("dfcp", format="png", view=True, cleanup=True)
+    d.render(save_name, format="png", cleanup=True)
 
 
 @profile
