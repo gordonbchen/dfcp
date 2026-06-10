@@ -108,7 +108,7 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
 
     # ME.
     if viz: log = Logger()
-    early_stop = EarlyStopping(patience=5, minimize=False)
+    early_stop = EarlyStopping(patience=3, minimize=False)
     while not early_stop.converged():
         max_step(
             x, HP,
@@ -275,7 +275,7 @@ def draw_viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]], sa
 
         for r in rs[l]:
             d.edges([(cluster_names[r], cluster_names[child]) for child in r.children])
-    d.render(save_name, format="png", cleanup=True)
+    d.render(save_name, format="svg", cleanup=True)
 
 
 @profile
@@ -535,12 +535,20 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--viz", action="store_true")
+    parser.add_argument("--seq_file", default=None)
     HP = HyperParams().add_params(parser)
     args = parser.parse_args()
     HP.override_args(args)
 
-    x, _, _ = generate(HP, seed=args.seed)
+    if args.seq_file is None:
+        x, _, _ = generate(HP, seed=args.seed)
+    else:
+        with open(args.seq_file, "r") as f:
+            x = np.array([list(map(int, line)) for line in f.read().split()], dtype=np.int8)
+        HP.K = int(np.unique(x)[-1]) + 1
+        HP.N, HP.L = x.shape
     print(f"x:\n{x}")
+    print(HP)
 
     me(x, HP, viz=args.viz)
 
