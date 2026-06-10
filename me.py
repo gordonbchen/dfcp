@@ -2,6 +2,7 @@ from __future__ import annotations
 import uuid
 from pprint import pprint
 
+import graphviz
 import numpy as np
 from scipy import stats, special, optimize
 from line_profiler import profile
@@ -146,6 +147,7 @@ def me(x: np.ndarray, HP: HyperParams):
         )
         print(f"elbo: {elbo}")
         early_stop.update(elbo)
+    viz(HP, rs, qs)
 
 
 @profile
@@ -229,6 +231,30 @@ class EarlyStopping:
 
     def converged(self) -> bool:
         return self.steps_since_min > self.patience
+
+
+def viz(HP: HyperParams, rs: list[set[Cluster]], qs: list[set[Cluster]]) -> None:
+    d = graphviz.Digraph("dfcp", graph_attr={"rankdir": "LR"})
+    cluster_names = {}
+    for l in reversed(range(HP.L)):
+        for i, r in enumerate(rs[l]):
+            name = f"R,{l},{i}"
+            text = f"{name}\nn={len(r.seqs)}\nx={r.emission}"
+            d.node(name, text, style="filled", fillcolor="lightblue")
+            cluster_names[r] = name
+        if l == HP.L-1:
+            continue
+
+        for i, q in enumerate(qs[l]):
+            name = f"Q,{l},{i}"
+            text = f"{name}\nn={len(q.seqs)}"
+            d.node(name, text, style="filled", fillcolor="lightgreen", shape="diamond")
+            cluster_names[q] = name
+            d.edges([(name, cluster_names[child]) for child in q.children])
+
+        for r in rs[l]:
+            d.edges([(cluster_names[r], cluster_names[child]) for child in r.children])
+    d.render("dfcp", format="png", view=True, cleanup=True)
 
 
 @profile
