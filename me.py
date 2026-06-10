@@ -108,9 +108,8 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
 
     # ME.
     if viz: log = Logger()
-    early_stop = EarlyStopping(patience=5, minimize=False, tol=1e-5)
+    early_stop = EarlyStopping(patience=5, minimize=False)
     while not early_stop.converged():
-        print(f"\n\nstep: {early_stop.step}")
         max_step(
             x, HP,
             mu_alpha, sigma2_alpha, mu_log_alpha,
@@ -124,13 +123,6 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
             mu_gamma, sigma2_gamma, mu_log_gamma, sigma2_log_gamma,
             rs, qs, nk
         )
-        print(f"mu_alpha: {mu_alpha}")
-        print(f"sigma2_alpha: {sigma2_alpha}")
-        print(f"mu_gamma:\n{mu_gamma}")
-        print(f"sigma2_gamma:\n{sigma2_gamma}")
-        print(f"mu_d:\n{mu_d}")
-        print(f"sigma2_d:\n{sigma2_d}")
-
         elbo = calc_elbo(
             HP,
             mu_alpha, sigma2_alpha, mu_log_alpha, sigma2_log_alpha,
@@ -138,7 +130,7 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
             mu_gamma, sigma2_gamma, mu_log_gamma, sigma2_log_gamma,
             rs, qs, nk
         )
-        print(f"elbo: {elbo}")
+        print(f"{early_stop.step}.  elbo={elbo:.4f}")
         early_stop.update(elbo)
         if viz:
             log.log({
