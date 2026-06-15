@@ -34,8 +34,8 @@ class HyperParams(CLIParams):
     v_2: float = 1.0
 
     # gamma Gamma hyperparams.
-    phi_1: float = 1.0
-    phi_2: float = 1.0
+    phi_1: float = 2.0
+    phi_2: float = 2.0
 
 
 def crp(nums: list[int], alpha: float, d: float) -> list[list[int]]:
