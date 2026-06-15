@@ -72,11 +72,7 @@ def coag(clusters: list[list[int]], alpha: float, d: float) -> list[list[int]]:
     return coagulated
 
 
-def generate(HP: HyperParams, seed: int = 0) -> tuple[np.ndarray, list[list[list[int]]], list[list[list[int]]]]:
-    if seed != 0:
-        np.random.seed(seed)
-        random.seed(seed)
-
+def generate(HP: HyperParams) -> tuple[np.ndarray, list[list[list[int]]], list[list[list[int]]]]:
     # Params.
     alpha = gamma.rvs(a=HP.tau_1, scale=1/HP.tau_2)
     d = beta.rvs(a=HP.v_1, b=HP.v_2, size=HP.L-1)
@@ -103,14 +99,21 @@ def generate(HP: HyperParams, seed: int = 0) -> tuple[np.ndarray, list[list[list
     return x, rs, qs
 
 
+def seed_rngs(seed: int):
+    if seed != 0:
+        np.random.seed(seed)
+        random.seed(seed)
+
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--seed", default=0, type=int)
     HP = HyperParams().add_params(parser)
     args = parser.parse_args()
+    seed_rngs(args.seed)
     HP.override_args(args)
 
-    x, rs, qs = generate(HP, args.seed)
+    x, rs, qs = generate(HP)
     print(f"r0: {rs[0]}")
     for l in range(HP.L-1):
         print(f"q{l}: {qs[l]}")

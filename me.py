@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from scipy import stats, special, optimize
 from line_profiler import profile
 
-from generate import generate, HyperParams
+from generate import generate, HyperParams, seed_rngs
 
 
 class Cluster:
@@ -542,10 +542,11 @@ if __name__ == "__main__":
     parser.add_argument("--mask", default=0.0, type=float)
     HP = HyperParams().add_params(parser)
     args = parser.parse_args()
+    seed_rngs(args.seed)
     HP.override_args(args)
 
     if args.seq_file is None:
-        x, _, _ = generate(HP, seed=args.seed)
+        x, _, _ = generate(HP)
     else:
         with open(args.seq_file, "r") as f:
             x = np.array([list(map(int, line)) for line in f.read().split()], dtype=np.int8)
