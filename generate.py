@@ -95,7 +95,7 @@ def generate(HP: HyperParams, seed: int = 0) -> tuple[np.ndarray, list[list[list
         rs.append(r)
 
     # Cluster emissions.
-    x = np.zeros(shape=(HP.N, HP.L), dtype=np.uint8)
+    x = np.zeros(shape=(HP.N, HP.L), dtype=np.int8)
     for l, r in enumerate(rs):
         for cluster in r:
             emission = np.random.choice(a=HP.K, p=betal[l])

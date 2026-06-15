@@ -70,7 +70,7 @@ class Cluster:
 
 
 @profile
-def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
+def me(x: np.ndarray, HP: HyperParams, viz: bool = False) -> list[list[Cluster]]:
     # Init parameters.
     mu_alpha = HP.tau_1 / HP.tau_2
     sigma2_alpha = mu_alpha / HP.tau_2
@@ -93,7 +93,7 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
     q_assignments = [[None for _ in range(HP.L-1)] for _ in range(HP.N)]
     rs = [set() for _ in range(HP.L)]
     qs = [set() for _ in range(HP.L-1)]
-    x_modes = stats.mode(x, axis=0).mode
+    x_modes = [stats.mode(x[:, l][x[:, l] >= 0]).mode for l in range(HP.L)]
     r = Cluster(seqs=set(range(HP.N)), cluster_group=rs[0],
                 seq_assignments=r_assignments, l=0,
                 nkl=nk[0], emission=x_modes[0])
@@ -130,7 +130,7 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
             mu_gamma, sigma2_gamma, mu_log_gamma, sigma2_log_gamma,
             rs, qs, nk
         )
-        print(f"{early_stop.step}.  elbo={elbo:.4f}")
+        print(f"{early_stop.step}.  elbo={elbo}")
         early_stop.update(elbo)
         if viz:
             log.log({
@@ -143,6 +143,7 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False):
     if viz:
         draw_viz(HP, rs, qs, "clusters")
         log.plot("log.png")
+    return r_assignments
 
 
 @profile
@@ -298,13 +299,14 @@ def max_step(
         for l in reversed(range(HP.L)):
             # Compute likelihood term for a-message.
             ma = {}
-            log_likelihood = (
-                delta_Elogx(mu_gamma[l], sigma2_gamma[l], b=nk[l, x[i, l]])
+            emission = x[i, l] if x[i, l] != -1 else np.argmax(nk[l])
+            ll = (
+                delta_Elogx(mu_gamma[l], sigma2_gamma[l], b=nk[l, emission])
                 - delta_Elogx(mu_gamma[l], sigma2_gamma[l], a=HP.K, b=len(rs[l]))
             )
-            ma["new"] = (log_likelihood, None)
+            ma["new"] = (ll, None)
             for a in rs[l]:
-                ma[a] = (0 if x[i, l] == a.emission else float("-infinity"), None)
+                ma[a] = (0 if (x[i, l] == -1) or (x[i, l] == a.emission) else float("-infinity"), None)
             if l == HP.L - 1:
                 messages.append((ma,))
                 continue
@@ -365,9 +367,10 @@ def max_step(
                 continue
 
             if j % 2 == 0:
+                emission = x[i, l] if x[i, l] != -1 else np.argmax(nk[l])
                 new_cluster = Cluster(seqs=set([i]), cluster_group=rs[l],
                                       seq_assignments=r_assignments, l=l,
-                                      nkl=nk[l], emission=x[i, l])
+                                      nkl=nk[l], emission=emission)
             else:
                 new_cluster = Cluster(seqs=set([i]), cluster_group=qs[l],
                                       seq_assignments=q_assignments, l=l)
@@ -536,6 +539,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--viz", action="store_true")
     parser.add_argument("--seq_file", default=None)
+    parser.add_argument("--mask", default=0.0, type=float)
     HP = HyperParams().add_params(parser)
     args = parser.parse_args()
     HP.override_args(args)
@@ -545,10 +549,23 @@ if __name__ == "__main__":
     else:
         with open(args.seq_file, "r") as f:
             x = np.array([list(map(int, line)) for line in f.read().split()], dtype=np.int8)
-        HP.K = int(np.unique(x)[-1]) + 1
+        HP.K = int(np.max(x)) + 1
         HP.N, HP.L = x.shape
-    print(f"x:\n{x}")
     print(HP)
 
-    me(x, HP, viz=args.viz)
+    if args.mask > 0.0:
+        x_true = x.copy()
+        x_mask = np.random.random(x.shape) < args.mask
+        x[x_mask] = -1
+    print(f"x:\n{x}")
+
+    r_assignments = me(x, HP, viz=args.viz)
+
+    if args.mask > 0.0:
+        correct = 0
+        for i in range(HP.N):
+            for l in range(HP.L):
+                if x_mask[i, l] and r_assignments[i][l].emission == x_true[i, l]:
+                    correct += 1
+        print(f"imputation accuracy: {correct} / {x_mask.sum()} = {correct / x_mask.sum()}")
 
