@@ -1081,11 +1081,19 @@ $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
 - LD decay curve: $1/(|cal(P)_d|) sum_((i, j) in cal(P)_d) r^2_(i,j)$ for all pairs $cal(P)_d$ in a distance bin $d$
 
 
-#todo[
-  faster inference (N=2500 L=100000)
 
-  imputation
 
-  cluster init
-]
+#pagebreak()
+= TODO
+
+== imputation
+- me
+  - imputation integrated into max step by MAP estimate of cluster assignment
+- todo
+  - compare to stronger baselines: beagle / impute2
+
+== faster inference (N=2500 L=100000)
+
+
+== cluster init
 
