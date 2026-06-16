@@ -16,6 +16,7 @@ class Cluster:
         self, seqs: set[int], cluster_group: set[Cluster],
         seq_assignments: list[list[Cluster]], l: int,
         nkl: np.ndarray = None, emission: int = None,
+        rs_by_emit_l: list[set[Cluster]] = None,
     ):
         self.uuid = uuid.uuid4().int
 
@@ -29,8 +30,10 @@ class Cluster:
 
         self.emission = emission
         self.nkl = nkl
+        self.rs_by_emit_l = rs_by_emit_l
         if not self.emission is None:
             self.nkl[emission] += 1
+            self.rs_by_emit_l[emission].add(self)
 
         self.children = set()
         self.parents = set()
@@ -61,6 +64,7 @@ class Cluster:
                 child.parents.remove(self)
             if not self.emission is None:
                 self.nkl[self.emission] -= 1
+                self.rs_by_emit_l[self.emission].remove(self)
             self.cluster_group.remove(self)
 
     def add(self, idx: int):
@@ -93,17 +97,20 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False) -> list[list[Cluster]]
     q_assignments = [[None for _ in range(HP.L-1)] for _ in range(HP.N)]
     rs = [set() for _ in range(HP.L)]
     qs = [set() for _ in range(HP.L-1)]
+    rs_by_emit = [[set() for _ in range(HP.K)] for _ in range(HP.L)]
     x_modes = [stats.mode(x[:, l][x[:, l] >= 0]).mode for l in range(HP.L)]
     r = Cluster(seqs=set(range(HP.N)), cluster_group=rs[0],
                 seq_assignments=r_assignments, l=0,
-                nkl=nk[0], emission=x_modes[0])
+                nkl=nk[0], emission=x_modes[0],
+                rs_by_emit_l=rs_by_emit[0])
     for l in range(HP.L-1):
         q = Cluster(seqs=set(range(HP.N)), cluster_group=qs[l],
                     seq_assignments=q_assignments, l=l)
         r.add_child(q)
         r = Cluster(seqs=set(range(HP.N)), cluster_group=rs[l+1],
                     seq_assignments=r_assignments, l=l+1,
-                    nkl=nk[l+1], emission=x_modes[l+1])
+                    nkl=nk[l+1], emission=x_modes[l+1],
+                    rs_by_emit_l=rs_by_emit[l+1])
         q.add_child(r)
 
     # ME.
@@ -115,7 +122,7 @@ def me(x: np.ndarray, HP: HyperParams, viz: bool = False) -> list[list[Cluster]]
             mu_alpha, sigma2_alpha, mu_log_alpha,
             mu_d, sigma2_d, mu_log_d,
             mu_gamma, sigma2_gamma,
-            rs, qs, nk, r_assignments, q_assignments
+            rs, qs, nk, rs_by_emit, r_assignments, q_assignments
         )
         mu_alpha, sigma2_alpha, mu_log_alpha, sigma2_log_alpha = expect_step(
             HP,
@@ -290,7 +297,7 @@ def max_step(
     mu_d: np.ndarray, sigma2_d: np.ndarray, mu_log_d: np.ndarray,
     mu_gamma: np.ndarray, sigma2_gamma: np.ndarray,
     rs: list[set[Cluster]], qs: list[set[Cluster]],
-    nk: np.ndarray,
+    nk: np.ndarray, rs_by_emit: list[list[set[Cluster]]],
     r_assignments: list[list[Cluster]], q_assignments: list[list[Cluster]],
 ) -> None:
     for i in range(HP.N):
@@ -309,8 +316,11 @@ def max_step(
                 - delta_Elogx(mu_gamma[l], sigma2_gamma[l], a=HP.K, b=len(rs[l]))
             )
             ma["new"] = (ll, None)
-            for a in rs[l]:
-                ma[a] = (0 if (x[i, l] == -1) or (x[i, l] == a.emission) else float("-infinity"), None)
+
+            matching_as = rs[l] if x[i, l] == -1 else rs_by_emit[l][x[i, l]]
+            for a in matching_as:
+                ma[a] = (0.0, None)
+
             if l == HP.L - 1:
                 messages.append((ma,))
                 continue
@@ -321,7 +331,7 @@ def max_step(
             for b in qs[l]:
                 assert len(b.children) == 1
                 next_a = next(iter(b.children))
-                mb[b] = (next_ma[next_a][0], next_a)
+                mb[b] = (next_ma.get(next_a, (float("-inf"), None))[0], next_a)
 
             nQl = len(qs[l])
             mu_y = mu_alpha + nQl*mu_d[l]
@@ -330,7 +340,8 @@ def max_step(
 
             best_a = "new"
             best_a_ll = mu_log_alpha + next_ma["new"][0]
-            for a in rs[l+1]:
+            matching_next_as = rs[l+1] if x[i, l+1] == -1 else rs_by_emit[l+1][x[i, l+1]]
+            for a in matching_next_as:
                 ll = mu_log_d[l] + np.log(len(a.parents)) + next_ma[a][0]
                 if ll > best_a_ll:
                     best_a = a
@@ -339,7 +350,7 @@ def max_step(
 
             # a-messages.
             ma["new"] = (ma["new"][0] + mb["new"][0], "new")
-            for a in rs[l]:
+            for a in matching_as:
                 best_b = "new"
                 best_b_ll = np.log(len(a.children)) + mu_log_d[l] + mb["new"][0]
                 for b in a.children:
@@ -355,7 +366,7 @@ def max_step(
         path = []
         for l, (ma, mb) in enumerate(reversed(messages[1:])):
             if l == 0:
-                a = max(ma, key=lambda x: ma.get(x)[0])
+                a = max(ma, key=lambda x: ma[x][0])
                 path.append(a)
 
             b = ma[a][1]
@@ -374,7 +385,8 @@ def max_step(
                 emission = x[i, l] if x[i, l] != -1 else np.argmax(nk[l])
                 new_cluster = Cluster(seqs=set([i]), cluster_group=rs[l],
                                       seq_assignments=r_assignments, l=l,
-                                      nkl=nk[l], emission=emission)
+                                      nkl=nk[l], emission=emission,
+                                      rs_by_emit_l=rs_by_emit[l])
             else:
                 new_cluster = Cluster(seqs=set([i]), cluster_group=qs[l],
                                       seq_assignments=q_assignments, l=l)
