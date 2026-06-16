@@ -155,11 +155,13 @@ def calc_elbo(
     rs: list[set[Cluster]], qs: list[set[Cluster]],
     nk: np.ndarray,
 ) -> float:
+    # alpha.
     elbo = delta_ElogGamma(mu_alpha, sigma2_alpha) - delta_ElogGamma(mu_alpha, sigma2_alpha, b=HP.N)
     elbo += (sum(len(r) for r in rs)+HP.tau_1)*mu_log_alpha - HP.tau_2*mu_alpha  # -1 cancels out w/ alpha entropy.
     elbo += HP.tau_1*np.log(HP.tau_2) - special.gammaln(HP.tau_1)
 
     for l in range(HP.L-1):
+        # d.
         # -1s cancel out in dl entropy.
         elbo += (len(qs[l])-len(rs[l])-len(rs[l+1])+HP.v_1) * mu_log_d[l]
         elbo += HP.v_2 * delta_Elogx(mu_d[l], sigma2_d[l], a=-1, b=1)
@@ -177,6 +179,7 @@ def calc_elbo(
         dd2 = special.digamma(z)*(2*mu_alpha/mu_d[l]**3) + special.polygamma(1, z)*mu_alpha**2/mu_d[l]**4
         elbo -= delta_ElogGamma(mu_alpha, sigma2_alpha, a=1/mu_d[l], b=len(qs[l])) + 0.5*sigma2_d[l]*dd2
 
+    # Gamma.
     elbo += (HP.phi_1*mu_log_gamma - HP.phi_2*mu_gamma).sum()  # -1 cancels out w/ gammal entropy.
     for l in range(HP.L):
         elbo += HP.phi_1*np.log(HP.phi_2) - special.gammaln(HP.phi_1)
@@ -185,6 +188,7 @@ def calc_elbo(
         elbo += sum(delta_ElogGamma(mu_gamma[l], sigma2_gamma[l], b=n) for n in nk[l])
         elbo -= HP.K*delta_ElogGamma(mu_gamma[l], sigma2_gamma[l])
 
+    # Clusters.
     elbo += sum(special.gammaln(len(a)) for a in rs[0])
     for l in range(HP.L-1):
         elbo += sum(special.gammaln(len(a.children)) - special.gammaln(len(a)) for a in rs[l])
