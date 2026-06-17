@@ -14,15 +14,15 @@
 
 
 struct HyperParams {
-    int N;
-    int L;
-    int K;
-    double tau_1;
-    double tau_2;
-    double v_1;
-    double v_2;
-    double phi_1;
-    double phi_2;
+    const int N;
+    const int L;
+    const int K;
+    const double tau_1;
+    const double tau_2;
+    const double v_1;
+    const double v_2;
+    const double phi_1;
+    const double phi_2;
 };
 
 std::ostream& operator<<(std::ostream& os, const HyperParams& HP) {
@@ -71,9 +71,9 @@ struct Params {
 
 struct Cluster {
     std::unordered_set<int> seqs;
-    bool is_r;
-    int l;
-    int emission;
+    const bool is_r;
+    const int l;
+    const int emission;
 
     std::unordered_set<Cluster*> parents;
     std::unordered_set<Cluster*> children;
@@ -244,7 +244,7 @@ class EarlyStopping {
             ++steps_since_min;
         }
 
-        bool converged() {
+        bool converged() const {
             return steps_since_min > patience;
         }
 };
@@ -260,7 +260,7 @@ struct Msg {
     Cluster* next;
 };
 
-double get_msg_ll(std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
+double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
     auto it = msgs.find(c);
     if (it == msgs.end()) {
         return -std::numeric_limits<double>::infinity();
@@ -268,7 +268,7 @@ double get_msg_ll(std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
     return it->second.ll;
 }
 
-void max_step(std::vector<char>& x, HyperParams& HP, Params& params, Clusters& clusters) {
+void max_step(std::vector<char>& x, const HyperParams& HP, const Params& params, Clusters& clusters) {
     for (int i = 0; i < HP.N; ++i) {
         for (int l = 0; l < HP.L; ++l) {
             clusters.cluster_remove(clusters.r_assign[idx2d(i, l, HP.L)], i);
@@ -392,7 +392,7 @@ void max_step(std::vector<char>& x, HyperParams& HP, Params& params, Clusters& c
 }
 
 
-void expect_step(HyperParams& HP, Params& params, Clusters& clusters) {
+void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters) {
 }
 
 
