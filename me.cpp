@@ -438,18 +438,14 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
 
         // alpha and d term.
         double z = params.mu_alpha / params.mu_d[l];
-        double dd2 = (
-            boost::math::digamma(z) * (2.0 * z / (params.mu_d[l] * params.mu_d[l]))
-            + boost::math::trigamma(z) * (z * z / (params.mu_d[l] * params.mu_d[l]))
-        );
+        double dd2 = boost::math::digamma(z) * (2.0 * z / (params.mu_d[l] * params.mu_d[l]));
+        dd2 += boost::math::trigamma(z) * (z * z / (params.mu_d[l] * params.mu_d[l]));
         elbo += delta_ElogGamma(params.mu_alpha, params.sigma2_alpha, 1.0 / params.mu_d[l], 0.0);
         elbo += 0.5 * params.sigma2_d[l] * dd2;
 
         z += nQl;
-        dd2 = (
-            boost::math::digamma(z) * (2.0 * params.mu_alpha / std::pow(params.mu_d[l], 3)))
-            + boost::math::trigamma(z) * (params.mu_alpha * params.mu_alpha / std::pow(params.mu_d[l], 4)
-        );
+        dd2 = boost::math::digamma(z) * (2.0 * params.mu_alpha / std::pow(params.mu_d[l], 3));
+        dd2 += boost::math::trigamma(z) * (params.mu_alpha * params.mu_alpha / std::pow(params.mu_d[l], 4));
         elbo -= delta_ElogGamma(params.mu_alpha, params.sigma2_alpha, 1.0 / params.mu_d[l], nQl);
         elbo -= 0.5 * params.sigma2_d[l] * dd2;
     }
@@ -462,22 +458,22 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
         elbo += delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, 0.0);
         elbo -= delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
         for (int k = 0; k < HP.K; ++k) {
-            int nkl = clusters.nk[idx2d(l, k, HP.K)];
-            elbo += delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl);
+            elbo += delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, clusters.nk[idx2d(l, k, HP.K)]);
         }
         elbo -= HP.K * delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l]);
     }
 
     // Clusters.
     for (Cluster* a : clusters.rs[0]) {
-        elbo += std::lgamma(a->seqs.size());
+        elbo += std::lgamma(static_cast<double>(a->seqs.size()));
     }
     for (int l = 0; l < HP.L - 1; ++l) {
         for (Cluster* a : clusters.rs[l]) {
-            elbo += std::lgamma(a->children.size()) - std::lgamma(a->seqs.size());
+            elbo += std::lgamma(static_cast<double>(a->children.size()));
+            elbo -= std::lgamma(static_cast<double>(a->seqs.size()));
         }
         for (Cluster* a : clusters.rs[l + 1]) {
-            elbo += std::lgamma(a->parents.size());
+            elbo += std::lgamma(static_cast<double>(a->parents.size()));
         }
     }
 
