@@ -1086,14 +1086,18 @@ $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
 #pagebreak()
 = TODO
 
+== faster inference
+- C++ port
+- N=2500, L=100000
+
 == imputation
-- me
-  - imputation integrated into max step by MAP estimate of cluster assignment
-- todo
-  - compare to stronger baselines: beagle / impute2
+- train then impute
 
-== faster inference (N=2500 L=100000)
+== eval w/ trees
+- given a tree, is the dfcp marginal clustering in it? metric for how far away
+- or cutting to make n clusters, distance b/t tree clusters and dfcp clusters
 
-
-== cluster init
+== icebox
+- imputation on stronger baseline: beagle / impute2
+- cluster init
 
