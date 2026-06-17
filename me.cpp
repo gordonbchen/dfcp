@@ -260,10 +260,10 @@ struct Msg {
     Cluster* next;
 };
 
-double get_msg_ll(std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, double default_ll) {
+double get_msg_ll(std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
     auto it = msgs.find(c);
     if (it == msgs.end()) {
-        return default_ll;
+        return -std::numeric_limits<double>::infinity();
     }
     return it->second.ll;
 }
@@ -306,9 +306,7 @@ void max_step(std::vector<char>& x, HyperParams& HP, Params& params, Clusters& c
             for (Cluster* b : clusters.qs[l]) {
                 assert(b->children.size() == 1 && "b clusters should only have 1 child.");
                 Cluster* next_a = *b->children.begin();
-                if (auto it = next_ma.find(next_a); it != next_ma.end()) {
-                    mb[b] = Msg{it->second.ll, next_a};
-                }
+                mb[b] = Msg{get_msg_ll(next_ma, next_a), next_a};
              }
 
             int nQl = clusters.qs[l].size();
@@ -323,7 +321,7 @@ void max_step(std::vector<char>& x, HyperParams& HP, Params& params, Clusters& c
                 clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, x[idx2d(i, l+1, HP.L)], HP.K)]
             );
             for (Cluster *a : matching_next_as) {
-                double ll = params.mu_log_d[l] + std::log(a->parents.size()) + next_ma.at(a).ll;
+                double ll = params.mu_log_d[l] + std::log(a->parents.size()) + get_msg_ll(next_ma, a);
                 if (ll > best_a_ll) {
                     best_a = a;
                     best_a_ll = ll;
@@ -338,7 +336,7 @@ void max_step(std::vector<char>& x, HyperParams& HP, Params& params, Clusters& c
                 Cluster* best_b = nullptr;
                 double best_b_ll = std::log(a->children.size()) + params.mu_log_d[l] + mb[nullptr].ll;
                 for (Cluster* b : a->children) {
-                    double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->seqs.size()) + mb.at(b).ll;
+                    double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->seqs.size()) + get_msg_ll(mb, b);
                     if (ll > best_b_ll) {
                         best_b = b;
                         best_b_ll = ll;
