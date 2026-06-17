@@ -396,8 +396,100 @@ void expect_step(HyperParams& HP, Params& params, Clusters& clusters) {
 }
 
 
-double calc_elbo(HyperParams& HP, Params& params, Clusters& clusters) {
-    return 0.0;
+inline double delta_ElogGamma(double mu, double sigma2, double a = 1.0, double b = 0.0) {
+    double x = a*mu + b;
+    return std::lgamma(x) + 0.5 * sigma2 * a * a * boost::math::trigamma(x);
+}
+
+inline double normal_entropy(double sigma2) {
+    assert(sigma2 > 0.0 && "normal entropy requires positive variance.");
+    constexpr double pi = 3.141592653589793238462643383279502884;
+    return 0.5 * std::log(2.0 * pi * std::exp(1.0) * sigma2);
+}
+
+inline double betaln(double a, double b) {
+    return std::lgamma(a) + std::lgamma(b) - std::lgamma(a + b);
+}
+
+double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& clusters) {
+    // alpha.
+    double elbo = delta_ElogGamma(params.mu_alpha, params.sigma2_alpha);
+    elbo -= delta_ElogGamma(params.mu_alpha, params.sigma2_alpha, 1.0, HP.N);
+    int nR = 0;
+    for (const auto& rl : clusters.rs) {
+        nR += static_cast<int>(rl.size());
+    }
+    elbo += (nR + HP.tau_1) * params.mu_log_alpha;
+    elbo -= HP.tau_2 * params.mu_alpha;
+    elbo += HP.tau_1 * std::log(HP.tau_2) - std::lgamma(HP.tau_1);
+
+    for (int l = 0; l < HP.L - 1; ++l) {
+        // d.
+        // -1s cancel out with d_l entropy.
+        const double nQl = clusters.qs[l].size();
+        elbo += (nQl - clusters.rs[l].size() - clusters.rs[l+1].size() + HP.v_1) * params.mu_log_d[l];
+        elbo += HP.v_2 * delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1.0, 1.0);
+        elbo -= betaln(HP.v_1, HP.v_2);
+        elbo -= nQl * delta_ElogGamma(params.mu_d[l], params.sigma2_d[l], -1.0, 1.0);
+
+        for (Cluster* b : clusters.qs[l]) {
+            elbo += delta_ElogGamma(params.mu_d[l], params.sigma2_d[l], -1.0, b->seqs.size());
+        }
+
+        // alpha and d term.
+        double z = params.mu_alpha / params.mu_d[l];
+        double dd2 = (
+            boost::math::digamma(z) * (2.0 * z / (params.mu_d[l] * params.mu_d[l]))
+            + boost::math::trigamma(z) * (z * z / (params.mu_d[l] * params.mu_d[l]))
+        );
+        elbo += delta_ElogGamma(params.mu_alpha, params.sigma2_alpha, 1.0 / params.mu_d[l], 0.0);
+        elbo += 0.5 * params.sigma2_d[l] * dd2;
+
+        z += nQl;
+        dd2 = (
+            boost::math::digamma(z) * (2.0 * params.mu_alpha / std::pow(params.mu_d[l], 3)))
+            + boost::math::trigamma(z) * (params.mu_alpha * params.mu_alpha / std::pow(params.mu_d[l], 4)
+        );
+        elbo -= delta_ElogGamma(params.mu_alpha, params.sigma2_alpha, 1.0 / params.mu_d[l], nQl);
+        elbo -= 0.5 * params.sigma2_d[l] * dd2;
+    }
+
+    // gamma.
+    elbo += HP.L * (HP.phi_1 * std::log(HP.phi_2) - std::lgamma(HP.phi_1));
+    for (int l = 0; l < HP.L; ++l) {
+        elbo += HP.phi_1 * params.mu_log_gamma[l];
+        elbo -= HP.phi_2 * params.mu_gamma[l];
+        elbo += delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, 0.0);
+        elbo -= delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
+        for (int k = 0; k < HP.K; ++k) {
+            int nkl = clusters.nk[idx2d(l, k, HP.K)];
+            elbo += delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl);
+        }
+        elbo -= HP.K * delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l]);
+    }
+
+    // Clusters.
+    for (Cluster* a : clusters.rs[0]) {
+        elbo += std::lgamma(a->seqs.size());
+    }
+    for (int l = 0; l < HP.L - 1; ++l) {
+        for (Cluster* a : clusters.rs[l]) {
+            elbo += std::lgamma(a->children.size()) - std::lgamma(a->seqs.size());
+        }
+        for (Cluster* a : clusters.rs[l + 1]) {
+            elbo += std::lgamma(a->parents.size());
+        }
+    }
+
+    // Variational entropy.
+    elbo += normal_entropy(params.sigma2_log_alpha);
+    for (int l = 0; l < HP.L; ++l) {
+        elbo += normal_entropy(params.sigma2_log_gamma[l]);
+    }
+    for (int l = 0; l < HP.L - 1; ++l) {
+        elbo += normal_entropy(params.sigma2_logit_d[l]);
+    }
+    return elbo;
 }
 
 
