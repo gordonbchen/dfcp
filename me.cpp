@@ -484,6 +484,18 @@ double delta_ElogGamma_x(double mu, double sigma2, double a = 1.0, double b = 0.
     return std::lgamma(x) + 0.5 * sigma2 * a * a * boost::math::trigamma(x);
 }
 
+double delta_ElogGamma_x_d2_invx(double mu, double sigma2, double a, double b) {
+    double x = a*mu + b;
+    double d2 = boost::math::trigamma(x) * mu*mu * std::pow(a, 4);
+    d2 += boost::math::digamma(x) * 2*mu * std::pow(a, 3);
+    d2 += 0.5 * sigma2 * (
+        boost::math::polygamma(3, x) * mu*mu * std::pow(a, 6)
+        + boost::math::polygamma(2, x) * 6*mu * std::pow(a, 5)
+        + boost::math::trigamma(x) * 6 * std::pow(a, 4)
+    );
+    return d2;
+}
+
 double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
     double d = boost::math::logistic_sigmoid(logit_dl);
 
@@ -498,18 +510,6 @@ double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& 
     ll -= delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0/d, nQl);
 
     return ll + std::log(d) + std::log(1.0-d);
-}
-
-double delta_ElogGamma_x_d2_invx(double mu, double sigma2, double a, double b) {
-    double x = a*mu + b;
-    double d2 = boost::math::trigamma(x) * mu*mu * std::pow(a, 4);
-    d2 += boost::math::digamma(x) * 2*mu * std::pow(a, 3);
-    d2 += 0.5 * sigma2 * (
-        boost::math::polygamma(3, x) * mu*mu * std::pow(a, 6)
-        + boost::math::polygamma(2, x) * 6*mu * std::pow(a, 5)
-        + boost::math::trigamma(x) * 6 * std::pow(a, 4)
-    );
-    return d2;
 }
 
 double ll_logit_dl_d2(double d, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
@@ -542,7 +542,7 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
         // gamma_l update.
         laplace_log_approx(
             [&](double log_gammal) { return -ll_log_gammal(log_gammal, l, HP, clusters); },
-            [&](double gammal) { return -ll_log_gammal_d2(gammal, l, HP, clusters); },
+            [&](double gammal) { return ll_log_gammal_d2(gammal, l, HP, clusters); },
             params.mu_gamma[l], params.sigma2_gamma[l],
             params.mu_log_gamma[l], params.sigma2_log_gamma[l]
         );
