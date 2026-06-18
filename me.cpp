@@ -328,7 +328,8 @@ void max_step(std::vector<char>& x, const HyperParams& HP, const Params& params,
                 clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, x[idx2d(i, l+1, HP.L)], HP.K)]
             );
             for (Cluster *a : matching_next_as) {
-                double ll = params.mu_log_d[l] + std::log(a->parents.size()) + get_msg_ll(next_ma, a);
+                double nCl = a->parents.size();
+                double ll = params.mu_log_d[l] + std::log(nCl) + get_msg_ll(next_ma, a);
                 if (ll > best_a_ll) {
                     best_a = a;
                     best_a_ll = ll;
@@ -341,7 +342,8 @@ void max_step(std::vector<char>& x, const HyperParams& HP, const Params& params,
             ma[nullptr] = Msg{new_a_ll + new_b_ll, nullptr};
             for (Cluster* a : matching_as) {
                 Cluster* best_b = nullptr;
-                double best_b_ll = std::log(a->children.size()) + params.mu_log_d[l] + mb[nullptr].ll;
+                double nFl = a->children.size();
+                double best_b_ll = std::log(nFl) + params.mu_log_d[l] + mb[nullptr].ll;
                 for (Cluster* b : a->children) {
                     double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->seqs.size()) + get_msg_ll(mb, b);
                     if (ll > best_b_ll) {
@@ -349,7 +351,8 @@ void max_step(std::vector<char>& x, const HyperParams& HP, const Params& params,
                         best_b_ll = ll;
                     }
                 }
-                ma[a] = Msg{-std::log(a->seqs.size()) + best_b_ll, best_b};
+                best_b_ll -= std::log(static_cast<double>(a->seqs.size()));
+                ma[a] = Msg{best_b_ll, best_b};
             }
         }
 
@@ -500,7 +503,8 @@ double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& 
     double d = boost::math::logistic_sigmoid(logit_dl);
 
     int nQl = clusters.qs[l].size();
-    double ll = (nQl - clusters.rs[l].size() - clusters.rs[l+1].size() + HP.v_1 - 1.0) * std::log(d);
+    int nRl1 = clusters.rs[l].size() + clusters.rs[l+1].size();
+    double ll = (nQl - nRl1 + HP.v_1 - 1.0) * std::log(d);
     ll += (HP.v_2 - 1.0) * std::log(1.0 - d);
     ll -= nQl * std::lgamma(1.0 - d);
     for (Cluster* b : clusters.qs[l]) {
@@ -514,7 +518,8 @@ double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& 
 
 double ll_logit_dl_d2(double d, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
     int nQl = clusters.qs[l].size();
-    double d2 = (clusters.rs[l].size() - nQl + clusters.rs[l+1].size() + 1.0 - HP.v_1) / (d*d);
+    int nRl1 = clusters.rs[l].size() + clusters.rs[l+1].size();
+    double d2 = (nRl1 - nQl + 1.0 - HP.v_1) / (d*d);
     d2 -= (HP.v_2 - 1.0) / std::pow(1.0 - d, 2);
     d2 -= nQl * boost::math::trigamma(1.0 - d);
     for (Cluster* b : clusters.qs[l]) {
@@ -592,8 +597,9 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
     for (int l = 0; l < HP.L - 1; ++l) {
         // d.
         // -1s cancel out with d_l entropy.
-        const double nQl = clusters.qs[l].size();
-        elbo += (nQl - clusters.rs[l].size() - clusters.rs[l+1].size() + HP.v_1) * params.mu_log_d[l];
+        int nQl = clusters.qs[l].size();
+        int nRl1 = clusters.rs[l].size() + clusters.rs[l+1].size();
+        elbo += (nQl - nRl1 + HP.v_1) * params.mu_log_d[l];
         elbo += HP.v_2 * delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1.0, 1.0);
         elbo -= betaln(HP.v_1, HP.v_2);
         elbo -= nQl * delta_ElogGamma_x(params.mu_d[l], params.sigma2_d[l], -1.0, 1.0);
