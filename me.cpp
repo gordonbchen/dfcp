@@ -11,6 +11,9 @@
 
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/special_functions/trigamma.hpp>
+#include <boost/math/special_functions/polygamma.hpp>
+#include <boost/math/special_functions/logistic_sigmoid.hpp>
+#include <boost/math/tools/minima.hpp>
 
 
 struct HyperParams {
@@ -91,7 +94,7 @@ struct Cluster {
 };
 
 
-inline size_t idx2d(size_t r, size_t c, size_t width) {
+size_t idx2d(size_t r, size_t c, size_t width) {
     return r*width + c;
 }
 
@@ -105,6 +108,7 @@ struct Clusters {
     std::vector<std::unordered_set<Cluster*>> rs;
     std::vector<std::unordered_set<Cluster*>> qs;
     std::vector<std::unordered_set<Cluster*>> rs_by_emit;
+    int nR;
 
     Clusters(const HyperParams& HP_, const std::vector<char>& x) :
         HP(HP_),
@@ -113,7 +117,8 @@ struct Clusters {
         r_assign(HP.N * HP.L, nullptr),
         q_assign(HP.N * (HP.L-1), nullptr),
         rs(HP.L), qs(HP.L-1),
-        rs_by_emit(HP.L * HP.K)
+        rs_by_emit(HP.L * HP.K),
+        nR(0)
     {
         // Count modes.
         std::vector<int> counts(HP.K, 0);
@@ -167,6 +172,7 @@ struct Clusters {
         rs[l].insert(ptr);
         ++nk[idx2d(l, emission, HP.K)];
         rs_by_emit[idx2d(l, emission, HP.K)].insert(ptr);
+        ++nR;
         return ptr;
     }
 
@@ -206,6 +212,7 @@ struct Clusters {
             rs[cluster->l].erase(cluster);
             --nk[idx2d(cluster->l, cluster->emission, HP.K)];
             rs_by_emit[idx2d(cluster->l, cluster->emission, HP.K)].erase(cluster);
+            --nR;
         }
         else {
             qs[cluster->l].erase(cluster);
@@ -250,7 +257,7 @@ class EarlyStopping {
 };
 
 
-inline double delta_Elogx(double mu, double sigma2, double a = 1.0, double b = 0.0) {
+double delta_Elogx(double mu, double sigma2, double a, double b) {
     double x = a*mu + b;
     return std::log(x) - 0.5*sigma2*a*a / (x*x);
 }
@@ -312,7 +319,7 @@ void max_step(std::vector<char>& x, const HyperParams& HP, const Params& params,
             int nQl = clusters.qs[l].size();
             double mu_y = params.mu_alpha + nQl*params.mu_d[l];
             double sigma2_y = params.sigma2_alpha + nQl*nQl * params.sigma2_d[l];
-            double elogy = delta_Elogx(mu_y, sigma2_y);
+            double elogy = delta_Elogx(mu_y, sigma2_y, 1.0, 0.0);
 
             Cluster* best_a = nullptr;
             double best_a_ll = params.mu_log_alpha + next_ma.at(nullptr).ll;
@@ -392,34 +399,218 @@ void max_step(std::vector<char>& x, const HyperParams& HP, const Params& params,
 }
 
 
-void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters) {
+template <typename F>
+void laplace_log_approx(
+    F nll_log_func, F ll_log_d2_func,
+    double& mu, double& sigma2, double& logx_mode, double& logx_var
+) {
+    // TODO: bits and max iter for find min.
+    logx_mode = boost::math::tools::brent_find_minima(nll_log_func, -10.0, 10.0, 30).first;
+    logx_var = -1.0 / ll_log_d2_func(std::exp(logx_mode));
+    assert(logx_var > 0.0 && "logx_var must be positive.");
+
+    mu = std::exp(logx_mode + 0.5*logx_var);
+    sigma2 = (std::exp(logx_var) - 1.0) * std::exp(2.0*logx_mode + logx_var);
+    assert(sigma2 > 0.0 && "sigma2 must be positive.");
 }
 
+double delta_ElogGamma_invx(double mu, double sigma2, double a, double b) {
+    double x = a/mu + b;
+    double d2 = boost::math::trigamma(x) * (a*a) / std::pow(mu, 4);
+    d2 += boost::math::digamma(x) * 2*a / std::pow(mu, 3);
+    return std::lgamma(x) + 0.5*sigma2 * d2;
+}
 
-inline double delta_ElogGamma(double mu, double sigma2, double a = 1.0, double b = 0.0) {
+double delta_ElogGamma_invx_d2_x(double mu, double sigma2, double a, double b) {
+    double x = a/mu + b;
+    double d2 = boost::math::trigamma(x) / (mu*mu);
+    d2 += 0.5*sigma2 * (
+        boost::math::polygamma(3, x) * (a*a) / std::pow(mu, 6)
+        + boost::math::polygamma(2, x) * (6*a) / std::pow(mu, 5)
+        + boost::math::polygamma(1, x) * 6 / std::pow(mu, 4)
+    );
+    return d2;
+}
+
+double ll_log_alpha(double log_alpha, const HyperParams& HP, const Params& params, const Clusters& clusters) {
+    double alpha = std::exp(log_alpha);
+
+    double ll = std::lgamma(alpha) - std::lgamma(alpha + HP.N);
+    ll += (clusters.nR + HP.tau_1 - 1)*std::log(alpha) - HP.tau_2*alpha;
+    for (int l = 0; l < HP.L-1; ++l) {
+        ll += delta_ElogGamma_invx(params.mu_d[l], params.sigma2_d[l], alpha, 0.0);
+        ll -= delta_ElogGamma_invx(params.mu_d[l], params.sigma2_d[l], alpha, clusters.qs[l].size());
+    }
+
+    return ll + log_alpha;
+}
+
+double ll_log_alpha_d2(double alpha, const HyperParams& HP, const Params& params, const Clusters& clusters) {
+    double d2 = boost::math::trigamma(alpha) - boost::math::trigamma(alpha + HP.N);
+    d2 += (1 - HP.tau_1 - clusters.nR) / (alpha*alpha);
+    for (int l = 0; l < HP.L-1; ++l) {
+        d2 += delta_ElogGamma_invx_d2_x(params.mu_d[l], params.sigma2_d[l], alpha, 0.0);
+        d2 -= delta_ElogGamma_invx_d2_x(params.mu_d[l], params.sigma2_d[l], alpha, clusters.qs[l].size());
+    }
+    return alpha*alpha * d2 - 1;
+}
+
+double ll_log_gammal(double log_gamma, int l, const HyperParams& HP, const Clusters& clusters) {
+    double gamma = std::exp(log_gamma);
+
+    double ll = (HP.phi_1-1)*std::log(gamma) - HP.phi_2*gamma;
+    ll += std::lgamma(HP.K*gamma) - std::lgamma(HP.K*gamma + clusters.rs[l].size());
+    for (int k = 0; k < HP.K; ++k) {
+        ll += std::lgamma(gamma + clusters.nk[idx2d(l, k, HP.K)]);
+    }
+    ll -= HP.K * std::lgamma(gamma);
+
+    return ll + log_gamma;
+}
+
+double ll_log_gammal_d2(double gamma, int l, const HyperParams& HP, const Clusters& clusters) {
+    double d2 = (1.0 - HP.phi_1) / (gamma*gamma);
+    d2 += HP.K*HP.K * (boost::math::trigamma(HP.K*gamma) - boost::math::trigamma(HP.K*gamma + clusters.rs[l].size()));
+    for (int k = 0; k < HP.K; ++k) {
+        d2 += boost::math::trigamma(gamma + clusters.nk[idx2d(l, k, HP.K)]);
+        d2 -= boost::math::trigamma(gamma);
+    }
+    return gamma*gamma * d2 - 1;
+}
+
+double delta_ElogGamma_x(double mu, double sigma2, double a = 1.0, double b = 0.0) {
     double x = a*mu + b;
     return std::lgamma(x) + 0.5 * sigma2 * a * a * boost::math::trigamma(x);
 }
 
-inline double normal_entropy(double sigma2) {
+double ll_logit_dl(double eta, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
+    double d = boost::math::logistic_sigmoid(eta);
+
+    int nQl = clusters.qs[l].size();
+    double ll = (nQl - clusters.rs[l].size() - clusters.rs[l+1].size() + HP.v_1 - 1.0) * std::log(d);
+    ll += (HP.v_2 - 1.0) * std::log(1.0 - d);
+    ll -= nQl * std::lgamma(1.0 - d);
+    for (Cluster* b : clusters.qs[l]) {
+        ll += std::lgamma(b->seqs.size() - d);
+    }
+    ll += delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0/d, 0.0);
+    ll -= delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0/d, nQl);
+
+    return ll + std::log(d) + std::log(1.0-d);
+}
+
+double delta_ElogGamma_x_d2_invx(double mu, double sigma2, double a, double b) {
+    double x = a*mu + b;
+    double d2 = boost::math::trigamma(x) * mu*mu * std::pow(a, 4);
+    d2 += boost::math::digamma(x) * 2*mu * std::pow(a, 3);
+    d2 += 0.5 * sigma2 * (
+        boost::math::polygamma(3, x) * mu*mu * std::pow(a, 6)
+        + boost::math::polygamma(2, x) * 6*mu * std::pow(a, 5)
+        + boost::math::trigamma(x) * 6 * std::pow(a, 4)
+    );
+    return d2;
+}
+
+double ll_logit_dl_d2(double d, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
+    int nQl = clusters.qs[l].size();
+    double d2 = (clusters.rs[l].size() - nQl + clusters.rs[l+1].size() + 1.0 - HP.v_1) / (d*d);
+    d2 -= (HP.v_2 - 1.0) / std::pow(1.0 - d, 2);
+    d2 -= nQl * boost::math::trigamma(1.0 - d);
+    for (Cluster* b : clusters.qs[l]) {
+        d2 += boost::math::trigamma(b->seqs.size() - d);
+    }
+
+    d2 += delta_ElogGamma_x_d2_invx(params.mu_alpha, params.sigma2_alpha, 1.0/d, 0.0);
+    d2 -= delta_ElogGamma_x_d2_invx(params.mu_alpha, params.sigma2_alpha, 1.0/d, nQl);
+
+    d2 *= std::pow(d * (1.0-d), 2);
+    d2 -= std::pow(1.0 - 2.0*d, 2) + 2.0*d*(1.0-d);
+    return d2;
+}
+
+// TODO: finish expect and check.
+void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters) {
+    // alpha update.
+    laplace_log_approx(
+        [&](double log_alpha) -> double {
+            return -ll_log_alpha(log_alpha, HP, params, clusters);
+        },
+        [&](double alpha) -> double {
+            return ll_log_alpha_d2(alpha, HP, params, clusters);
+        },
+        params.mu_alpha,
+        params.sigma2_alpha,
+        params.mu_log_alpha,
+        params.sigma2_log_alpha
+    );
+
+    for (int l = 0; l < HP.L; ++l) {
+        // gamma_l update.
+        laplace_log_approx(
+            [&](double gamma_l) {
+                return ll_gammal(gamma_l, HP, clusters.rs[l].size(), clusters.nk[idx2d(l, 0, HP.K)]);
+            },
+            params.mu_gamma[l],
+            params.sigma2_gamma[l],
+            params.mu_log_gamma[l],
+            params.sigma2_log_gamma[l]
+        );
+        if (l >= HP.L - 1) {
+            break;
+        }
+
+        // d_l update in logit space.
+        auto ll_eta = [&](double eta) {
+            return ll_logit_dl(eta, params.mu_alpha, params.sigma2_alpha, HP, clusters, l);
+        };
+
+        double eta_mode = maximize_bounded(ll_eta, -10.0, 10.0);
+        double eta_d2 = second_derivative(ll_eta, eta_mode);
+        double eta_var = -1.0 / eta_d2;
+
+        assert(std::isfinite(eta_mode));
+        assert(std::isfinite(eta_var));
+        assert(eta_var > 0.0);
+
+        double d_mode = sigmoid(eta_mode);
+
+        params.mu_d[l] = d_mode + 0.5 * eta_var * (1.0 - 2.0 * d_mode) * d_mode * (1.0 - d_mode);
+
+        params.sigma2_d[l] =
+            d_mode * d_mode
+            + 0.5 * eta_var
+                * (4.0 * d_mode - 6.0 * d_mode * d_mode)
+                * d_mode
+                * (1.0 - d_mode)
+            - params.mu_d[l] * params.mu_d[l];
+
+        assert(std::isfinite(params.mu_d[l]));
+        assert(std::isfinite(params.sigma2_d[l]));
+        assert(params.mu_d[l] > 0.0);
+        assert(params.mu_d[l] < 1.0);
+        assert(params.sigma2_d[l] > 0.0);
+
+        params.mu_log_d[l] = delta_Elogx(params.mu_d[l], params.sigma2_d[l], 1.0, 0.0);
+        params.sigma2_logit_d[l] = eta_var;
+    }
+}
+
+
+double normal_entropy(double sigma2) {
     assert(sigma2 > 0.0 && "normal entropy requires positive variance.");
     constexpr double pi = 3.141592653589793238462643383279502884;
     return 0.5 * std::log(2.0 * pi * std::exp(1.0) * sigma2);
 }
 
-inline double betaln(double a, double b) {
+double betaln(double a, double b) {
     return std::lgamma(a) + std::lgamma(b) - std::lgamma(a + b);
 }
 
 double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& clusters) {
     // alpha.
-    double elbo = delta_ElogGamma(params.mu_alpha, params.sigma2_alpha);
-    elbo -= delta_ElogGamma(params.mu_alpha, params.sigma2_alpha, 1.0, HP.N);
-    int nR = 0;
-    for (const auto& rl : clusters.rs) {
-        nR += static_cast<int>(rl.size());
-    }
-    elbo += (nR + HP.tau_1) * params.mu_log_alpha;
+    double elbo = delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha);
+    elbo -= delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0, HP.N);
+    elbo += (clusters.nR + HP.tau_1) * params.mu_log_alpha;
     elbo -= HP.tau_2 * params.mu_alpha;
     elbo += HP.tau_1 * std::log(HP.tau_2) - std::lgamma(HP.tau_1);
 
@@ -430,23 +621,23 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
         elbo += (nQl - clusters.rs[l].size() - clusters.rs[l+1].size() + HP.v_1) * params.mu_log_d[l];
         elbo += HP.v_2 * delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1.0, 1.0);
         elbo -= betaln(HP.v_1, HP.v_2);
-        elbo -= nQl * delta_ElogGamma(params.mu_d[l], params.sigma2_d[l], -1.0, 1.0);
+        elbo -= nQl * delta_ElogGamma_x(params.mu_d[l], params.sigma2_d[l], -1.0, 1.0);
 
         for (Cluster* b : clusters.qs[l]) {
-            elbo += delta_ElogGamma(params.mu_d[l], params.sigma2_d[l], -1.0, b->seqs.size());
+            elbo += delta_ElogGamma_x(params.mu_d[l], params.sigma2_d[l], -1.0, b->seqs.size());
         }
 
         // alpha and d term.
         double z = params.mu_alpha / params.mu_d[l];
         double dd2 = boost::math::digamma(z) * (2.0 * z / (params.mu_d[l] * params.mu_d[l]));
         dd2 += boost::math::trigamma(z) * (z * z / (params.mu_d[l] * params.mu_d[l]));
-        elbo += delta_ElogGamma(params.mu_alpha, params.sigma2_alpha, 1.0 / params.mu_d[l], 0.0);
+        elbo += delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0 / params.mu_d[l], 0.0);
         elbo += 0.5 * params.sigma2_d[l] * dd2;
 
         z += nQl;
         dd2 = boost::math::digamma(z) * (2.0 * params.mu_alpha / std::pow(params.mu_d[l], 3));
         dd2 += boost::math::trigamma(z) * (params.mu_alpha * params.mu_alpha / std::pow(params.mu_d[l], 4));
-        elbo -= delta_ElogGamma(params.mu_alpha, params.sigma2_alpha, 1.0 / params.mu_d[l], nQl);
+        elbo -= delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0 / params.mu_d[l], nQl);
         elbo -= 0.5 * params.sigma2_d[l] * dd2;
     }
 
@@ -455,12 +646,12 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
     for (int l = 0; l < HP.L; ++l) {
         elbo += HP.phi_1 * params.mu_log_gamma[l];
         elbo -= HP.phi_2 * params.mu_gamma[l];
-        elbo += delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, 0.0);
-        elbo -= delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
+        elbo += delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, 0.0);
+        elbo -= delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
         for (int k = 0; k < HP.K; ++k) {
-            elbo += delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, clusters.nk[idx2d(l, k, HP.K)]);
+            elbo += delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, clusters.nk[idx2d(l, k, HP.K)]);
         }
-        elbo -= HP.K * delta_ElogGamma(params.mu_gamma[l], params.sigma2_gamma[l]);
+        elbo -= HP.K * delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l]);
     }
 
     // Clusters.
