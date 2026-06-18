@@ -407,11 +407,11 @@ void laplace_log_approx(
     // TODO: bits and max iter for find min.
     logx_mode = boost::math::tools::brent_find_minima(nll_log_func, -10.0, 10.0, 30).first;
     logx_var = -1.0 / ll_log_d2_func(std::exp(logx_mode));
-    assert(logx_var > 0.0 && "logx_var must be positive.");
+    assert(logx_var > 0.0);
 
     mu = std::exp(logx_mode + 0.5*logx_var);
     sigma2 = (std::exp(logx_var) - 1.0) * std::exp(2.0*logx_mode + logx_var);
-    assert(sigma2 > 0.0 && "sigma2 must be positive.");
+    assert(sigma2 > 0.0);
 }
 
 double delta_ElogGamma_invx(double mu, double sigma2, double a, double b) {
@@ -483,8 +483,8 @@ double delta_ElogGamma_x(double mu, double sigma2, double a = 1.0, double b = 0.
     return std::lgamma(x) + 0.5 * sigma2 * a * a * boost::math::trigamma(x);
 }
 
-double ll_logit_dl(double eta, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
-    double d = boost::math::logistic_sigmoid(eta);
+double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
+    double d = boost::math::logistic_sigmoid(logit_dl);
 
     int nQl = clusters.qs[l].size();
     double ll = (nQl - clusters.rs[l].size() - clusters.rs[l+1].size() + HP.v_1 - 1.0) * std::log(d);
@@ -528,76 +528,50 @@ double ll_logit_dl_d2(double d, int l, const HyperParams& HP, const Params& para
     return d2;
 }
 
-// TODO: finish expect and check.
 void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters) {
     // alpha update.
     laplace_log_approx(
-        [&](double log_alpha) -> double {
-            return -ll_log_alpha(log_alpha, HP, params, clusters);
-        },
-        [&](double alpha) -> double {
-            return ll_log_alpha_d2(alpha, HP, params, clusters);
-        },
-        params.mu_alpha,
-        params.sigma2_alpha,
-        params.mu_log_alpha,
-        params.sigma2_log_alpha
+        [&](double log_alpha) -> double { return -ll_log_alpha(log_alpha, HP, params, clusters); },
+        [&](double alpha) -> double { return ll_log_alpha_d2(alpha, HP, params, clusters); },
+        params.mu_alpha, params.sigma2_alpha,
+        params.mu_log_alpha, params.sigma2_log_alpha
     );
 
     for (int l = 0; l < HP.L; ++l) {
         // gamma_l update.
         laplace_log_approx(
-            [&](double gamma_l) {
-                return ll_gammal(gamma_l, HP, clusters.rs[l].size(), clusters.nk[idx2d(l, 0, HP.K)]);
-            },
-            params.mu_gamma[l],
-            params.sigma2_gamma[l],
-            params.mu_log_gamma[l],
-            params.sigma2_log_gamma[l]
+            [&](double log_gammal) { return -ll_log_gammal(log_gammal, l, HP, clusters); },
+            [&](double gammal) { return -ll_log_gammal_d2(gammal, l, HP, clusters); },
+            params.mu_gamma[l], params.sigma2_gamma[l],
+            params.mu_log_gamma[l], params.sigma2_log_gamma[l]
         );
-        if (l >= HP.L - 1) {
+        if (l >= HP.L-1) {
             break;
         }
 
         // d_l update in logit space.
-        auto ll_eta = [&](double eta) {
-            return ll_logit_dl(eta, params.mu_alpha, params.sigma2_alpha, HP, clusters, l);
-        };
+        double logit_dl_mode = boost::math::tools::brent_find_minima(
+            [&](double logit_dl) {return -ll_logit_dl(logit_dl, l, HP, params, clusters); },
+            -10.0, 10.0, 30
+        ).first;
+        double dl_mode = boost::math::logistic_sigmoid(logit_dl_mode);
+        params.sigma2_logit_d[l] = -1.0 / ll_logit_dl_d2(dl_mode, l, HP, params, clusters);
+        assert(params.sigma2_logit_d[l] > 0.0);
 
-        double eta_mode = maximize_bounded(ll_eta, -10.0, 10.0);
-        double eta_d2 = second_derivative(ll_eta, eta_mode);
-        double eta_var = -1.0 / eta_d2;
-
-        assert(std::isfinite(eta_mode));
-        assert(std::isfinite(eta_var));
-        assert(eta_var > 0.0);
-
-        double d_mode = sigmoid(eta_mode);
-
-        params.mu_d[l] = d_mode + 0.5 * eta_var * (1.0 - 2.0 * d_mode) * d_mode * (1.0 - d_mode);
-
-        params.sigma2_d[l] =
-            d_mode * d_mode
-            + 0.5 * eta_var
-                * (4.0 * d_mode - 6.0 * d_mode * d_mode)
-                * d_mode
-                * (1.0 - d_mode)
-            - params.mu_d[l] * params.mu_d[l];
-
-        assert(std::isfinite(params.mu_d[l]));
-        assert(std::isfinite(params.sigma2_d[l]));
-        assert(params.mu_d[l] > 0.0);
-        assert(params.mu_d[l] < 1.0);
+        params.mu_d[l] = dl_mode + 0.5*params.sigma2_logit_d[l] * (1.0 - 2.0*dl_mode)*dl_mode*(1.0 - dl_mode);
+        params.sigma2_d[l] = (
+            dl_mode*dl_mode
+            + 0.5*params.sigma2_logit_d[l] * (4.0*dl_mode - 6.0*dl_mode*dl_mode) * dl_mode * (1.0 - dl_mode)
+            - params.mu_d[l]*params.mu_d[l]
+        );
         assert(params.sigma2_d[l] > 0.0);
-
         params.mu_log_d[l] = delta_Elogx(params.mu_d[l], params.sigma2_d[l], 1.0, 0.0);
-        params.sigma2_logit_d[l] = eta_var;
     }
 }
 
 
 double normal_entropy(double sigma2) {
-    assert(sigma2 > 0.0 && "normal entropy requires positive variance.");
+    assert(sigma2 > 0.0);
     constexpr double pi = 3.141592653589793238462643383279502884;
     return 0.5 * std::log(2.0 * pi * std::exp(1.0) * sigma2);
 }
