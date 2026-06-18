@@ -399,10 +399,11 @@ void max_step(std::vector<char>& x, const HyperParams& HP, const Params& params,
 }
 
 
-template <typename F>
+template <typename F_nll, typename F_d2>
 void laplace_log_approx(
-    F nll_log_func, F ll_log_d2_func,
-    double& mu, double& sigma2, double& logx_mode, double& logx_var
+    F_nll nll_log_func, F_d2 ll_log_d2_func,
+    double& mu, double& sigma2,
+    double& logx_mode, double& logx_var
 ) {
     // TODO: bits and max iter for find min.
     logx_mode = boost::math::tools::brent_find_minima(nll_log_func, -10.0, 10.0, 30).first;
