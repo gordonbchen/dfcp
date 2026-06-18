@@ -554,17 +554,12 @@ prop& log p(gamma_l) + log p(X|C, gamma_l) \
 
 prop& log( gamma_l^(phi.alt_1-1) e^(-phi.alt_2 gamma_l) )
 
-+ log( Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) ) \
++ log( Gamma(K gamma_l) / Gamma(K gamma_l + \#cal(R)_l) product_(k in {A,T,C,G}) Gamma(gamma_l + n_k) / Gamma(gamma_l) ) \
 
 
 prop& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l
 
-+ log Gamma(4 gamma_l) / Gamma(4 gamma_l + \#cal(R)_l) + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l) \
-
-
-prop& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l
-
-- sum_(i=0)^(\#cal(R)_l-1) log (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) log (gamma_l + i) \
++ log Gamma(K gamma_l) / Gamma(K gamma_l + \#cal(R)_l) + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l) \
 $
 
 laplace approx in log space: same as $alpha$
@@ -579,23 +574,9 @@ laplace approx in log space: same as $alpha$
 - $q_(gamma_l) (gamma_l) approx "LogNormal"(hat(eta), sigma_eta^2)$ \ \
 
 $
-h'(gamma_l) =& (phi.alt_1 - 1) / gamma_l - phi.alt_2
-
-- sum_(i=0)^(\#cal(R)_l-1) 4 / (4 gamma_l + i) + sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i) \ \ \
-
-
 h''(gamma_l) =& (1 - phi.alt_1) / gamma_l^2
 
-+ sum_(i=0)^(\#cal(R)_l-1) 16 / (4 gamma_l + i)^2 - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (gamma_l + i)^2 \ \ \
-
-
-hat(h)''(hat(eta)) =& hat(gamma)_l^2 h''(hat(gamma)) - 1 \
-
-=& -phi.alt_1 + hat(gamma)_l^2 [
-  sum_(i=0)^(\#cal(R)_l-1) 16 / (4 hat(gamma)_l + i)^2
-
-  - sum_(k in {A,T,C,G}) sum_(i=0)^(n_k-1) 1 / (hat(gamma)_l + i)^2
-]
++ K^2 [psi_1(K gamma_l) - psi_1(K gamma_l + \#cal(R)_l)] + sum_(k in {A,T,C,G}) [ psi_1(gamma_l + n_k) - psi_1(gamma_l) ]
 $
 
 
@@ -611,31 +592,52 @@ prop& log Gamma(alpha) / Gamma(alpha + N) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1)
 +& sum_(l=1)^(L-1) EE_(d_l)[ log Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) ] \ \ \
 
 
-prop& - sum_(i=0)^(N-1) log(alpha+i) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
+prop& log Gamma(alpha) - log Gamma(alpha + N) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
 
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) EE_(d_l)[ log (alpha\/d_l + i) ] \
++& sum_(l=1)^(L-1) (EE_(d_l)[ log Gamma(alpha\/d_l) ] - EE_(d_l) [log Gamma(alpha\/d_l + \#cal(Q)_l) ] )\ \ \
 $
 
 
-== Delta method
+== Delta method for $EE_x [log Gamma(a/x + b)]$
 $
-f(X) approx& f(mu) + f'(mu) (X-mu) + 1/2 f''(mu) (X-mu)^2 \
+\
+EE[f(x)] approx& f(mu) + 1/2 sigma^2 f''(mu) \
 
-EE[f(X)] approx& f(mu) + 1/2 f''(mu) sigma^2 \ \ \
-
-
-EE_(d_l)[log(alpha \/ d_l + i)] approx& log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) \ \ \
+d/(d x) [log Gamma(a/x + b)] =& psi(a/x + b) dot -a/x^2 \
 
 
-log q^*_alpha (alpha)
-prop& - sum_(i=0)^(N-1) log(alpha+i) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
+d^2/(d x^2) [log Gamma(a/x + b)] =& psi_1(a/x + b) dot a^2/x^4 + psi(a/x+b) dot (2a)/x^3 \
 
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [ log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) ] \ \ \
+
+EE[log Gamma(a/x + b)] approx& log Gamma(a/mu + b) + 1/2 sigma^2 f''(mu) \
 $
-
 
 
 == Laplace approx
+$
+EE[log Gamma(a/x + b)] approx log Gamma(a/mu + b) + 1/2 sigma^2 [psi_1(a/mu + b) dot a^2/mu^4 + psi(a/mu+b) dot (2a)/mu^3] \ \
+
+d/(d a) = 1/mu psi(a/mu + b) + 1/2 sigma^2 [
+  psi_2(a/mu + b) dot a^2/mu^5 + psi_1(a/mu+b) dot (4a)/mu^4 + psi(a/mu+b) dot 2/mu^3
+] \ \
+
+
+d^2/(d a^2) = 1/mu^2 psi_1(a/mu + b) + 1/2 sigma^2 [
+  psi_3(a/mu + b) dot a^2/mu^6 + psi_2(a/mu + b) dot (6a)/mu^5 + psi_1(a/mu+b) dot 6/mu^4
+] \ \
+$
+
+
+$
+h''(alpha) =& psi_1(alpha) - psi_1(alpha+N) + (1 - tau_1 - sum_(l=1)^(L) \#cal(R)_l) / alpha^2 \
+
++& sum_(l=1)^(L-1) (d^2/(d alpha^2) EE_(d_l)[log Gamma(alpha/d_l)] - EE_(d_l)[log Gamma(alpha/d_l + \#cal(Q)_l)])\
+$
+
+
+
+#pagebreak()
+= Laplace approx
 - $log p(z) prop h(z)$
 
 - find mode $hat(z) = "argmax"_z h(z)$
@@ -686,56 +688,10 @@ $
   $sigma_alpha = (exp(sigma_eta^2) - 1) exp(2 hat(eta) + sigma_eta^2)$
 
 
-== Deriv for variance
-$
-h(alpha) =& - sum_(i=0)^(N-1) log(alpha+i) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1) log alpha - tau_2 alpha \
-
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [ log(alpha / mu_d + i) + 1/2 sigma_d^2 (alpha^2+2alpha i mu_d) / (mu_d^2 (alpha + i mu_d)^2) ] \ \ \
-$
-
-$
-h'(alpha) =& - sum_(i=0)^(N-1) 1/(alpha+i) + (sum_(l=1)^L \#cal(R)_l + tau_1 - 1)/alpha - tau_2 \
-
--& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
-  1/(alpha + i mu_d)
-  + (sigma_d^2 i^2) / (alpha + i mu_d)^3
-] \
-$
-
-$
-h''(alpha)
-
-=& sum_(i=0)^(N-1) 1 / (alpha+i)^2 + (1 - tau_1 - sum_(l=1)^(L) \#cal(R)_l) / alpha^2 \
-
-+& sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
-  1/(alpha + i mu_d)^2
-  + (3 sigma_d^2 i^2 ) / (alpha + i mu_d)^4
-] \
-$
-
-$
-hat(h)''(hat(eta)) =& hat(alpha)^2 h''(hat(alpha)) -1 \
-
-
-=& - tau_1 - sum_(l=1)^(L) \#cal(R)_l \
-
-+& alpha^2 (
-sum_(i=0)^(N-1) 1 / (alpha+i)^2
-
-+ sum_(l=1)^(L-1) sum_(i=0)^(\#cal(Q)_l-1) [
-  1/(alpha + i mu_d)^2
-  + (3 sigma_d^2 i^2 ) / (alpha + i mu_d)^4
-]) \ \ \
-
-$ 
-
-
 
 
 #pagebreak()
 = Variational update for $d_l$
-
-
 $
 log q_(d_l)^*(d_l)
 
@@ -746,11 +702,11 @@ prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2 - 1) l
 +& EE_alpha [ log Gamma(alpha\/d_l) / Gamma(alpha\/d_l + \#cal(Q)_l) ] \ \ \
 
 
-prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2-1) log (1-d_l) \
+prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2 - 1) log (1 - d_l) \
 
 -& \#cal(Q)_l log Gamma(1-d_l) + sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
 
--& sum_(i=0)^(\#cal(Q)_l-1) EE_alpha [ log alpha \/ d + i ] \
++& EE_alpha [ log Gamma(alpha\/d_l) ] - EE_alpha [ log Gamma(alpha\/d_l + \#cal(Q)_l) ] \ \ \
 $
 
 Paper correction: $EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(l+1) log d_l$
@@ -758,23 +714,49 @@ Paper correction: $EE_(alpha) [log (alpha\/d_l)^(\#cal(R)_(l+1))] -> -\#cal(R)_(
 
 
 == Delta method
+$
+EE_x [ f(x) ] approx& f(mu) + 1/2 sigma^2 f''(mu) \
+
+d^2/(d x^2) log Gamma(a x + b) =& a^2 psi_1(a x + b) \
+
+EE_x [ log Gamma(a x + b) ] approx& log Gamma(a mu + b) + 1/2 sigma^2 a^2 psi_1(a mu + b)
+$
+
+
+== derivs
+$
+EE_alpha [log Gamma(mu_alpha / d_l + b)] approx log Gamma(mu_alpha / d_l + b) + 1/2 sigma^2 psi_1(mu_alpha / d_l + b) 1/d_l^2 \
+$
 
 $
-EE_alpha [ log alpha \/ d + i ]
+d/(d d_l)
 
-approx& f(mu_alpha) + 1/2 f''(mu_alpha) sigma_alpha^2 \
+=& psi(mu_alpha / d_l + b) dot (-mu_alpha)/d_l^2 + 1/2 sigma^2 [
+  psi_2(mu_alpha / d_l + b) (-mu_alpha)/d_l^4 + psi_1(mu_alpha / d_l + b) (-2)/d_l^3
+] \
 
-approx& log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2) \ \
+d^2/(d d_l^2)
+
+=& psi_1(mu_alpha / d_l + b) dot mu_alpha^2 / d_l^4 + psi(mu_alpha / d_l + b) dot (2 mu_alpha)/d_l^3 \
+
++& 1/2 sigma^2 [
+  psi_3(mu_alpha / d_l + b) (mu_alpha^2)/d_l^6
+
+  + psi_2(mu_alpha / d_l + b) (6mu_alpha)/d_l^5
+
+  + psi_1(mu_alpha / d_l + b) 6/d_l^4
+]
+\ \ \
 $
 
 $
-log q_(d_l)^*(d_l)
+h''(d_l)
 
-prop& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2-1) log (1-d_l) \
+=& (\#cal(R)_l - \#cal(Q)_l + \#cal(R)_(l+1) + 1 - v_1) / d_l^2 - (v_2-1)/ (1-d_l)^2 \
 
--& \#cal(Q)_l log Gamma(1-d_l) + sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
+-& \#cal(Q)_l dot psi_1(1-d_l) + sum_(b in cal(Q)_l) psi_1(\#b - d_l) \
 
--& sum_(i=0)^(\#cal(Q)_l-1) [ log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2) ] \ \ \
++& d^2/(d d_l^2) EE_alpha [ log Gamma(alpha / d_l) ] - d^2/(d d_l^2) EE_alpha [ log Gamma(alpha / d_l + \#cal(Q)_l) ]
 $
 
 
@@ -866,49 +848,6 @@ $
 "Var"[d] = EE[d^2] - EE[d]^2
 approx& d_0^2 + 1/2 sigma_psi^2 dot (4 d_0 - 6d_0^2) dot d_0 (1-d_0) - EE[d]^2 \
 $
-
-
-== derivs
-$
-log q_(d_l)^*(d_l) prop& h(d_l) \
-
-=& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) log d_l + (v_2-1) log (1-d_l) \
-
--& \#cal(Q)_l log Gamma(1-d_l) + sum_(b in cal(Q)_l) log Gamma(\#b - d_l) \
-
--& sum_(i=0)^(\#cal(Q)_l-1) [ log(mu_alpha / d + i) - sigma_alpha^2 / (2(mu_alpha + i d_l)^2) ] \ \ \
-$
-
-$
-h'(d_l)
-
-=& (\#cal(Q)_l - \#cal(R)_l - \#cal(R)_(l+1) + v_1 - 1) / d_l - (v_2-1)/ (1-d_l) \
-
-+& \#cal(Q)_l dot psi(1-d_l) - sum_(b in cal(Q)_l) psi(\#b - d_l) \
-
--& sum_(i=0)^(\#cal(Q)_l-1) [ -mu_alpha /(mu_alpha d_l + i d_l^2) + (i sigma_alpha^2) / (mu_alpha + i d_l)^3 ]
-\ \ \
-$
-
-$
-h''(d_l)
-
-=& (\#cal(R)_l - \#cal(Q)_l + \#cal(R)_(l+1) + 1 - v_1) / d_l^2 - (v_2-1)/ (1-d_l)^2 \
-
--& \#cal(Q)_l dot psi_1(1-d_l) + sum_(b in cal(Q)_l) psi_1(\#b - d_l) \
-
--& sum_(i=0)^(\#cal(Q)_l-1) [
-  (mu_alpha (mu_alpha + 2i d_l)) /(d_l^2 (mu_alpha + i d_l)^2)
-  - (3 i^2 sigma_alpha^2) / (mu_alpha + i d_l)^4
-] \ \ \
-$
-
-$
-hat(h)''(psi_0)
-
-=& -(1-2d_0)^2 + [d_0(1-d_0)]^2 h''(d_0) - 2 d_0 (1-d_0) \
-$
-
 
 
 
