@@ -10,6 +10,7 @@
 #include <limits>
 #include <iomanip>
 #include <string_view>
+#include <random>
 
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/special_functions/trigamma.hpp>
@@ -366,6 +367,18 @@ struct Clusters {
             b->add_child(next_a);
         }
     }
+
+    void add_seqs(const std::vector<char>& x, const Params& params, HyperParams& HP) {
+        int n = x.size() / HP.L;
+        int old_N = HP.N;
+        HP.N += n;
+        r_assign.resize(r_assign.size() + x.size(), nullptr);
+        q_assign.resize(q_assign.size() + n * (HP.L-1), nullptr);
+
+        for (int i = 0; i < n; ++i) {
+            viterbi_seq(x.begin() + i*HP.L, old_N + i, params);
+        }
+    }
 };
 
 
@@ -663,6 +676,13 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
 }
 
 
+struct SparseX {
+    size_t i;
+    size_t l;
+    char x;
+    SparseX(size_t i_, size_t l_, char x_) : i(i_), l(l_), x(x_) {}
+};
+
 int main(int argc, char *argv[]) {
     // Read seq file.
     assert(argc >= 2 && "Requires sequence file.");
@@ -689,12 +709,13 @@ int main(int argc, char *argv[]) {
     // Read hyperparams.
     HyperParams HP{.N=N, .L=L, .K=K};
     // TODO: mask and imputation check.
-    double mask = 0.0;
+    double val = -1.0;
+    double mask = -1.0;
     std::unordered_map<std::string_view, double*> args = {
         {"--tau_1", &HP.tau_1}, {"--tau_2", &HP.tau_2},
         {"--v_1", &HP.v_1}, {"--v_2", &HP.v_2},
         {"--phi_1", &HP.phi_1}, {"--phi_2", &HP.phi_2},
-        {"--mask", &mask}
+        {"--val", &val}, {"--mask", &mask}
     };
 
     char* end_ptr = nullptr;
@@ -712,22 +733,77 @@ int main(int argc, char *argv[]) {
     }
 
     std::cout << HP << '\n';
-    std::cout << "mask=" << mask << '\n';
+    std::cout << "val=" << val << ", mask=" << mask << '\n';
+
+    // Split val for imputation.
+    bool do_val = val > 0.0;
+    assert((do_val == (mask > 0.0)) && "If imputation validation frac is positive, mask frac must be positive.");
+    int n_val_seqs = 0;
+    std::vector<char> x_val_masked;
+    x_val_masked.reserve(do_val ? static_cast<size_t>(val * x.size()) : 0);
+
+    int n_masked_alleles = 0;
+    std::vector<SparseX> x_val_true;
+    x_val_true.reserve(do_val ? static_cast<size_t>(val * mask * x.size()) : 0);
+
+    std::vector<char> x_train;
+    x_train.reserve(static_cast<size_t>((1.0-val) * x.size()));
+
+    if (val > 0.0) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::bernoulli_distribution val_dist(val);
+        std::bernoulli_distribution mask_dist(mask);
+
+        for (int i = 0; i < HP.N; ++i) {
+            auto line = x.begin() + i*HP.L;
+            if (!val_dist(gen)) {
+                x_train.insert(x_train.end(), line, line + HP.L);
+                continue;
+            }
+            x_val_masked.insert(x_val_masked.end(), line, line + HP.L);
+            for (int l = 0; l < HP.L; ++l) {
+                if (!mask_dist(gen)) { continue; }
+                x_val_true.emplace_back(n_val_seqs, l, x_val_masked[idx2d(n_val_seqs, l, HP.L)]);
+                x_val_masked[idx2d(n_val_seqs, l, HP.L)] = -1;
+                ++n_masked_alleles;
+            }
+            ++n_val_seqs;
+        }
+        HP.N -= n_val_seqs;
+        std::cout << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_alleles=" << n_masked_alleles << '\n';
+    }
+    else {
+        x_train = std::move(x);
+    }
+    int n_train = HP.N;
 
     // Init params and clusters.
     Params params{HP};
-    Clusters clusters{HP, x};
+    Clusters clusters{HP, x_train};
 
     EarlyStopping early_stop{2, false, 1e-3};
     double elbo = 0.0;
     while (!early_stop.converged()) {
-        clusters.max_step(x, params);
+        clusters.max_step(x_train, params);
         expect_step(HP, params, clusters);
         elbo = calc_elbo(HP, params, clusters);
         early_stop.update(elbo);
         std::cout << early_stop.step << ": " << "elbo=" << elbo << '\n';
     }
 
+    // Impute.
+    if (n_val_seqs > 0) {
+        clusters.add_seqs(x_val_masked, params, HP);
+        int n_correct = 0;
+        for (SparseX& s : x_val_true) {
+            if (s.x == clusters.r_assign[idx2d(n_train + s.i, s.l, HP.L)]->emission) {
+                ++n_correct;
+            }
+        }
+        std::cout << "Imputation acc: " << n_correct << '/' << n_masked_alleles << " = "
+            << static_cast<double>(n_correct) / static_cast<double>(n_masked_alleles) << '\n';
+    }
     return 0;
 }
 
