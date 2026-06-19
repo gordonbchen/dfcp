@@ -684,12 +684,13 @@ int main(int argc, char *argv[]) {
     int K = *std::max_element(x.begin(), x.end()) + 1;
     HyperParams HP{.N=N, .L=L, .K=K, .tau_1=1.0, .tau_2=1.0, .v_1=1.0, .v_2=1.0, .phi_1=2.0, .phi_2=2.0};
     std::cout << HP << '\n';
+    std::cout << std::fixed << std::setprecision(4);
 
     // Init params and clusters.
     Params params{HP};
     Clusters clusters{HP, x};
 
-    EarlyStopping early_stop{3, false, 1e-5};
+    EarlyStopping early_stop{2, false, 1e-3};
     double elbo = 0.0;
     while (!early_stop.converged()) {
         max_step(x, HP, params, clusters);
