@@ -9,6 +9,7 @@
 #include <memory>
 #include <limits>
 #include <iomanip>
+#include <string_view>
 
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/special_functions/trigamma.hpp>
@@ -18,15 +19,15 @@
 
 
 struct HyperParams {
-    const int N;
-    const int L;
-    const int K;
-    const double tau_1;
-    const double tau_2;
-    const double v_1;
-    const double v_2;
-    const double phi_1;
-    const double phi_2;
+    int N;
+    int L;
+    int K;
+    double tau_1 = 1.0;
+    double tau_2 = 1.0;
+    double v_1 = 1.0;
+    double v_2 = 1.0;
+    double phi_1 = 2.0;
+    double phi_2 = 2.0;
 };
 
 std::ostream& operator<<(std::ostream& os, const HyperParams& HP) {
@@ -665,7 +666,9 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
 
 int main(int argc, char *argv[]) {
     // Read seq file.
-    assert(argc == 2 && "Requires sequence file.");
+    assert(argc >= 2 && "Requires sequence file.");
+    std::cout << std::fixed << std::setprecision(4);
+    std::cout << "seq_file=" << argv[1] << '\n';
     std::ifstream seq_file(argv[1]);
     assert(seq_file.is_open() && "Failed to open sequence file.");
 
@@ -683,9 +686,33 @@ int main(int argc, char *argv[]) {
         ++N;
     }
     int K = *std::max_element(x.begin(), x.end()) + 1;
-    HyperParams HP{.N=N, .L=L, .K=K, .tau_1=1.0, .tau_2=1.0, .v_1=1.0, .v_2=1.0, .phi_1=2.0, .phi_2=2.0};
+
+    // Read hyperparams.
+    HyperParams HP{.N=N, .L=L, .K=K};
+    double mask = 0.0;
+    std::unordered_map<std::string_view, double*> args = {
+        {"--tau_1", &HP.tau_1}, {"--tau_2", &HP.tau_2},
+        {"--v_1", &HP.v_1}, {"--v_2", &HP.v_2},
+        {"--phi_1", &HP.phi_1}, {"--phi_2", &HP.phi_2},
+        {"--mask", &mask}
+    };
+
+    char* end_ptr = nullptr;
+    int i = 2;
+    while (i < argc) {
+        auto it = args.find(argv[i]);
+        assert(it != args.end() && "Arg not recognized.");
+
+        assert((i+1 < argc) && "Arg has no value.");
+        *it->second = std::strtod(argv[i+1], &end_ptr);
+        assert((end_ptr != argv[i+1]) && "Failed to parse arg value double.");
+
+        args.erase(it);
+        i += 2;
+    }
+
     std::cout << HP << '\n';
-    std::cout << std::fixed << std::setprecision(4);
+    std::cout << "mask=" << mask << '\n';
 
     // Init params and clusters.
     Params params{HP};
