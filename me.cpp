@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <memory>
 #include <limits>
+#include <iomanip>
 
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/special_functions/trigamma.hpp>
@@ -428,6 +429,7 @@ double delta_ElogGamma_invx(double mu, double sigma2, double a, double b) {
 double delta_ElogGamma_invx_d2_x(double mu, double sigma2, double a, double b) {
     double x = a/mu + b;
     double d2 = boost::math::trigamma(x) / (mu*mu);
+    // TODO: polygamma vs splitting into sum and delta approxs.
     d2 += 0.5*sigma2 * (
         boost::math::polygamma(3, x) * (a*a) / std::pow(mu, 6)
         + boost::math::polygamma(2, x) * (6*a) / std::pow(mu, 5)
@@ -664,7 +666,6 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
 int main(int argc, char *argv[]) {
     // Read seq file.
     assert(argc == 2 && "Requires sequence file.");
-    std::cout << "seq_file: " << argv[1] << '\n';
     std::ifstream seq_file(argv[1]);
     assert(seq_file.is_open() && "Failed to open sequence file.");
 
