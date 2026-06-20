@@ -631,7 +631,7 @@ $
 $
 h''(alpha) =& psi_1(alpha) - psi_1(alpha+N) + (1 - tau_1 - sum_(l=1)^(L) \#cal(R)_l) / alpha^2 \
 
-+& sum_(l=1)^(L-1) (d^2/(d alpha^2) EE_(d_l)[log Gamma(alpha/d_l)] - EE_(d_l)[log Gamma(alpha/d_l + \#cal(Q)_l)])\
++& sum_(l=1)^(L-1) (d^2/(d alpha^2) EE_(d_l)[log Gamma(alpha/d_l)] - d^2/(d alpha^2) EE_(d_l)[log Gamma(alpha/d_l + \#cal(Q)_l)])\
 $
 
 
