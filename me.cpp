@@ -202,9 +202,15 @@ struct Clusters {
         ++cluster->n;
 
         if (cluster->is_r) {
+            if (r_assign[idx2d(idx, cluster->l, HP.L)] != nullptr) {
+                throw std::runtime_error("seq already assigned to r cluster");
+            };
             r_assign[idx2d(idx, cluster->l, HP.L)] = cluster;
             return;
         }
+        if (q_assign[idx2d(idx, cluster->l, HP.L-1)] != nullptr) {
+            throw std::runtime_error("seq already assigned to q cluster");
+        };
         q_assign[idx2d(idx, cluster->l, HP.L-1)] = cluster;
     }
 
@@ -349,12 +355,14 @@ struct Clusters {
                 cluster_add(b, i);
             }
 
-            if (l == 0 && a == nullptr) {
-                int emission = xi[l] == -1 ? modes[l] : xi[l];
-                a = create_cluster(std::vector<int>{i}, true, l, emission);
-            }
-            else {
-                cluster_add(a, i);
+            if (l == 0) {
+                if (a == nullptr) {
+                    int emission = xi[l] == -1 ? modes[l] : xi[l];
+                    a = create_cluster(std::vector<int>{i}, true, l, emission);
+                }
+                else {
+                    cluster_add(a, i);
+                }
             }
             a->add_child(b);
 
