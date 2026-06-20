@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <chrono>
+#include <omp.h>
 
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/special_functions/trigamma.hpp>
@@ -573,7 +574,7 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
         params.mu_log_alpha, params.sigma2_log_alpha
     );
 
-    // TODO: OMP parallelize.
+    #pragma omp parallel for
     for (int l = 0; l < HP.L; ++l) {
         // gamma_l update.
         laplace_log_approx(
@@ -582,10 +583,10 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
             params.mu_gamma[l], params.sigma2_gamma[l],
             params.mu_log_gamma[l], params.sigma2_log_gamma[l]
         );
-        if (l >= HP.L-1) {
-            break;
-        }
+    }
 
+    #pragma omp parallel for
+    for (int l = 0; l < HP.L-1; ++l) {
         // d_l update in logit space.
         double logit_dl_mode = boost::math::tools::brent_find_minima(
             [&](double logit_dl) {return -ll_logit_dl(logit_dl, l, HP, params, clusters); },
