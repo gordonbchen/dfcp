@@ -12,6 +12,7 @@
 #include <random>
 #include <cstdlib>
 #include <stdexcept>
+#include <chrono>
 
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/special_functions/trigamma.hpp>
@@ -82,6 +83,7 @@ struct Cluster {
     const int l;
     const int emission;
 
+    // TODO: vector w/ linear remove. fix viterbi backtrack.
     std::unordered_set<Cluster*> parents;
     std::unordered_set<Cluster*> children;
 
@@ -123,7 +125,6 @@ double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
 struct Clusters {
     std::unordered_map<Cluster*, std::unique_ptr<Cluster>> all_clusters;
     const HyperParams& HP;
-    std::vector<char> modes;
     std::vector<int> nk;
     std::vector<Cluster*> r_assign;
     std::vector<Cluster*> q_assign;
@@ -134,7 +135,6 @@ struct Clusters {
 
     Clusters(const HyperParams& HP_, const std::vector<char>& x) :
         HP(HP_),
-        modes(HP.L),
         nk(HP.L * HP.K, 0),
         r_assign(HP.N * HP.L, nullptr),
         q_assign(HP.N * (HP.L-1), nullptr),
@@ -143,13 +143,13 @@ struct Clusters {
         nR(0)
     {
         // Count modes.
-        std::vector<int> counts(HP.K, 0);
+        std::vector<char> modes(HP.L);
+        std::vector<int> counts(HP.K);
         for (int l = 0; l < HP.L; ++l) {
             std::fill(counts.begin(), counts.end(), 0);
             for (int i = 0; i < HP.N; ++i) {
-                int idx = idx2d(i, l, HP.L);
-                if (x[idx] != -1) {
-                    ++counts[x[idx]];
+                if (x[idx2d(i, l, HP.L)] != -1) {
+                    ++counts[x[idx2d(i, l, HP.L)]];
                 }
             }
             auto max_it = std::max_element(counts.begin(), counts.end());
@@ -262,14 +262,20 @@ struct Clusters {
         }
     }
 
+    // TODO: if K=2 always then this is a ternary.
+    int cluster_mode(int l) {
+        auto nkl_it = nk.begin() + l*HP.K;
+        auto max_it = std::max_element(nkl_it, nkl_it + HP.K);
+        return std::distance(nkl_it, max_it);
+    }
+
     void viterbi_seq(std::vector<char>::const_iterator xi, int i, const Params& params) {
         std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
         std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
         for (int l = HP.L-1; l >= 0; --l) {
             // Likelihood for new cluster.
             auto& ma = a_msgs[l];
-            // TODO: modes will change. update modes on cluster create / destroy.
-            int emission = xi[l] == -1 ? modes[l] : xi[l];
+            int emission = xi[l] == -1 ? cluster_mode(l) : xi[l];
             double new_a_ll = (
                 delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nk[idx2d(l, emission, HP.K)])
                 - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, rs[l].size())
@@ -357,7 +363,7 @@ struct Clusters {
 
             if (l == 0) {
                 if (a == nullptr) {
-                    int emission = xi[l] == -1 ? modes[l] : xi[l];
+                    int emission = xi[l] == -1 ? cluster_mode(l) : xi[l];
                     a = create_cluster(std::vector<int>{i}, true, l, emission);
                 }
                 else {
@@ -368,7 +374,7 @@ struct Clusters {
 
             a = next_a;
             if (next_a == nullptr) {
-                int next_emission = xi[l+1] == -1 ? modes[l+1] : xi[l+1];
+                int next_emission = xi[l+1] == -1 ? cluster_mode(l+1) : xi[l+1];
                 next_a = create_cluster(std::vector<int>{i}, true, l+1, next_emission);
             }
             else {
@@ -452,7 +458,6 @@ double delta_ElogGamma_invx(double mu, double sigma2, double a, double b) {
 double delta_ElogGamma_invx_d2_x(double mu, double sigma2, double a, double b) {
     double x = a/mu + b;
     double d2 = boost::math::trigamma(x) / (mu*mu);
-    // TODO: polygamma vs splitting into sum and delta approxs.
     d2 += 0.5*sigma2 * (
         boost::math::polygamma(3, x) * (a*a) / std::pow(mu, 6)
         + boost::math::polygamma(2, x) * (6*a) / std::pow(mu, 5)
@@ -568,6 +573,7 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
         params.mu_log_alpha, params.sigma2_log_alpha
     );
 
+    // TODO: OMP parallelize.
     for (int l = 0; l < HP.L; ++l) {
         // gamma_l update.
         laplace_log_approx(
@@ -795,11 +801,22 @@ int main(int argc, char *argv[]) {
     EarlyStopping early_stop{2, false, 1e-3};
     double elbo = 0.0;
     while (!early_stop.converged()) {
+        auto t0 = std::chrono::steady_clock::now();
         clusters.max_step(x_train, params);
+        auto t1 = std::chrono::steady_clock::now();
         expect_step(HP, params, clusters);
+        auto t2 = std::chrono::steady_clock::now();
         elbo = calc_elbo(HP, params, clusters);
+        auto t3 = std::chrono::steady_clock::now();
         early_stop.update(elbo);
-        std::cout << early_stop.step << ": " << "elbo=" << elbo << '\n';
+
+        auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+        auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
+        auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
+        std::cout << early_stop.step << ": elbo=" << elbo
+            << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
+            << "ms t_step=" << t_step << "ms\n";
     }
 
     // Impute.
