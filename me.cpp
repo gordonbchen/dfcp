@@ -1,5 +1,4 @@
 #include <iostream>
-#include <cassert>
 #include <fstream>
 #include <vector>
 #include <algorithm>
@@ -11,6 +10,8 @@
 #include <iomanip>
 #include <string_view>
 #include <random>
+#include <cstdlib>
+#include <stdexcept>
 
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/special_functions/trigamma.hpp>
@@ -87,7 +88,7 @@ struct Cluster {
     Cluster(std::unordered_set<int> seqs_, bool is_r_, int l_, int emission_) :
         seqs(std::move(seqs_)), is_r(is_r_), l(l_), emission(emission_)
     {
-        assert(is_r == (emission != -1) && "only r cluster can have emissions.");
+        if (is_r != (emission != -1)) { throw std::invalid_argument("only r cluster can have emissions."); };
     }
 
     void add_child(Cluster *child) {
@@ -152,7 +153,7 @@ struct Clusters {
                 }
             }
             auto max_it = std::max_element(counts.begin(), counts.end());
-            assert(*max_it > 0 && "No valid alleles at loc.");
+            if (*max_it == 0) { throw std::runtime_error("No valid alleles at loc."); };
             modes[l] = std::distance(counts.begin(), max_it);
         }
 
@@ -261,6 +262,7 @@ struct Clusters {
         for (int l = HP.L-1; l >= 0; --l) {
             // Likelihood for new cluster.
             auto& ma = a_msgs[l];
+            // TODO: modes will change. update modes on cluster create / destroy.
             int emission = xi[l] == -1 ? modes[l] : xi[l];
             double new_a_ll = (
                 delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nk[idx2d(l, emission, HP.K)])
@@ -282,7 +284,7 @@ struct Clusters {
             auto& next_ma = a_msgs[l+1];
             auto& mb = b_msgs[l];
             for (Cluster* b : qs[l]) {
-                assert(b->children.size() == 1 && "b clusters should only have 1 child.");
+                if (b->children.size() != 1) { throw std::runtime_error("b clusters should only have 1 child."); };
                 Cluster* next_a = *b->children.begin();
                 mb[b] = Msg{get_msg_ll(next_ma, next_a), next_a};
              }
@@ -425,11 +427,11 @@ void laplace_log_approx(
     // TODO: bits and max iter for find min.
     logx_mode = boost::math::tools::brent_find_minima(nll_log_func, -10.0, 10.0, 30).first;
     logx_var = -1.0 / ll_log_d2_func(std::exp(logx_mode));
-    assert(logx_var > 0.0);
+    if (logx_var <= 0.0) { throw std::runtime_error("logx_var < 0."); };
 
     mu = std::exp(logx_mode + 0.5*logx_var);
     sigma2 = (std::exp(logx_var) - 1.0) * std::exp(2.0*logx_mode + logx_var);
-    assert(sigma2 > 0.0);
+    if (sigma2 <= 0.0) { throw std::runtime_error("sigma2 < 0."); };
 }
 
 double delta_ElogGamma_invx(double mu, double sigma2, double a, double b) {
@@ -577,7 +579,7 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
         ).first;
         double dl_mode = boost::math::logistic_sigmoid(logit_dl_mode);
         params.sigma2_logit_d[l] = -1.0 / ll_logit_dl_d2(dl_mode, l, HP, params, clusters);
-        assert(params.sigma2_logit_d[l] > 0.0);
+        if (params.sigma2_logit_d[l] <= 0.0) { throw std::runtime_error("sigma2_logit_d < 0."); };
 
         params.mu_d[l] = dl_mode + 0.5*params.sigma2_logit_d[l] * (1.0 - 2.0*dl_mode)*dl_mode*(1.0 - dl_mode);
         params.sigma2_d[l] = (
@@ -585,14 +587,14 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
             + 0.5*params.sigma2_logit_d[l] * (4.0*dl_mode - 6.0*dl_mode*dl_mode) * dl_mode * (1.0 - dl_mode)
             - params.mu_d[l]*params.mu_d[l]
         );
-        assert(params.sigma2_d[l] > 0.0);
+        if (params.sigma2_d[l] <= 0.0) { throw std::runtime_error("sigma2_d < 0."); };
         params.mu_log_d[l] = delta_Elogx(params.mu_d[l], params.sigma2_d[l], 1.0, 0.0);
     }
 }
 
 
 double normal_entropy(double sigma2) {
-    assert(sigma2 > 0.0);
+    if (sigma2 <= 0.0) { throw std::invalid_argument("sigma2 must be positive."); };
     constexpr double pi = 3.141592653589793238462643383279502884;
     return 0.5 * std::log(2.0 * pi * std::exp(1.0) * sigma2);
 }
@@ -685,11 +687,11 @@ struct SparseX {
 
 int main(int argc, char *argv[]) {
     // Read seq file.
-    assert(argc >= 2 && "Requires sequence file.");
+    if (argc < 2) { throw std::invalid_argument("Requires sequence file."); }
     std::cout << std::fixed << std::setprecision(4);
     std::cout << "seq_file=" << argv[1] << '\n';
     std::ifstream seq_file(argv[1]);
-    assert(seq_file.is_open() && "Failed to open sequence file.");
+    if (!seq_file.is_open()) { throw std::runtime_error("Failed to open sequence file."); };
 
     int N = 0;
     int L = 0;
@@ -700,6 +702,7 @@ int main(int argc, char *argv[]) {
             L = line.length();
         }
         for (char c : line) {
+            if (c < '0' || c > '9') { throw std::runtime_error("Invalid allele char."); };
             x.push_back(c - '0');
         }
         ++N;
@@ -721,11 +724,11 @@ int main(int argc, char *argv[]) {
     int i = 2;
     while (i < argc) {
         auto it = args.find(argv[i]);
-        assert(it != args.end() && "Arg not recognized.");
+        if (it == args.end()) { throw std::invalid_argument("Arg not recognized."); };
 
-        assert((i+1 < argc) && "Arg has no value.");
+        if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
         *it->second = std::strtod(argv[i+1], &end_ptr);
-        assert((end_ptr != argv[i+1]) && "Failed to parse arg value double.");
+        if (end_ptr == argv[i+1]) { throw std::invalid_argument("Failed to parse arg value double."); };
 
         args.erase(it);
         i += 2;
@@ -736,7 +739,7 @@ int main(int argc, char *argv[]) {
 
     // Split val for imputation.
     bool do_val = val > 0.0;
-    assert((do_val == (mask > 0.0)) && "If imputation validation frac is positive, mask frac must be positive.");
+    if (do_val != (mask > 0.0)) { throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0."); };
     int n_val_seqs = 0;
     std::vector<char> x_val_masked;
     x_val_masked.reserve(do_val ? static_cast<size_t>(val * x.size()) : 0);
