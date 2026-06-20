@@ -77,7 +77,7 @@ struct Params {
 
 
 struct Cluster {
-    std::unordered_set<int> seqs;
+    size_t n;
     const bool is_r;
     const int l;
     const int emission;
@@ -85,8 +85,8 @@ struct Cluster {
     std::unordered_set<Cluster*> parents;
     std::unordered_set<Cluster*> children;
 
-    Cluster(std::unordered_set<int> seqs_, bool is_r_, int l_, int emission_) :
-        seqs(std::move(seqs_)), is_r(is_r_), l(l_), emission(emission_)
+    Cluster(size_t n_, bool is_r_, int l_, int emission_) :
+        n(n_), is_r(is_r_), l(l_), emission(emission_)
     {
         if (is_r != (emission != -1)) { throw std::invalid_argument("only r cluster can have emissions."); };
     }
@@ -158,10 +158,10 @@ struct Clusters {
         }
 
         // Block init.
-        std::unordered_set<int> seqs;
+        std::vector<int> seqs;
         seqs.reserve(HP.N);
         for (int i = 0; i < HP.N; ++i) {
-            seqs.insert(i);
+            seqs.push_back(i);
         }
 
         Cluster* r = create_cluster(seqs, true, 0, modes[0]);
@@ -175,20 +175,20 @@ struct Clusters {
         }
     }
 
-    Cluster* create_cluster(std::unordered_set<int> seqs, bool is_r, int l, int emission) {
-        std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(std::move(seqs), is_r, l, emission);
+    Cluster* create_cluster(const std::vector<int>& seqs, bool is_r, int l, int emission) {
+        std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(seqs.size(), is_r, l, emission);
         Cluster* ptr = u_ptr.get();
         all_clusters[ptr] = std::move(u_ptr);
 
         if (!is_r) {
-            for (const int& i : ptr->seqs) {
+            for (const int& i : seqs) {
                 q_assign[idx2d(i, l, HP.L-1)] = ptr;
             }
             qs[l].insert(ptr);
             return ptr;
         }
 
-        for (const int& i : ptr->seqs) {
+        for (const int& i : seqs) {
             r_assign[idx2d(i, l, HP.L)] = ptr;
         }
         rs[l].insert(ptr);
@@ -199,7 +199,7 @@ struct Clusters {
     }
 
     void cluster_add(Cluster* cluster, int idx) {
-        cluster->seqs.insert(idx);
+        ++cluster->n;
 
         if (cluster->is_r) {
             r_assign[idx2d(idx, cluster->l, HP.L)] = cluster;
@@ -209,7 +209,7 @@ struct Clusters {
     }
 
     void cluster_remove(Cluster* cluster, int idx) {
-        cluster->seqs.erase(idx);
+        --cluster->n;
 
         if (cluster->is_r) {
             r_assign[idx2d(idx, cluster->l, HP.L)] = nullptr;
@@ -218,7 +218,7 @@ struct Clusters {
             q_assign[idx2d(idx, cluster->l, HP.L-1)] = nullptr;
         }
 
-        if (cluster->seqs.size() > 0) {
+        if (cluster->n > 0) {
             return;
         }
 
@@ -317,13 +317,13 @@ struct Clusters {
                 double nFl = a->children.size();
                 double best_b_ll = std::log(nFl) + params.mu_log_d[l] + mb[nullptr].ll;
                 for (Cluster* b : a->children) {
-                    double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->seqs.size()) + get_msg_ll(mb, b);
+                    double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->n) + get_msg_ll(mb, b);
                     if (ll > best_b_ll) {
                         best_b = b;
                         best_b_ll = ll;
                     }
                 }
-                best_b_ll -= std::log(static_cast<double>(a->seqs.size()));
+                best_b_ll -= std::log(static_cast<double>(a->n));
                 ma[a] = Msg{best_b_ll, best_b};
             }
         }
@@ -343,7 +343,7 @@ struct Clusters {
             next_a = b_msgs[l].at(b).next;
 
             if (b == nullptr) {
-                b = create_cluster(std::unordered_set<int>{i}, false, l, -1);
+                b = create_cluster(std::vector<int>{i}, false, l, -1);
             }
             else {
                 cluster_add(b, i);
@@ -351,7 +351,7 @@ struct Clusters {
 
             if (l == 0 && a == nullptr) {
                 int emission = xi[l] == -1 ? modes[l] : xi[l];
-                a = create_cluster(std::unordered_set<int>{i}, true, l, emission);
+                a = create_cluster(std::vector<int>{i}, true, l, emission);
             }
             else {
                 cluster_add(a, i);
@@ -361,7 +361,7 @@ struct Clusters {
             a = next_a;
             if (next_a == nullptr) {
                 int next_emission = xi[l+1] == -1 ? modes[l+1] : xi[l+1];
-                next_a = create_cluster(std::unordered_set<int>{i}, true, l+1, next_emission);
+                next_a = create_cluster(std::vector<int>{i}, true, l+1, next_emission);
             }
             else {
                 cluster_add(next_a, i);
@@ -525,7 +525,7 @@ double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& 
     ll += (HP.v_2 - 1.0) * std::log(1.0 - d);
     ll -= nQl * std::lgamma(1.0 - d);
     for (Cluster* b : clusters.qs[l]) {
-        ll += std::lgamma(b->seqs.size() - d);
+        ll += std::lgamma(b->n - d);
     }
     ll += delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0/d, 0.0);
     ll -= delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0/d, nQl);
@@ -540,7 +540,7 @@ double ll_logit_dl_d2(double d, int l, const HyperParams& HP, const Params& para
     d2 -= (HP.v_2 - 1.0) / std::pow(1.0 - d, 2);
     d2 -= nQl * boost::math::trigamma(1.0 - d);
     for (Cluster* b : clusters.qs[l]) {
-        d2 += boost::math::trigamma(b->seqs.size() - d);
+        d2 += boost::math::trigamma(b->n - d);
     }
 
     d2 += delta_ElogGamma_x_d2_invx(params.mu_alpha, params.sigma2_alpha, 1.0/d, 0.0);
@@ -622,7 +622,7 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
         elbo -= nQl * delta_ElogGamma_x(params.mu_d[l], params.sigma2_d[l], -1.0, 1.0);
 
         for (Cluster* b : clusters.qs[l]) {
-            elbo += delta_ElogGamma_x(params.mu_d[l], params.sigma2_d[l], -1.0, b->seqs.size());
+            elbo += delta_ElogGamma_x(params.mu_d[l], params.sigma2_d[l], -1.0, b->n);
         }
 
         // alpha and d term.
@@ -654,12 +654,12 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
 
     // Clusters.
     for (Cluster* a : clusters.rs[0]) {
-        elbo += std::lgamma(static_cast<double>(a->seqs.size()));
+        elbo += std::lgamma(static_cast<double>(a->n));
     }
     for (int l = 0; l < HP.L - 1; ++l) {
         for (Cluster* a : clusters.rs[l]) {
             elbo += std::lgamma(static_cast<double>(a->children.size()));
-            elbo -= std::lgamma(static_cast<double>(a->seqs.size()));
+            elbo -= std::lgamma(static_cast<double>(a->n));
         }
         for (Cluster* a : clusters.rs[l + 1]) {
             elbo += std::lgamma(static_cast<double>(a->parents.size()));
