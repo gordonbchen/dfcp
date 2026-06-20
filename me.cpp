@@ -708,7 +708,6 @@ int main(int argc, char *argv[]) {
 
     // Read hyperparams.
     HyperParams HP{.N=N, .L=L, .K=K};
-    // TODO: mask and imputation check.
     double val = -1.0;
     double mask = -1.0;
     std::unordered_map<std::string_view, double*> args = {
