@@ -84,9 +84,8 @@ struct Cluster {
     const int l;
     const int emission;
 
-    // TODO: vector w/ linear remove. fix viterbi backtrack.
-    std::unordered_set<Cluster*> parents;
-    std::unordered_set<Cluster*> children;
+    std::vector<Cluster*> parents;
+    std::vector<Cluster*> children;
 
     Cluster(size_t n_, bool is_r_, int l_, int emission_) :
         n(n_), is_r(is_r_), l(l_), emission(emission_)
@@ -95,8 +94,8 @@ struct Cluster {
     }
 
     void add_child(Cluster *child) {
-        children.insert(child);
-        child->parents.insert(this);
+        children.push_back(child);
+        child->parents.push_back(this);
     }
 };
 
@@ -231,10 +230,12 @@ struct Clusters {
 
         // Delete cluster.
         for (Cluster* parent : cluster->parents) {
-            parent->children.erase(cluster);
+            std::swap(*std::find(parent->children.begin(), parent->children.end(), cluster), parent->children.back());
+            parent->children.pop_back();
         }
         for (Cluster* child: cluster->children) {
-            child->parents.erase(cluster);
+            std::swap(*std::find(child->parents.begin(), child->parents.end(), cluster), child->parents.back());
+            child->parents.pop_back();
         }
 
         if (cluster->is_r) {
@@ -345,43 +346,27 @@ struct Clusters {
         Cluster* a = std::max_element(a_msgs[0].begin(), a_msgs[0].end(),
             [](const auto& a, const auto& b) { return a.second.ll < b.second.ll; }
         )->first;
-        Cluster* b = nullptr;
-        Cluster* next_a = nullptr;
+        int emission = xi[0] == -1 ? cluster_mode(0) : xi[0];
+        Cluster* a_obj = (a == nullptr) ? create_cluster(std::vector<int>{}, true, 0, emission) : a;
+        cluster_add(a_obj, i);
 
+        Cluster* b = nullptr;
+        Cluster* b_obj = nullptr;
         for (int l = 0; l < HP.L-1; ++l) {
             b = a_msgs[l].at(a).next;
-            if (a == nullptr) {
-                a = next_a;
-            }
-            next_a = b_msgs[l].at(b).next;
-
-            if (b == nullptr) {
-                b = create_cluster(std::vector<int>{i}, false, l, -1);
-            }
-            else {
-                cluster_add(b, i);
+            b_obj = (b == nullptr) ? create_cluster(std::vector<int>{}, false, l, -1) : b;
+            cluster_add(b_obj, i);
+            if (a == nullptr || b == nullptr) {
+                a_obj->add_child(b_obj);
             }
 
-            if (l == 0) {
-                if (a == nullptr) {
-                    int emission = xi[l] == -1 ? cluster_mode(l) : xi[l];
-                    a = create_cluster(std::vector<int>{i}, true, l, emission);
-                }
-                else {
-                    cluster_add(a, i);
-                }
+            a = b_msgs[l].at(b).next;
+            emission = xi[l+1] == -1 ? cluster_mode(l+1) : xi[l+1];
+            a_obj = (a == nullptr) ? create_cluster(std::vector<int>{}, true, l+1, emission) : a;
+            cluster_add(a_obj, i);
+            if (a == nullptr || b == nullptr) {
+                b_obj->add_child(a_obj);
             }
-            a->add_child(b);
-
-            a = next_a;
-            if (next_a == nullptr) {
-                int next_emission = xi[l+1] == -1 ? cluster_mode(l+1) : xi[l+1];
-                next_a = create_cluster(std::vector<int>{i}, true, l+1, next_emission);
-            }
-            else {
-                cluster_add(next_a, i);
-            }
-            b->add_child(next_a);
         }
     }
 
