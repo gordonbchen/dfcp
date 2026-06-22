@@ -125,7 +125,6 @@ double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
 struct Clusters {
     std::unordered_map<Cluster*, std::unique_ptr<Cluster>> all_clusters;
     const HyperParams& HP;
-    std::vector<int> nk;
     std::vector<Cluster*> r_assign;
     std::vector<Cluster*> q_assign;
     std::vector<std::unordered_set<Cluster*>> rs;
@@ -135,7 +134,6 @@ struct Clusters {
 
     Clusters(const HyperParams& HP_, const std::vector<char>& x) :
         HP(HP_),
-        nk(HP.L * HP.K, 0),
         r_assign(HP.N * HP.L, nullptr),
         q_assign(HP.N * (HP.L-1), nullptr),
         rs(HP.L), qs(HP.L-1),
@@ -192,7 +190,6 @@ struct Clusters {
             r_assign[idx2d(i, l, HP.L)] = ptr;
         }
         rs[l].insert(ptr);
-        ++nk[idx2d(l, emission, HP.K)];
         rs_by_emit[idx2d(l, emission, HP.K)].insert(ptr);
         ++nR;
         return ptr;
@@ -240,7 +237,6 @@ struct Clusters {
 
         if (cluster->is_r) {
             rs[cluster->l].erase(cluster);
-            --nk[idx2d(cluster->l, cluster->emission, HP.K)];
             rs_by_emit[idx2d(cluster->l, cluster->emission, HP.K)].erase(cluster);
             --nR;
         }
@@ -266,9 +262,15 @@ struct Clusters {
 
     // TODO: if K=2 always then this is a ternary.
     int cluster_mode(int l) {
-        auto nkl_it = nk.begin() + l*HP.K;
-        auto max_it = std::max_element(nkl_it, nkl_it + HP.K);
-        return std::distance(nkl_it, max_it);
+        int max_k = 0;
+        int max_nk = rs_by_emit[idx2d(l, 0, HP.K)].size();
+        for (int k = 1; k < HP.K; ++k) {
+            if (rs_by_emit[idx2d(l, k, HP.K)].size() > max_nk) {
+                max_k = k;
+                max_nk = rs_by_emit[idx2d(l, k, HP.K)].size();
+            }
+        }
+        return max_k;
     }
 
     void viterbi_seq(std::vector<char>::const_iterator xi, int i, const Params& params) {
@@ -279,7 +281,7 @@ struct Clusters {
             auto& ma = a_msgs[l];
             int emission = xi[l] == -1 ? cluster_mode(l) : xi[l];
             double new_a_ll = (
-                delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nk[idx2d(l, emission, HP.K)])
+                delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, rs_by_emit[idx2d(l,emission,HP.K)].size())
                 - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, rs[l].size())
             );
 
@@ -481,7 +483,7 @@ double ll_log_gammal(double log_gamma, int l, const HyperParams& HP, const Clust
     double ll = (HP.phi_1-1)*std::log(gamma) - HP.phi_2*gamma;
     ll += std::lgamma(HP.K*gamma) - std::lgamma(HP.K*gamma + clusters.rs[l].size());
     for (int k = 0; k < HP.K; ++k) {
-        ll += std::lgamma(gamma + clusters.nk[idx2d(l, k, HP.K)]);
+        ll += std::lgamma(gamma + clusters.rs_by_emit[idx2d(l, k, HP.K)].size());
     }
     ll -= HP.K * std::lgamma(gamma);
 
@@ -492,7 +494,7 @@ double ll_log_gammal_d2(double gamma, int l, const HyperParams& HP, const Cluste
     double d2 = (1.0 - HP.phi_1) / (gamma*gamma);
     d2 += HP.K*HP.K * (boost::math::trigamma(HP.K*gamma) - boost::math::trigamma(HP.K*gamma + clusters.rs[l].size()));
     for (int k = 0; k < HP.K; ++k) {
-        d2 += boost::math::trigamma(gamma + clusters.nk[idx2d(l, k, HP.K)]);
+        d2 += boost::math::trigamma(gamma + clusters.rs_by_emit[idx2d(l, k, HP.K)].size());
         d2 -= boost::math::trigamma(gamma);
     }
     return gamma*gamma * d2 - 1;
@@ -647,7 +649,9 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
         elbo += delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, 0.0);
         elbo -= delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
         for (int k = 0; k < HP.K; ++k) {
-            elbo += delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, clusters.nk[idx2d(l, k, HP.K)]);
+            elbo += delta_ElogGamma_x(
+                params.mu_gamma[l], params.sigma2_gamma[l], 1.0, clusters.rs_by_emit[idx2d(l, k, HP.K)].size()
+            );
         }
         elbo -= HP.K * delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l]);
     }
