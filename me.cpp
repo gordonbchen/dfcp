@@ -104,6 +104,21 @@ size_t idx2d(size_t r, size_t c, size_t width) {
     return r*width + c;
 }
 
+void count_modes(std::vector<char>& modes, const std::vector<char>& x, const int N, const int L, const int K) {
+    std::vector<int> counts(K);
+    for (int l = 0; l < L; ++l) {
+        std::fill(counts.begin(), counts.end(), 0);
+        for (int i = 0; i < N; ++i) {
+            if (x[idx2d(i, l, L)] != -1) {
+                ++counts[x[idx2d(i, l, L)]];
+            }
+        }
+        auto max_it = std::max_element(counts.begin(), counts.end());
+        if (*max_it == 0) { throw std::runtime_error("No valid alleles at loc."); };
+        modes[l] = std::distance(counts.begin(), max_it);
+    }
+}
+
 double delta_Elogx(double mu, double sigma2, double a, double b) {
     double x = a*mu + b;
     return std::log(x) - 0.5*sigma2*a*a / (x*x);
@@ -140,27 +155,15 @@ struct Clusters {
         rs_by_emit(HP.L * HP.K),
         nR(0)
     {
-        // Count modes.
-        std::vector<char> modes(HP.L);
-        std::vector<int> counts(HP.K);
-        for (int l = 0; l < HP.L; ++l) {
-            std::fill(counts.begin(), counts.end(), 0);
-            for (int i = 0; i < HP.N; ++i) {
-                if (x[idx2d(i, l, HP.L)] != -1) {
-                    ++counts[x[idx2d(i, l, HP.L)]];
-                }
-            }
-            auto max_it = std::max_element(counts.begin(), counts.end());
-            if (*max_it == 0) { throw std::runtime_error("No valid alleles at loc."); };
-            modes[l] = std::distance(counts.begin(), max_it);
-        }
-
         // Block init.
         std::vector<int> seqs;
         seqs.reserve(HP.N);
         for (int i = 0; i < HP.N; ++i) {
             seqs.push_back(i);
         }
+
+        std::vector<char> modes(HP.L);
+        count_modes(modes, x, HP.N, HP.L, HP.K);
 
         Cluster* r = create_cluster(seqs, true, 0, modes[0]);
         Cluster* q = nullptr;
@@ -812,14 +815,25 @@ int main(int argc, char *argv[]) {
     // Impute.
     if (n_val_seqs > 0) {
         clusters.add_seqs(x_val_masked, params, HP);
-        int n_correct = 0;
+
+        std::vector<char> modes(HP.L);
+        count_modes(modes, x_val_masked, n_val_seqs, HP.L, HP.K);
+
+        int n_dfcp_correct = 0;
+        int n_mode_correct = 0;
         for (SparseX& s : x_val_true) {
             if (s.x == clusters.r_assign[idx2d(n_train + s.i, s.l, HP.L)]->emission) {
-                ++n_correct;
+                ++n_dfcp_correct;
+            }
+            if (s.x == modes[s.l]) {
+                ++n_mode_correct;
             }
         }
-        std::cout << "Imputation acc: " << n_correct << '/' << n_masked_alleles << " = "
-            << static_cast<double>(n_correct) / static_cast<double>(n_masked_alleles) << '\n';
+
+        std::cout << "DFCP impute acc: " << n_dfcp_correct << '/' << n_masked_alleles << " = "
+            << static_cast<double>(n_dfcp_correct) / static_cast<double>(n_masked_alleles) << '\n';
+        std::cout << "Mode impute acc: " << n_mode_correct << '/' << n_masked_alleles << " = "
+            << static_cast<double>(n_mode_correct) / static_cast<double>(n_masked_alleles) << '\n';
     }
     return 0;
 }
