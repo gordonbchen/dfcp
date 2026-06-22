@@ -6,7 +6,6 @@
 #include <unordered_set>
 #include <vector>
 #include "hyperparams.hpp"
-#include "params.hpp"
 
 
 struct Cluster {
@@ -23,8 +22,6 @@ struct Cluster {
     void add_child(Cluster *child);
 };
 
-
-void count_modes(std::vector<char>& modes, const std::vector<char>& x, const int N, const int L, const int K);
 
 struct Clusters {
     std::unordered_map<Cluster*, std::unique_ptr<Cluster>> all_clusters;
@@ -44,12 +41,6 @@ struct Clusters {
 
     void cluster_remove(Cluster* cluster, int idx);
 
-    void max_step(const std::vector<char>& x, const Params& params);
-
     int cluster_mode(int l);
-
-    void viterbi_seq(std::vector<char>::const_iterator xi, int i, const Params& params);
-
-    void add_seqs(const std::vector<char>& x, const Params& params, HyperParams& HP);
 };
 

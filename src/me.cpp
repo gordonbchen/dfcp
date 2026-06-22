@@ -15,8 +15,9 @@
 #include "hyperparams.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
-#include "elbo.hpp"
+#include "max.hpp"
 #include "expect.hpp"
+#include "elbo.hpp"
 #include "util.hpp"
 
 
@@ -163,7 +164,7 @@ int main(int argc, char *argv[]) {
     double elbo = 0.0;
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
-        clusters.max_step(x_train, params);
+        max_step(clusters, x_train, HP, params);
         auto t1 = std::chrono::steady_clock::now();
         expect_step(HP, params, clusters);
         auto t2 = std::chrono::steady_clock::now();
@@ -182,7 +183,7 @@ int main(int argc, char *argv[]) {
 
     // Impute.
     if (n_val_seqs > 0) {
-        clusters.add_seqs(x_val_masked, params, HP);
+        add_seqs(clusters, x_val_masked, params, HP);
 
         std::vector<char> modes(HP.L);
         count_modes(modes, x_val_masked, n_val_seqs, HP.L, HP.K);
