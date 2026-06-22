@@ -1,0 +1,8 @@
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+  Includes:
+    AnalyzeAngledIncludes: true
+
+Completion:
+  HeaderInsertion: IWYU
