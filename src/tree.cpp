@@ -54,9 +54,9 @@ std::vector<std::unordered_map<int, std::tuple<int, int>>> parse_tree_file(const
     int l = 0;
     while (std::getline(tree_file, line)) {
         if (line[0] == 'e') { break; }
+        if (l >= L) { throw std::runtime_error("# trees should match sequence length"); }
         parse_coal_tree(line.c_str(), trees[l], -1);
         ++l;
-        if (l >= L) { throw std::runtime_error("# trees should match sequence length"); }
     }
     return trees;
 }

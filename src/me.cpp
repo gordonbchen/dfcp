@@ -193,7 +193,10 @@ int main(int argc, char *argv[]) {
 
     // Impute.
     if (n_val_seqs > 0) {
+        auto t0 = std::chrono::steady_clock::now();
         add_seqs(clusters, x_val_masked, params, HP);
+        auto t1 = std::chrono::steady_clock::now();
+        auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
         // TODO: modes should be of training data.
         std::vector<char> modes(HP.L);
@@ -209,16 +212,18 @@ int main(int argc, char *argv[]) {
                 ++n_mode_correct;
             }
         }
+        double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / static_cast<double>(n_masked_alleles);
+        double mode_impute_acc = static_cast<double>(n_mode_correct) / static_cast<double>(n_masked_alleles);
 
-        std::cout << "DFCP impute acc: " << n_dfcp_correct << '/' << n_masked_alleles << " = "
-            << static_cast<double>(n_dfcp_correct) / static_cast<double>(n_masked_alleles) << '\n';
-        std::cout << "Mode impute acc: " << n_mode_correct << '/' << n_masked_alleles << " = "
-            << static_cast<double>(n_mode_correct) / static_cast<double>(n_masked_alleles) << '\n';
+        std::cout << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
+            << "ms\nmode_impute_acc=" << mode_impute_acc << '\n';
     }
 
     // Tree parsimony.
     if (tree_file_name != nullptr) {
+        auto t0 = std::chrono::steady_clock::now();
         std::vector<std::unordered_map<int, std::tuple<int, int>>> coal_trees{parse_tree_file(tree_file_name, HP.L)};
+        int excess_parsimony = 0;
         for (int l = 0; l < HP.L; ++l) {
             std::unordered_map<Cluster*, int> cluster_idxs;
             cluster_idxs.reserve(clusters.rs[l].size());
@@ -227,9 +232,14 @@ int main(int argc, char *argv[]) {
                 cluster_idxs.emplace(c, i);
                 ++i;
             }
-            int excess_parsimony = calc_excess_parsimony(l, coal_trees[l], clusters, cluster_idxs);
-            std::cout << "l=" << l << " excess_parsimony=" << excess_parsimony << '\n';
+            excess_parsimony += calc_excess_parsimony(l, coal_trees[l], clusters, cluster_idxs);
         }
+        auto t1 = std::chrono::steady_clock::now();
+        auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+
+        double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
+        std::cout << "mean_excess_parsimony=" << mean_excess_parsimony <<
+            " t_parsimony=" << t_parsimony << "ms\n";
     }
     return 0;
 }
