@@ -10,7 +10,8 @@ size_t idx2d(size_t r, size_t c, size_t width) {
     return r*width + c;
 }
 
-void count_modes(std::vector<char>& modes, const std::vector<char>& x, const int N, const int L, const int K) {
+std::vector<char> count_modes(const std::vector<char>& x, const int N, const int L, const int K) {
+    std::vector<char> modes(L);
     std::vector<int> counts(K);
     for (int l = 0; l < L; ++l) {
         std::fill(counts.begin(), counts.end(), 0);
@@ -23,5 +24,6 @@ void count_modes(std::vector<char>& modes, const std::vector<char>& x, const int
         if (*max_it == 0) { throw std::runtime_error("No valid alleles at loc."); };
         modes[l] = std::distance(counts.begin(), max_it);
     }
+    return modes;
 }
 

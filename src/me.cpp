@@ -198,9 +198,7 @@ int main(int argc, char *argv[]) {
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
-        // TODO: modes should be of training data.
-        std::vector<char> modes(HP.L);
-        count_modes(modes, x_val_masked, n_val_seqs, HP.L, HP.K);
+        std::vector<char> modes{count_modes(x_train, n_train, HP.L, HP.K)};
 
         int n_dfcp_correct = 0;
         int n_mode_correct = 0;
