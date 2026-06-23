@@ -1023,20 +1023,59 @@ $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
 
 
 #pagebreak()
-= TODO
-
-== faster inference
-- C++ port
-- N=2500, L=100000
-
-== imputation
-- train then impute
-
-== eval w/ trees
+= Trees
+- fastsimcoal gives coalescent trees at each position
 - given a tree, is the dfcp marginal clustering in it? metric for how far away
 - or cutting to make n clusters, distance b/t tree clusters and dfcp clusters
 
+== Parsimony score
+- given a tree and clusters, how can I assign cluster labels to internal ancestral nodes to explain the
+  observed cluster labels with as few changes along edges as possible
+
+- $s_T (cal(X)) = min_(hat(cal(X)) : V(T) -> cal(K)) \#{(u, v) in E(T) : hat(cal(X))(u) != hat(cal(X))(v)}$
+
+  subject to $cal(X)(x) = hat(cal(X))(x)$ on leaves $x$
+
+- optimal parsimony score for $k$ clusters = $k-1$
+
+  excess parsimony score: $s_T (cal(X)) - (k-1)$
+
+- at optimality: clusters represent subtrees
+
+== Fitch's Algorithm
+- let $P(v)$ be the parsimony score of a subtree rooted at $v$
+- let $S(v)$ be the set of cluster labels for the vertex $v$ that can achieve $P(v)$
+
+base case: at edges, $P(v) = 0$, $S(v) = {C(v)}$
+
+recursion: vertex $v$ has children $a, b$.
+- if $S(a) inter S(b) = emptyset$
+  - there is no cluster label that can be assigned to $v$ to not increase parsimony
+  - $P(v) = P(a) + P(b) + 1$
+  - $S(v) = S(a) union S(b)$
+- else $S(a) inter S(b) != emptyset$
+  - $P(v) = P(a) + P(b)$
+  - $S(v) = S(a) inter S(b)$
+
+
+== Other branch-length aware metrics
+- best time cut comparison: but we don't necessarily need clustering to correspond to a time cut
+- within cluster tree difference
+
+
+
+
+#pagebreak()
+= TODO
+- N=2500, L=100000
+- imputation bench
+
+== progress
+- CPP port finished
+- train then impute
+- coalescent tree parsimony score
+
 == icebox
-- imputation on stronger baseline: beagle / impute2
+- stronger imputation baseline: beagle / impute2
 - cluster init
 
