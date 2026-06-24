@@ -35,8 +35,7 @@ Clusters::Clusters(const HyperParams& HP_, const std::vector<char>& x) :
         seqs.push_back(i);
     }
 
-    std::vector<char> modes(HP.L);
-    count_modes(modes, x, HP.N, HP.L, HP.K);
+    std::vector<char> modes{count_modes(x, HP.N, HP.L, HP.K)};
 
     Cluster* r = create_cluster(seqs, true, 0, modes[0]);
     Cluster* q = nullptr;

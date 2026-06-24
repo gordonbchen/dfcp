@@ -12,14 +12,22 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <chrono>
+#include <tuple>
 #include "hyperparams.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
 #include "max.hpp"
 #include "expect.hpp"
 #include "elbo.hpp"
+#include "tree.hpp"
 #include "util.hpp"
 
+
+void parse_double(char *s, double& x) {
+    char* end_ptr = nullptr;
+    x = std::strtod(s, &end_ptr);
+    if (end_ptr == s) { throw std::invalid_argument("Failed to parse arg value double."); };
+}
 
 class EarlyStopping {
     private: 
@@ -84,29 +92,31 @@ int main(int argc, char *argv[]) {
         ++N;
     }
     int K = *std::max_element(x.begin(), x.end()) + 1;
-
-    // Read hyperparams.
     HyperParams HP{.N=N, .L=L, .K=K};
+
+    // Parse optional args.
     double val = -1.0;
     double mask = -1.0;
-    std::unordered_map<std::string_view, double*> args = {
-        {"--tau_1", &HP.tau_1}, {"--tau_2", &HP.tau_2},
-        {"--v_1", &HP.v_1}, {"--v_2", &HP.v_2},
-        {"--phi_1", &HP.phi_1}, {"--phi_2", &HP.phi_2},
-        {"--val", &val}, {"--mask", &mask}
-    };
+    char *tree_file_name = nullptr;
 
-    char* end_ptr = nullptr;
     int i = 2;
     while (i < argc) {
-        auto it = args.find(argv[i]);
-        if (it == args.end()) { throw std::invalid_argument("Arg not recognized."); };
-
         if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
-        *it->second = std::strtod(argv[i+1], &end_ptr);
-        if (end_ptr == argv[i+1]) { throw std::invalid_argument("Failed to parse arg value double."); };
 
-        args.erase(it);
+        std::string_view arg{argv[i]};
+        if (arg == "--tau_1") { parse_double(argv[i+1], HP.tau_1); }
+        else if (arg == "--tau_2") { parse_double(argv[i+1], HP.tau_2); }
+        else if (arg == "--v_1") { parse_double(argv[i+1], HP.v_1); }
+        else if (arg == "--v_2") { parse_double(argv[i+1], HP.v_2); }
+        else if (arg == "--phi_1") { parse_double(argv[i+1], HP.phi_1); }
+        else if (arg == "--phi_2") { parse_double(argv[i+1], HP.phi_2); }
+
+        else if (arg == "--val") { parse_double(argv[i+1], val); }
+        else if (arg == "--mask") { parse_double(argv[i+1], mask); }
+
+        else if (arg == "--tree") { tree_file_name = argv[i+1]; }
+
+        else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
     }
 
@@ -183,10 +193,12 @@ int main(int argc, char *argv[]) {
 
     // Impute.
     if (n_val_seqs > 0) {
+        auto t0 = std::chrono::steady_clock::now();
         add_seqs(clusters, x_val_masked, params, HP);
+        auto t1 = std::chrono::steady_clock::now();
+        auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
-        std::vector<char> modes(HP.L);
-        count_modes(modes, x_val_masked, n_val_seqs, HP.L, HP.K);
+        std::vector<char> modes{count_modes(x_train, n_train, HP.L, HP.K)};
 
         int n_dfcp_correct = 0;
         int n_mode_correct = 0;
@@ -198,11 +210,34 @@ int main(int argc, char *argv[]) {
                 ++n_mode_correct;
             }
         }
+        double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / static_cast<double>(n_masked_alleles);
+        double mode_impute_acc = static_cast<double>(n_mode_correct) / static_cast<double>(n_masked_alleles);
 
-        std::cout << "DFCP impute acc: " << n_dfcp_correct << '/' << n_masked_alleles << " = "
-            << static_cast<double>(n_dfcp_correct) / static_cast<double>(n_masked_alleles) << '\n';
-        std::cout << "Mode impute acc: " << n_mode_correct << '/' << n_masked_alleles << " = "
-            << static_cast<double>(n_mode_correct) / static_cast<double>(n_masked_alleles) << '\n';
+        std::cout << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
+            << "ms\nmode_impute_acc=" << mode_impute_acc << '\n';
+    }
+
+    // Tree parsimony.
+    if (tree_file_name != nullptr) {
+        auto t0 = std::chrono::steady_clock::now();
+        std::vector<std::unordered_map<int, std::tuple<int, int>>> coal_trees{parse_tree_file(tree_file_name, HP.L)};
+        int excess_parsimony = 0;
+        for (int l = 0; l < HP.L; ++l) {
+            std::unordered_map<Cluster*, int> cluster_idxs;
+            cluster_idxs.reserve(clusters.rs[l].size());
+            int i = 0;
+            for (Cluster* c : clusters.rs[l]) {
+                cluster_idxs.emplace(c, i);
+                ++i;
+            }
+            excess_parsimony += calc_excess_parsimony(l, coal_trees[l], clusters, cluster_idxs);
+        }
+        auto t1 = std::chrono::steady_clock::now();
+        auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+
+        double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
+        std::cout << "mean_excess_parsimony=" << mean_excess_parsimony <<
+            " t_parsimony=" << t_parsimony << "ms\n";
     }
     return 0;
 }

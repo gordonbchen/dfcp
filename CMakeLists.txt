@@ -15,6 +15,7 @@ add_executable(dfcp
     src/max.cpp
     src/expect.cpp
     src/elbo.cpp
+    src/tree.cpp
     src/math.cpp
     src/util.cpp
 )
