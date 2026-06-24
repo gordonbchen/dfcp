@@ -12,6 +12,57 @@
 #include "util.hpp"
 
 
+std::vector<int> parse_pos_file_idx(const char *fname, int start_idx, int L) {
+    std::ifstream pos_file{fname};
+    if (!pos_file.is_open()) { throw std::invalid_argument("Failed to open position file."); }
+
+    int n_pos;
+    pos_file >> n_pos;
+
+    if (start_idx + L > n_pos) { throw std::invalid_argument("Position file not long enough for start and length"); };
+
+    std::vector<int> pos;
+    pos.reserve(L);
+
+    int x;
+    for (int i = 0; i < start_idx; ++i) {
+        pos_file >> x;
+        if (pos_file.peek() == ',') { pos_file.ignore(); }
+    }
+
+    for (int i = 0; i < L; ++i) {
+        pos_file >> x;
+        pos.push_back(x);
+        if (pos_file.peek() == ',') { pos_file.ignore(); }
+    }
+    return pos;
+}
+
+std::vector<int> parse_pos_file_pos(const char *fname, int start_pos, int end_pos) {
+    std::ifstream pos_file{fname};
+    if (!pos_file.is_open()) { throw std::invalid_argument("Failed to open position file."); }
+
+    int n_pos;
+    pos_file >> n_pos;
+
+    std::vector<int> pos;
+
+    bool reading = false;
+
+    int x;
+    for (int i = 0; i < n_pos; ++i) {
+        pos_file >> x;
+        if (pos_file.peek() == ',') { pos_file.ignore(); }
+
+        if (x == start_pos) { reading = true; }
+        if (reading) { pos.push_back(x); }
+
+        if (x == end_pos) { break; }
+    }
+    if (x != end_pos) { throw std::invalid_argument("Never finished reading, did not find end pos."); }
+    return pos;
+}
+
 const char* parse_coal_tree(const char *s, std::unordered_map<int, std::tuple<int, int>>& coal_tree, int idx) {
     while (*s != '(') { ++s; }
     ++s;
