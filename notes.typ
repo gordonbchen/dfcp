@@ -1067,13 +1067,20 @@ recursion: vertex $v$ has children $a, b$.
 
 #pagebreak()
 = TODO
+
+== trees
+- tree file give trees at recombination events. from pos to next-1.
+- binary data filename loc number is idx for polymorphism.
+
+== benches
 - N=2500, L=100000
 - imputation bench
 
-== progress
-- CPP port finished
-- train then impute
-- coalescent tree parsimony score
+== next possible
+- eval internal repr of shapeit / beagle
+- coreset
+- changing model (multimodal: adding a likelihood)
+- different processes (pitman dfcp: coalescent process on tree = crp marginally)
 
 == icebox
 - stronger imputation baseline: beagle / impute2
