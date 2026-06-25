@@ -4,11 +4,13 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 
-xs, ys, parsimonys = [], [], []
+xs, ys, parsimonys, emission_parsimonys = [], [], [], []
 
 r_file = re.compile(r"haps_SIMOUT_1.txt.gz_(\d+\.\d+)_(\d+\.\d+)")
 r_parsimony = re.compile(r"mean_excess_parsimony=(\d+\.\d+)")
+r_emission_parsimony = re.compile(r"mean_emission_excess_parsimony=(\d+\.\d+)")
 
+# Run inference.
 seq_dir = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
 for seq_file in seq_dir.glob("haps_*.txt"):
     m = r_file.match(seq_file.name)
@@ -21,28 +23,32 @@ for seq_file in seq_dir.glob("haps_*.txt"):
         "--variant_start_pos", "14572"
     ], capture_output=True, text=True)
 
-    m = r_parsimony.search(res.stdout)
-    parsimony = float(m.group(1))
-
-    print(x, y, parsimony)
+    parsimony = float(r_parsimony.search(res.stdout).group(1))
+    emission_parsimony = float(r_emission_parsimony.search(res.stdout).group(1))
+    print(x, y, parsimony, emission_parsimony)
 
     xs.append(x)
     ys.append(y)
     parsimonys.append(parsimony)
+    emission_parsimonys.append(emission_parsimony)
 
 
-for y0 in sorted(set(ys)):
-    xs_y, parsimonys_y = [], []
-    for i, y in enumerate(ys):
-        if y == y0:
-            xs_y.append(xs[i])
-            parsimonys_y.append(parsimonys[i])
+# Plot.
+for ps, name in zip((parsimonys, emission_parsimonys), ("dfcp", "emission")):
+    for y0 in sorted(set(ys)):
+        xs_y, parsimonys_y = [], []
+        for i, y in enumerate(ys):
+            if y == y0:
+                xs_y.append(xs[i])
+                parsimonys_y.append(ps[i])
 
-    idxs = sorted(range(len(xs_y)), key=lambda i: xs_y[i])
-    xs_y = [xs_y[i] for i in idxs]
-    parsimonys_y = [parsimonys_y[i] for i in idxs]
+        idxs = sorted(range(len(xs_y)), key=lambda i: xs_y[i])
+        xs_y = [xs_y[i] for i in idxs]
+        parsimonys_y = [parsimonys_y[i] for i in idxs]
 
-    plt.plot(xs_y, parsimonys_y, "-o", label=f"y={y0}")
+        shape = "x" if name == "dfcp" else "o"
+        plt.plot(xs_y, parsimonys_y, f"-{shape}", label=f"{name}: y={y0}")
+
 plt.ylabel("mean excess parsimony")
 plt.xlabel("x")
 plt.xscale("symlog", linthresh=0.001)
