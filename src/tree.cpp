@@ -7,19 +7,46 @@
 #include <tuple>
 #include <cmath>
 #include <vector>
+#include <cstring>
 #include "tree.hpp"
 #include "clusters.hpp"
 #include "util.hpp"
 
 
-const char* parse_coal_tree(const char *s, std::unordered_map<int, std::tuple<int, int>>& coal_tree, int idx) {
+std::vector<int> parse_pos_file_idx(const char *fname, int start_idx, int L) {
+    std::ifstream pos_file{fname};
+    if (!pos_file.is_open()) { throw std::invalid_argument("Failed to open position file."); }
+
+    int n_pos;
+    pos_file >> n_pos;
+
+    if (start_idx + L > n_pos) { throw std::invalid_argument("Position file not long enough for start and length"); };
+
+    std::vector<int> pos;
+    pos.reserve(L);
+
+    int x;
+    for (int i = 0; i < start_idx; ++i) {
+        pos_file >> x;
+        if (pos_file.peek() == ',') { pos_file.ignore(); }
+    }
+
+    for (int i = 0; i < L; ++i) {
+        pos_file >> x;
+        pos.push_back(x);
+        if (pos_file.peek() == ',') { pos_file.ignore(); }
+    }
+    return pos;
+}
+
+const char* parse_coal_subtree(const char *s, std::unordered_map<int, std::tuple<int, int>>& coal_tree, int idx) {
     while (*s != '(') { ++s; }
     ++s;
 
     int left_idx;
     if (*s == '(') {
         left_idx = -(2 * std::abs(idx));
-        s = parse_coal_tree(s, coal_tree, left_idx);
+        s = parse_coal_subtree(s, coal_tree, left_idx);
     }
     else {
         left_idx = std::strtol(s, nullptr, 10) - 1;
@@ -31,7 +58,7 @@ const char* parse_coal_tree(const char *s, std::unordered_map<int, std::tuple<in
     int right_idx;
     if (*s == '(') {
         right_idx = -(2*std::abs(idx) + 1);
-        s = parse_coal_tree(s, coal_tree, right_idx);
+        s = parse_coal_subtree(s, coal_tree, right_idx);
     }
     else {
         right_idx = std::strtol(s, nullptr, 10) - 1;
@@ -41,8 +68,20 @@ const char* parse_coal_tree(const char *s, std::unordered_map<int, std::tuple<in
     return s;
 }
 
-std::vector<std::unordered_map<int, std::tuple<int, int>>> parse_tree_file(const char *tree_file_name, int L) {
-    std::ifstream tree_file{tree_file_name};
+int parse_coal_tree(const char *s, std::unordered_map<int, std::tuple<int, int>>& coal_tree) {
+    s = std::strstr(s, "pos_");
+    if (s == nullptr) { throw std::runtime_error("Failed to parse tree, could not find 'pos_'"); }
+    s += 4;
+
+    int recomb_pos = std::strtol(s, nullptr, 10);
+    parse_coal_subtree(s, coal_tree, -1);
+    return recomb_pos;
+}
+
+std::tuple<std::vector<std::unordered_map<int, std::tuple<int, int>>>, std::vector<int>> parse_tree_file(
+    const char *fname
+) {
+    std::ifstream tree_file{fname};
     if (!tree_file.is_open()) { throw std::runtime_error("Failed to open tree file."); };
 
     std::string line;
@@ -50,15 +89,16 @@ std::vector<std::unordered_map<int, std::tuple<int, int>>> parse_tree_file(const
         std::getline(tree_file, line);
     }
 
-    std::vector<std::unordered_map<int, std::tuple<int, int>>> trees(L);
+    std::vector<std::unordered_map<int, std::tuple<int, int>>> trees;
+    std::vector<int> recomb_pos;
     int l = 0;
     while (std::getline(tree_file, line)) {
         if (line[0] == 'e') { break; }
-        if (l >= L) { throw std::runtime_error("# trees should match sequence length"); }
-        parse_coal_tree(line.c_str(), trees[l], -1);
+        trees.emplace_back();
+        recomb_pos.push_back(parse_coal_tree(line.c_str(), trees[l]));
         ++l;
     }
-    return trees;
+    return std::tuple{trees, recomb_pos};
 }
 
 struct ParsimonyMsg {

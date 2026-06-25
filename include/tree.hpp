@@ -6,7 +6,11 @@
 #include "clusters.hpp"
 
 
-std::vector<std::unordered_map<int, std::tuple<int, int>>> parse_tree_file(const char *tree_file_name, int L);
+std::vector<int> parse_pos_file_idx(const char *fname, int start_idx, int L);
+
+std::tuple<std::vector<std::unordered_map<int, std::tuple<int, int>>>, std::vector<int>> parse_tree_file(
+    const char *fname
+);
 
 int calc_excess_parsimony(
     int l,
@@ -14,4 +18,3 @@ int calc_excess_parsimony(
     const Clusters& clusters,
     const std::unordered_map<Cluster*, int>& cluster_idxs
 );
-
