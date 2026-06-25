@@ -8,6 +8,7 @@
 #include <cmath>
 #include <vector>
 #include <cstring>
+#include <bit>
 #include "tree.hpp"
 
 
@@ -99,6 +100,15 @@ std::tuple<std::vector<std::unordered_map<int, std::tuple<int, int>>>, std::vect
     return std::tuple{trees, recomb_pos};
 }
 
+int count_observed_labels(const std::vector<int>& labels) {
+    uint64_t bm = 0;
+    for (int x : labels) {
+        if (x < 0 || x >= 64) { throw std::runtime_error("Label out of uint64_t range."); }
+        bm |= 1ULL << x;
+    }
+    return std::popcount(bm);
+}
+
 struct ParsimonyMsg {
     int score;
     uint64_t cluster_bm;
@@ -131,8 +141,13 @@ int calc_excess_parsimony(
     const std::vector<int>& cluster_assignments,
     int n_clusters
 ) {
+    if (n_clusters == -1) {
+        n_clusters = count_observed_labels(cluster_assignments);
+    }
     if (n_clusters > 64) { throw std::runtime_error("uint64_t insufficient for cluster set bitvector."); };
     int parsimony = calc_parsimony(-1, coal_tree, cluster_assignments).score;
-    return parsimony - (n_clusters - 1);
+    int excess_parsimony = parsimony - (n_clusters - 1);
+    if (excess_parsimony < 0) { throw std::runtime_error("Negative excess parsimony."); }
+    return excess_parsimony;
 }
 

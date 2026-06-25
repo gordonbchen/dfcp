@@ -130,13 +130,12 @@ int main(int argc, char *argv[]) {
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
     }
-
     std::cout << HP << '\n';
-    std::cout << "val=" << val << ", mask=" << mask << '\n';
 
     // Split val for imputation.
     bool do_val = val > 0.0;
     if (do_val != (mask > 0.0)) { throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0."); };
+    if (do_val && (tree_fname != nullptr)) {throw std::invalid_argument("Does not support validation and tree eval.");}
     int n_val_seqs = 0;
     std::vector<char> x_val_masked;
     x_val_masked.reserve(do_val ? static_cast<size_t>(val * x.size()) : 0);
@@ -239,29 +238,37 @@ int main(int argc, char *argv[]) {
         auto t0 = std::chrono::steady_clock::now();
         int tree_idx = 0;
         int excess_parsimony = 0;
+        int emission_excess_parsimony = 0;
         for (int l = 0; l < HP.L; ++l) {
+            while ((tree_idx < static_cast<int>(recomb_pos.size()) - 1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
+                ++tree_idx;
+            }
+
             std::unordered_map<Cluster*, int> cluster_idxs;
             cluster_idxs.reserve(clusters.rs[l].size());
             for (Cluster* c : clusters.rs[l]) {
                 cluster_idxs.emplace(c, cluster_idxs.size());
             }
-
             std::vector<int> cluster_assignments(HP.N);
             for (int i = 0; i < HP.N; ++i) {
                 cluster_assignments[i] = cluster_idxs.at(clusters.r_assign[idx2d(i, l, HP.L)]);
             }
-
-            while ((tree_idx < static_cast<int>(recomb_pos.size()) - 1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
-                ++tree_idx;
-            }
             excess_parsimony += calc_excess_parsimony(coal_trees[tree_idx], cluster_assignments, clusters.rs[l].size());
+
+            std::vector<int> emission_clusters(HP.N);
+            for (int i = 0; i < HP.N; ++i) {
+                emission_clusters[i] = x_train[idx2d(i, l, HP.L)];
+            }
+            emission_excess_parsimony += calc_excess_parsimony(coal_trees[tree_idx], emission_clusters, -1);
         }
         auto t1 = std::chrono::steady_clock::now();
         auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
         double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
-        std::cout << "mean_excess_parsimony=" << mean_excess_parsimony <<
-            " t_parsimony=" << t_parsimony << "ms\n";
+        double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
+        std::cout << "mean_excess_parsimony=" << mean_excess_parsimony
+            << " t_parsimony=" << t_parsimony << "ms\n"
+            << "mean_emission_excess_parsimony=" << mean_emission_excess_parsimony << '\n';
     }
     return 0;
 }
