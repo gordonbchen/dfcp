@@ -107,7 +107,6 @@ int main(int argc, char *argv[]) {
     char *tree_fname = nullptr;
     char *variant_pos_fname = nullptr;
     int variant_start_pos = -1;
-    char *recomb_pos_fname = nullptr;
 
     int i = 2;
     while (i < argc) {
@@ -127,7 +126,6 @@ int main(int argc, char *argv[]) {
         else if (arg == "--tree") { tree_fname = argv[i+1]; }
         else if (arg == "--variant_pos") { variant_pos_fname = argv[i+1]; }
         else if (arg == "--variant_start_pos") { parse_int(argv[i+1], variant_start_pos); }
-        else if (arg == "--recomb_pos") { recomb_pos_fname = argv[i+1]; }
 
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
@@ -232,17 +230,14 @@ int main(int argc, char *argv[]) {
 
     // Tree parsimony.
     if (tree_fname != nullptr) {
-        if ((variant_pos_fname == nullptr) || (recomb_pos_fname == nullptr) || (variant_start_pos < 0)) {
-            throw std::invalid_argument(
-                "Evaluating trees requires variant and recombination position files, and variant start pos."
-            );
+        if ((variant_pos_fname == nullptr) || (variant_start_pos < 0)) {
+            throw std::invalid_argument("Evaluating trees requires variant position file and variant start pos.");
         }
         std::vector<int> variant_pos{parse_pos_file_idx(variant_pos_fname, variant_start_pos, HP.L)};
-        // TODO: read pos start and end from coal tree file.
-        std::vector<int> recomb_pos{parse_pos_file_pos(recomb_pos_fname, 7658939, 7948371)};
+        auto [coal_trees, recomb_pos] = parse_tree_file(tree_fname);
 
         auto t0 = std::chrono::steady_clock::now();
-        std::vector<std::unordered_map<int, std::tuple<int, int>>> coal_trees{parse_tree_file(tree_fname, HP.L)};
+        int tree_idx = 0;
         int excess_parsimony = 0;
         for (int l = 0; l < HP.L; ++l) {
             std::unordered_map<Cluster*, int> cluster_idxs;
@@ -252,7 +247,11 @@ int main(int argc, char *argv[]) {
                 cluster_idxs.emplace(c, i);
                 ++i;
             }
-            excess_parsimony += calc_excess_parsimony(l, coal_trees[l], clusters, cluster_idxs);
+
+            while ((tree_idx < static_cast<int>(recomb_pos.size()) - 1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
+                ++tree_idx;
+            }
+            excess_parsimony += calc_excess_parsimony(l, coal_trees[tree_idx], clusters, cluster_idxs);
         }
         auto t1 = std::chrono::steady_clock::now();
         auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
