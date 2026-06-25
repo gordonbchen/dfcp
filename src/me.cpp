@@ -242,16 +242,19 @@ int main(int argc, char *argv[]) {
         for (int l = 0; l < HP.L; ++l) {
             std::unordered_map<Cluster*, int> cluster_idxs;
             cluster_idxs.reserve(clusters.rs[l].size());
-            int i = 0;
             for (Cluster* c : clusters.rs[l]) {
-                cluster_idxs.emplace(c, i);
-                ++i;
+                cluster_idxs.emplace(c, cluster_idxs.size());
+            }
+
+            std::vector<int> cluster_assignments(HP.N);
+            for (int i = 0; i < HP.N; ++i) {
+                cluster_assignments[i] = cluster_idxs.at(clusters.r_assign[idx2d(i, l, HP.L)]);
             }
 
             while ((tree_idx < static_cast<int>(recomb_pos.size()) - 1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
                 ++tree_idx;
             }
-            excess_parsimony += calc_excess_parsimony(l, coal_trees[tree_idx], clusters, cluster_idxs);
+            excess_parsimony += calc_excess_parsimony(coal_trees[tree_idx], cluster_assignments, clusters.rs[l].size());
         }
         auto t1 = std::chrono::steady_clock::now();
         auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();

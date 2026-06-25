@@ -9,8 +9,6 @@
 #include <vector>
 #include <cstring>
 #include "tree.hpp"
-#include "clusters.hpp"
-#include "util.hpp"
 
 
 std::vector<int> parse_pos_file_idx(const char *fname, int start_idx, int L) {
@@ -108,23 +106,18 @@ struct ParsimonyMsg {
 
 ParsimonyMsg calc_parsimony(
     int idx,
-    int l,
     const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
-    const Clusters& clusters,
-    const std::unordered_map<Cluster*, int>& cluster_idxs
+    const std::vector<int>& cluster_assignments
 ) {
-    if (clusters.rs[l].size() > 64) {
-        throw std::runtime_error("uint64_t insufficient for cluster set bitvector.");
-    };
     uint64_t cluster_bm = 0;
     if (!coal_tree.contains(idx)) {
-        cluster_bm |= 1ULL << cluster_idxs.at(clusters.r_assign[idx2d(idx, l, clusters.HP.L)]);
+        cluster_bm |= 1ULL << cluster_assignments[idx];
         return ParsimonyMsg{0, cluster_bm};
     }
 
     const auto& [left, right] = coal_tree.at(idx);
-    ParsimonyMsg lp = calc_parsimony(left, l, coal_tree, clusters, cluster_idxs);
-    ParsimonyMsg rp = calc_parsimony(right, l, coal_tree, clusters, cluster_idxs);
+    ParsimonyMsg lp = calc_parsimony(left, coal_tree, cluster_assignments);
+    ParsimonyMsg rp = calc_parsimony(right, coal_tree, cluster_assignments);
 
     cluster_bm = lp.cluster_bm & rp.cluster_bm;
     if (cluster_bm != 0) {
@@ -134,12 +127,12 @@ ParsimonyMsg calc_parsimony(
 }
 
 int calc_excess_parsimony(
-    int l,
     const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
-    const Clusters& clusters,
-    const std::unordered_map<Cluster*, int>& cluster_idxs
+    const std::vector<int>& cluster_assignments,
+    int n_clusters
 ) {
-    int parsimony = calc_parsimony(-1, l, coal_tree, clusters, cluster_idxs).score;
-    return parsimony - (clusters.rs[l].size() - 1);
+    if (n_clusters > 64) { throw std::runtime_error("uint64_t insufficient for cluster set bitvector."); };
+    int parsimony = calc_parsimony(-1, coal_tree, cluster_assignments).score;
+    return parsimony - (n_clusters - 1);
 }
 

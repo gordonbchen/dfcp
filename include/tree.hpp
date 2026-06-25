@@ -3,7 +3,6 @@
 #include <unordered_map>
 #include <tuple>
 #include <vector>
-#include "clusters.hpp"
 
 
 std::vector<int> parse_pos_file_idx(const char *fname, int start_idx, int L);
@@ -13,8 +12,7 @@ std::tuple<std::vector<std::unordered_map<int, std::tuple<int, int>>>, std::vect
 );
 
 int calc_excess_parsimony(
-    int l,
     const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
-    const Clusters& clusters,
-    const std::unordered_map<Cluster*, int>& cluster_idxs
+    const std::vector<int>& cluster_assignments,
+    int n_clusters
 );
