@@ -2,7 +2,12 @@ import subprocess
 import re
 import matplotlib.pyplot as plt
 from pathlib import Path
+from argparse import ArgumentParser
 
+
+parser = ArgumentParser()
+parser.add_argument("--out_file", default="parsimony.png", required=False)
+args = parser.parse_args()
 
 xs, ys, parsimonys, emission_parsimonys = [], [], [], []
 
@@ -53,5 +58,5 @@ plt.ylabel("mean excess parsimony")
 plt.xlabel("x")
 plt.xscale("symlog", linthresh=0.001)
 plt.legend(loc=0)
-plt.savefig("parsimony.png")
+plt.savefig(args.out_file)
 
