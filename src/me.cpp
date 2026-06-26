@@ -107,6 +107,7 @@ int main(int argc, char *argv[]) {
     char *tree_fname = nullptr;
     char *variant_pos_fname = nullptr;
     int variant_start_pos = -1;
+    char *tree_vis_fname = nullptr;
 
     int i = 2;
     while (i < argc) {
@@ -126,6 +127,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--tree") { tree_fname = argv[i+1]; }
         else if (arg == "--variant_pos") { variant_pos_fname = argv[i+1]; }
         else if (arg == "--variant_start_pos") { parse_int(argv[i+1], variant_start_pos); }
+        else if (arg == "--tree_vis") { tree_vis_fname = argv[i+1]; }
 
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
@@ -234,16 +236,12 @@ int main(int argc, char *argv[]) {
         }
         std::vector<int> variant_pos{parse_pos_file_idx(variant_pos_fname, variant_start_pos, HP.L)};
         auto [coal_trees, recomb_pos] = parse_tree_file(tree_fname);
+        std::vector<int> tree_idxs{get_tree_idxs(variant_pos, recomb_pos)};
 
         auto t0 = std::chrono::steady_clock::now();
-        int tree_idx = 0;
         int excess_parsimony = 0;
         int emission_excess_parsimony = 0;
         for (int l = 0; l < HP.L; ++l) {
-            while ((tree_idx < static_cast<int>(recomb_pos.size()) - 1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
-                ++tree_idx;
-            }
-
             std::unordered_map<Cluster*, int> cluster_idxs;
             cluster_idxs.reserve(clusters.rs[l].size());
             for (Cluster* c : clusters.rs[l]) {
@@ -253,13 +251,19 @@ int main(int argc, char *argv[]) {
             for (int i = 0; i < HP.N; ++i) {
                 cluster_assignments[i] = cluster_idxs.at(clusters.r_assign[idx2d(i, l, HP.L)]);
             }
-            excess_parsimony += calc_excess_parsimony(coal_trees[tree_idx], cluster_assignments, clusters.rs[l].size());
+            excess_parsimony += calc_excess_parsimony(
+                coal_trees[tree_idxs[l]], cluster_assignments, clusters.rs[l].size()
+            );
 
             std::vector<int> emission_clusters(HP.N);
             for (int i = 0; i < HP.N; ++i) {
                 emission_clusters[i] = x_train[idx2d(i, l, HP.L)];
             }
-            emission_excess_parsimony += calc_excess_parsimony(coal_trees[tree_idx], emission_clusters, -1);
+            emission_excess_parsimony += calc_excess_parsimony(coal_trees[tree_idxs[l]], emission_clusters, -1);
+
+            if ((tree_vis_fname != nullptr) && (l < 5)) {
+                tree_to_dot(tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assignments, emission_clusters, l, 5);
+            }
         }
         auto t1 = std::chrono::steady_clock::now();
         auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();

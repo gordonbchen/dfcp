@@ -16,3 +16,15 @@ int calc_excess_parsimony(
     const std::vector<int>& cluster_assignments,
     int n_clusters
 );
+
+std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::vector<int>& recomb_pos);
+
+void tree_to_dot(
+    const char *file,
+    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::vector<int>& cluster_assignments,
+    const std::vector<int>& emissions,
+    int l,
+    int L
+);
+

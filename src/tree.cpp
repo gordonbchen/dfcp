@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <iostream>
+#include <ios>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -9,6 +11,7 @@
 #include <vector>
 #include <cstring>
 #include <bit>
+#include <format>
 #include "tree.hpp"
 
 
@@ -149,5 +152,78 @@ int calc_excess_parsimony(
     int excess_parsimony = parsimony - (n_clusters - 1);
     if (excess_parsimony < 0) { throw std::runtime_error("Negative excess parsimony."); }
     return excess_parsimony;
+}
+
+std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::vector<int>& recomb_pos) {
+    int L = variant_pos.size();
+    std::vector<int> tree_idxs(L);
+    int tree_idx = 0;
+    for (int l = 0; l < L; ++l) {
+        while ((tree_idx < L-1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
+            ++tree_idx;
+        }
+        tree_idxs[l] = tree_idx;
+    }
+    return tree_idxs;
+}
+
+
+std::string node_name(int x, int l) {
+    return std::format("\"l{}_{}\"", l, x);
+}
+
+const std::vector<std::string>colors = {"yellowgreen", "cyan", "orange", "deeppink", "red"};
+const std::vector<std::string>shapes = {"oval", "box", "polygon", "triangle", "egg"};
+
+void label_leaf(
+    const std::string& name,
+    int idx,
+    const std::vector<int>& cluster_assignments,
+    const std::vector<int>& emissions,
+    const std::string& indent,
+    std::ofstream& s
+) {
+    const std::string& color = colors[cluster_assignments[idx] % colors.size()];
+    const std::string& shape = shapes[emissions[idx] % shapes.size()];
+    s << indent << name << " [label=\"" << idx << "\", fillcolor=" << color << ", shape=" << shape << "];\n";
+}
+
+void tree_to_dot(
+    const char *file,
+    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::vector<int>& cluster_assignments,
+    const std::vector<int>& emissions,
+    int l, int L
+) {
+    std::ofstream s = (l == 0) ? std::ofstream{file} : std::ofstream{file, std::ios::app};
+    if (!s.is_open()) { throw std::runtime_error("Failed to open tree viz output file."); }
+
+    if (l == 0) {
+        s << "digraph G" << l << " {\n";
+        s << "    node [style=filled]\n";
+    }
+    s << "    subgraph l" << l << " {" << '\n';
+
+    const std::string indent(8, ' ');
+
+    for (const auto& [node, children] : coal_tree) {
+        const auto& [left, right] = children;
+
+        std::string n_str = node_name(node, l);
+        std::string l_str = node_name(left, l);
+        std::string r_str  = node_name(right, l);
+
+        s << indent << n_str << " [label=\"" << node << "\"];\n";
+        s << indent << n_str << " -> " << l_str << ";\n";
+        s << indent << n_str << " -> " << r_str << ";\n";
+
+        if (left >= 0) { label_leaf(l_str, left, cluster_assignments, emissions, indent, s); }
+        if (right >= 0) { label_leaf(r_str, right, cluster_assignments, emissions, indent, s); }
+    }
+    s << "    }\n";
+
+    if (l == L-1) {
+        s << "}\n";
+    }
 }
 
