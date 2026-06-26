@@ -198,6 +198,7 @@ int main(int argc, char *argv[]) {
         auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
         auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
         auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
+        // TODO: output JSON format.
         std::cout << early_stop.step << ": elbo=" << elbo
             << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
             << "ms t_step=" << t_step << "ms\n";
