@@ -159,7 +159,7 @@ std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::v
     std::vector<int> tree_idxs(L);
     int tree_idx = 0;
     for (int l = 0; l < L; ++l) {
-        while ((tree_idx < L-1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
+        while ((tree_idx < static_cast<int>(recomb_pos.size()) - 1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
             ++tree_idx;
         }
         tree_idxs[l] = tree_idx;
