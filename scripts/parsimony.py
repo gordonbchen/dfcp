@@ -1,5 +1,6 @@
 import subprocess
 import re
+import json
 import matplotlib.pyplot as plt
 from pathlib import Path
 from argparse import ArgumentParser
@@ -12,8 +13,6 @@ args = parser.parse_args()
 xs, ys, parsimonys, emission_parsimonys = [], [], [], []
 
 r_file = re.compile(r"haps_SIMOUT_1.txt.gz_(\d+\.\d+)_(\d+\.\d+)")
-r_parsimony = re.compile(r"mean_excess_parsimony=(\d+\.\d+)")
-r_emission_parsimony = re.compile(r"mean_emission_excess_parsimony=(\d+\.\d+)")
 
 # Run inference.
 seq_dir = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
@@ -28,8 +27,9 @@ for seq_file in seq_dir.glob("haps_*.txt"):
         "--variant_start_pos", "14572"
     ], capture_output=True, text=True)
 
-    parsimony = float(r_parsimony.search(res.stdout).group(1))
-    emission_parsimony = float(r_emission_parsimony.search(res.stdout).group(1))
+    out = json.loads(res.stdout)
+    parsimony = float(out["mean_excess_parsimony"])
+    emission_parsimony = float(out["mean_emission_excess_parsimony"])
     print(x, y, parsimony, emission_parsimony)
 
     xs.append(x)
