@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <unordered_map>
 #include <limits>
-#include <iomanip>
 #include <string_view>
 #include <random>
 #include <cstdlib>
@@ -20,6 +19,7 @@
 #include "expect.hpp"
 #include "elbo.hpp"
 #include "tree.hpp"
+#include "json.hpp"
 #include "util.hpp"
 
 
@@ -76,10 +76,12 @@ struct SparseX {
 };
 
 int main(int argc, char *argv[]) {
+    Json json;
+
     // Read seq file.
     if (argc < 2) { throw std::invalid_argument("Requires sequence file."); }
-    std::cout << std::fixed << std::setprecision(4);
     std::cout << "seq_file=" << argv[1] << '\n';
+    json.add("seq_file", argv[1]);
     std::ifstream seq_file(argv[1]);
     if (!seq_file.is_open()) { throw std::runtime_error("Failed to open sequence file."); };
 
@@ -172,6 +174,7 @@ int main(int argc, char *argv[]) {
         }
         HP.N -= n_val_seqs;
         std::cout << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_alleles=" << n_masked_alleles << '\n';
+        json.add("n_val_seqs", n_val_seqs).add("n_masked_alleles", n_masked_alleles);
     }
     else {
         x_train = std::move(x);
@@ -184,6 +187,8 @@ int main(int argc, char *argv[]) {
 
     EarlyStopping early_stop{2, false, 1e-3};
     double elbo = 0.0;
+
+    std::vector<Json> train_log;
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
         max_step(clusters, x_train, HP, params);
@@ -198,11 +203,14 @@ int main(int argc, char *argv[]) {
         auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
         auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
         auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
-        // TODO: output JSON format.
         std::cout << early_stop.step << ": elbo=" << elbo
             << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
             << "ms t_step=" << t_step << "ms\n";
+        train_log.emplace_back();
+        train_log[train_log.size()-1].add("elbo", elbo)
+            .add("t_max", t_max).add("t_expect", t_expect).add("t_elbo", t_elbo).add("t_step", t_step);
     }
+    json.add("train_log", train_log);
 
     // Impute.
     if (n_val_seqs > 0) {
@@ -228,6 +236,7 @@ int main(int argc, char *argv[]) {
 
         std::cout << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
             << "ms\nmode_impute_acc=" << mode_impute_acc << '\n';
+        json.add("dfcp_impute_acc", dfcp_impute_acc).add("t_impute", t_impute).add("mode_impute_acc", mode_impute_acc);
     }
 
     // Tree parsimony.
@@ -274,7 +283,10 @@ int main(int argc, char *argv[]) {
         std::cout << "mean_excess_parsimony=" << mean_excess_parsimony
             << " t_parsimony=" << t_parsimony << "ms\n"
             << "mean_emission_excess_parsimony=" << mean_emission_excess_parsimony << '\n';
+        json.add("mean_excess_parsimony", mean_excess_parsimony).add("t_parsimony", t_parsimony)
+            .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony);
     }
+    std::cout << json.str() << '\n';
     return 0;
 }
 
