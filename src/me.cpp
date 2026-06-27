@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
 
     // Read seq file.
     if (argc < 2) { throw std::invalid_argument("Requires sequence file."); }
-    std::cout << "seq_file=" << argv[1] << '\n';
+    std::cerr << "seq_file=" << argv[1] << '\n';
     json.add("seq_file", argv[1]);
     std::ifstream seq_file(argv[1]);
     if (!seq_file.is_open()) { throw std::runtime_error("Failed to open sequence file."); };
@@ -134,7 +134,7 @@ int main(int argc, char *argv[]) {
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
     }
-    std::cout << HP << '\n';
+    std::cerr << HP << '\n';
 
     // Split val for imputation.
     bool do_val = val > 0.0;
@@ -173,7 +173,7 @@ int main(int argc, char *argv[]) {
             ++n_val_seqs;
         }
         HP.N -= n_val_seqs;
-        std::cout << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_alleles=" << n_masked_alleles << '\n';
+        std::cerr << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_alleles=" << n_masked_alleles << '\n';
         json.add("n_val_seqs", n_val_seqs).add("n_masked_alleles", n_masked_alleles);
     }
     else {
@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
         auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
         auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
         auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
-        std::cout << early_stop.step << ": elbo=" << elbo
+        std::cerr << early_stop.step << ": elbo=" << elbo
             << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
             << "ms t_step=" << t_step << "ms\n";
         train_log.emplace_back();
@@ -234,7 +234,7 @@ int main(int argc, char *argv[]) {
         double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / static_cast<double>(n_masked_alleles);
         double mode_impute_acc = static_cast<double>(n_mode_correct) / static_cast<double>(n_masked_alleles);
 
-        std::cout << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
+        std::cerr << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
             << "ms\nmode_impute_acc=" << mode_impute_acc << '\n';
         json.add("dfcp_impute_acc", dfcp_impute_acc).add("t_impute", t_impute).add("mode_impute_acc", mode_impute_acc);
     }
@@ -280,7 +280,7 @@ int main(int argc, char *argv[]) {
 
         double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
         double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
-        std::cout << "mean_excess_parsimony=" << mean_excess_parsimony
+        std::cerr << "mean_excess_parsimony=" << mean_excess_parsimony
             << " t_parsimony=" << t_parsimony << "ms\n"
             << "mean_emission_excess_parsimony=" << mean_emission_excess_parsimony << '\n';
         json.add("mean_excess_parsimony", mean_excess_parsimony).add("t_parsimony", t_parsimony)
