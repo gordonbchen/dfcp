@@ -62,11 +62,11 @@ struct Json {
             out << "\"";
         }
 
-        static void write_val(std::stringstream& out, const std::string& x, int depth) {
+        static void write_val(std::stringstream& out, const std::string& x, int) {
             write_string(out, x);
         }
 
-        static void write_val(std::stringstream& out, const char *x, int depth) {
+        static void write_val(std::stringstream& out, const char *x, int) {
             write_string(out, x);
         }
 
@@ -80,19 +80,19 @@ struct Json {
             }
         }
 
-        static void write_val(std::stringstream& out, bool x, int depth) {
+        static void write_val(std::stringstream& out, bool x, int) {
             out << (x ? "true" : "false");
         }
 
         template<typename T>
         static std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool>, void>
-        write_val(std::stringstream& out, T x, int depth) {
+        write_val(std::stringstream& out, T x, int) {
             out << x;
         }
 
         template<typename T>
         static std::enable_if_t<std::is_floating_point_v<T>, void>
-        write_val(std::stringstream& out, const T& x, int depth) {
+        write_val(std::stringstream& out, const T& x, int) {
             if (!std::isfinite(x)) { throw std::runtime_error("NaN and infinity are not valid JSON"); }
             out << std::setprecision(std::numeric_limits<T>::max_digits10) << x;
         }
