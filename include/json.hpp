@@ -29,9 +29,10 @@ struct Json {
             s << ",\n";
         }
 
+        indent(s, 1);
         write_string(s, name);
         s << ": ";
-        write_val(s, x);
+        write_val(s, x, 1);
         return *this;
     }
 
@@ -40,6 +41,12 @@ struct Json {
     }
 
     private:
+        static void indent(std::stringstream& out, int depth) {
+            for (int i = 0; i < depth; ++i) {
+                out << "  ";
+            }
+        }
+
         static void write_string(std::stringstream& out, const std::string& x) {
             out << "\"";
             for (char c : x) {
@@ -55,49 +62,55 @@ struct Json {
             out << "\"";
         }
 
-        static void write_val(std::stringstream& out, const std::string& x) {
+        static void write_val(std::stringstream& out, const std::string& x, int depth) {
             write_string(out, x);
         }
 
-        static void write_val(std::stringstream& out, const char *x) {
+        static void write_val(std::stringstream& out, const char *x, int depth) {
             write_string(out, x);
         }
 
-        static void write_val(std::stringstream& out, const Json& x) {
-            out << x.str();
+        static void write_val(std::stringstream& out, const Json& x, int depth) {
+            std::string str = x.str();
+            for (size_t i = 0; i < str.size(); ++i) {
+                out << str[i];
+                if ((str[i] == '\n') && (i != str.size() - 1)) {
+                    indent(out, depth+1);
+                }
+            }
         }
 
-        static void write_val(std::stringstream& out, bool x) {
+        static void write_val(std::stringstream& out, bool x, int depth) {
             out << (x ? "true" : "false");
         }
 
         template<typename T>
         static std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool>, void>
-        write_val(std::stringstream& out, T x) {
+        write_val(std::stringstream& out, T x, int depth) {
             out << x;
         }
 
         template<typename T>
         static std::enable_if_t<std::is_floating_point_v<T>, void>
-        write_val(std::stringstream& out, const T& x) {
+        write_val(std::stringstream& out, const T& x, int depth) {
             if (!std::isfinite(x)) { throw std::runtime_error("NaN and infinity are not valid JSON"); }
             out << std::setprecision(std::numeric_limits<T>::max_digits10) << x;
         }
 
         template<typename T>
-        static void write_val(std::stringstream& out, const std::vector<T>& x) {
+        static void write_val(std::stringstream& out, const std::vector<T>& x, int depth) {
             out << '[';
             for (size_t i = 0; i < x.size(); ++i) {
                 if (i != 0) {
                     out << ", ";
                 }
-                write_val(out, x[i]);
+                write_val(out, x[i], depth+1);
             }
             out << ']';
         }
 
         template<typename V>
-        static void write_val(std::stringstream& out, const std::unordered_map<std::string, V>& xs) {
+        static void write_val(std::stringstream& out, const std::unordered_map<std::string, V>& xs, int depth) {
             out << '{';
 
             bool first = true;
@@ -110,7 +123,7 @@ struct Json {
                 }
                 write_string(out, k);
                 out << ": ";
-                write_val(out, v);
+                write_val(out, v, depth+1);
             }
             out << '}';
         }
