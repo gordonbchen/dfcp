@@ -5,13 +5,11 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
-#include <limits>
 #include <string_view>
 #include <random>
 #include <cstdlib>
 #include <stdexcept>
 #include <chrono>
-#include <tuple>
 #include "hyperparams.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
@@ -22,58 +20,6 @@
 #include "json.hpp"
 #include "util.hpp"
 
-
-void parse_double(char *s, double& x) {
-    char* end_ptr = nullptr;
-    x = std::strtod(s, &end_ptr);
-    if (end_ptr == s) { throw std::invalid_argument("Failed to parse double arg value."); };
-}
-
-void parse_int(char *s, int& x) {
-    char* end_ptr = nullptr;
-    x = std::strtol(s, &end_ptr, 10);
-    if (end_ptr == s) { throw std::invalid_argument("Failed to parse int arg value."); };
-}
-
-class EarlyStopping {
-    private: 
-        double min_val = std::numeric_limits<double>::infinity();
-        int steps_since_min = 0;
-
-    public:
-        int step = 0;
-        const int patience;
-        const bool minimize;
-        const double tol;
-
-        EarlyStopping(int patience_ = 3, bool minimize_ = true, double tol_ = 1e-5) :
-            patience(patience_), minimize(minimize_), tol(tol_)
-        {}
-
-        void update(double x) {
-            ++step;
-            if (!minimize) {
-                x = -x;
-            }
-            if (min_val-x > tol) {
-                steps_since_min = 0;
-                min_val = x;
-                return;
-            }
-            ++steps_since_min;
-        }
-
-        bool converged() const {
-            return steps_since_min > patience;
-        }
-};
-
-struct SparseX {
-    size_t i;
-    size_t l;
-    char x;
-    SparseX(size_t i_, size_t l_, char x_) : i(i_), l(l_), x(x_) {}
-};
 
 int main(int argc, char *argv[]) {
     Json json;

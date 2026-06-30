@@ -1,14 +1,10 @@
 #include <algorithm>
-#include <cstddef>
+#include <cstdlib>
 #include <iterator>
 #include <stdexcept>
 #include <vector>
 #include "util.hpp"
 
-
-size_t idx2d(size_t r, size_t c, size_t width) {
-    return r*width + c;
-}
 
 std::vector<char> count_modes(const std::vector<char>& x, const int N, const int L, const int K) {
     std::vector<char> modes(L);
@@ -25,5 +21,17 @@ std::vector<char> count_modes(const std::vector<char>& x, const int N, const int
         modes[l] = std::distance(counts.begin(), max_it);
     }
     return modes;
+}
+
+void parse_double(char *s, double& x) {
+    char* end_ptr = nullptr;
+    x = std::strtod(s, &end_ptr);
+    if (end_ptr == s) { throw std::invalid_argument("Failed to parse double arg value."); };
+}
+
+void parse_int(char *s, int& x) {
+    char* end_ptr = nullptr;
+    x = std::strtol(s, &end_ptr, 10);
+    if (end_ptr == s) { throw std::invalid_argument("Failed to parse int arg value."); };
 }
 
