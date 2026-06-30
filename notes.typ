@@ -1065,6 +1065,154 @@ recursion: vertex $v$ has children $a, b$.
 
 
 
+
+
+#pagebreak()
+= Soft DFCP
+
+== DFCP
+$
+alpha ~ "Gamma"(tau_1, tau_2) \
+
+d_l ~ "Beta"(v_1, v_2) \ \ \
+
+
+cal(R)_0 ~ "CRP"(R, alpha, 0) \
+
+cal(Q)_l ~ "Frag"(cal(R)_l, 0, d_l) \
+
+cal(R)_(l+1) ~ "Coag"(cal(Q)_l, alpha\/d_l, 0) \ \ \
+
+
+gamma_l ~ "Gamma"(phi.alt_1, phi.alt_2) \
+
+beta_l ~ "Dirichlet"(gamma_l) \
+
+theta_(a l) ~ "Categorical"(beta_l) \ \ \
+
+
+x_(i l) = theta_(a_(i l) l)
+$
+
+
+== Soft DFCP
+$
+gamma_l ~ "Gamma"(phi.alt_1, phi.alt_2) \
+
+beta_(a l) ~ "Dirichlet"(gamma_l) \ \
+
+x_(i l) ~ "Categorical"(beta_(a_(i l) l))
+$ \ \
+
+
+$
+log p(C, gamma, alpha, d, X)
+
+
+=& log p(cal(R)_1|alpha)
+
++ sum_(l=1)^(L-1) [ log p(cal(Q)_l|cal(R)_l, d_l) + log p(cal(R)_(l+1)|cal(Q)_l, alpha, d_l)] \ 
+
++& sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|gamma_l) \
+
++& log p(alpha|tau_1, tau_2) + sum_(l=1)^(L-1) log p(d_l|v_1, v_2) + sum_(l=1)^L log p(gamma_l|phi.alt_1, phi.alt_2)
+$ \
+
+$
+sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|gamma_l) = sum_(l=1)^L sum_(a in cal(R)_l)
+
+  log integral_(beta_(a l)) p(beta_(a l)|gamma_l) product_(i in a) p(x_(i l)|beta_(a l))
+$ \
+
+$
+p(beta_(a l)|gamma_l) =& Gamma(K gamma_l) / Gamma(gamma_l)^K product_(k=1)^K (beta_(a l))_k^(gamma_l-1) \
+
+
+product_(i in a) p(x_(i l)|beta_(a l))
+
+  =& product_(i in a) product_(k=1)^K (beta_(a l))_k ^ (bb(1){x_(i l) = k})
+
+  = product_(k=1)^K (beta_(a l))_k ^ n_(a l k) \
+
+
+p(beta_(a l)|gamma_l) product_(i in a) p(x_(i l)|beta_(a l))
+
+=& Gamma(K gamma_l) / Gamma(gamma_l)^K product_(k=1)^K (beta_(a l))_k^(gamma_l + n_(a l k) - 1) \
+
+
+integral_(beta_(a l)) p(beta_(a l)|gamma_l) product_(i in a) p(x_(i l)|beta_(a l))
+
+=& integral_(beta_(a l)) Gamma(K gamma_l) / Gamma(gamma_l)^K product_(k=1)^K (beta_(a l))_k^(gamma_l + n_(a l k) - 1) \
+
+=& Gamma(K gamma_l) / Gamma(gamma_l)^K  integral_(beta_(a l)) product_(k=1)^K (beta_(a l))_k^(gamma_l + n_(a l k) - 1) \
+
+=& Gamma(K gamma_l) / Gamma(gamma_l)^K (product_(k=1)^K Gamma(gamma_l + n_(a l k))) / Gamma(K gamma_l + \#a) \
+
+=& Gamma(K gamma_l) / (Gamma(gamma_l)^K  Gamma(K gamma_l + \#a))product_(k=1)^K Gamma(gamma_l + n_(a l k)) 
+$
+
+$
+sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|gamma_l)
+
+=& sum_(l=1)^L sum_(a in cal(R)_l) log integral_(beta_(a l)) p(beta_(a l)|gamma_l) product_(i in a) p(x_(i l)|beta_(a l)) \
+
+=& sum_(l=1)^L sum_(a in cal(R)_l) [
+  log Gamma(K gamma_l) / (Gamma(gamma_l)^K  Gamma(K gamma_l + \#a)) 
+
+  + sum_(k=1)^K log Gamma(gamma_l + n_(a l k))
+]
+$ \
+
+
+#pagebreak()
+= Variational update for $gamma_l$
+$
+log q_(gamma_l)^* (gamma_l) prop& log p(gamma_l) + log p(X_(a l)|C, gamma_l) \
+
+prop& (phi.alt_1 - 1) log gamma_l - phi.alt_2 gamma_l + sum_(a in cal(R)_l) [
+  log Gamma(K gamma_l) / (Gamma(gamma_l)^K  Gamma(K gamma_l + \#a)) 
+
+  + sum_(k=1)^K log Gamma(gamma_l + n_(a l k))
+]
+$ \
+
+$
+h''(gamma_l) =& (1-phi.alt_1)/gamma_l^2 + sum_(a in cal(R)_l) [
+  K^2 [ psi_1(K gamma_l) - psi_1(K gamma_l + \#a) ]
+
+  - K psi_1(gamma_l)
+
+  + sum_(k=1)^K psi_1(gamma_l + n_(a l k))
+]
+$
+
+
+= Maximization
+== Likelihood
+$
+Lambda(x_(i l) = k|a_(-i), gamma_l, x_(-i l))
+
+=& integral_(beta_(a l)) p(beta_(a l)|gamma_l, x_(-i l)) p(x_(i l)|beta_(a l)) \
+
+=& integral_(beta_(a l)) Gamma(K gamma_l + \#a_(-i)) / (product_(k=1)^K Gamma(gamma_l + n_(a l k))) product_(k=1)^K (beta_(a l))_k^(gamma_l + n_(a l k) + bb(1){x_(i l) = k} - 1) \
+
+=& Gamma(K gamma_l + \#a_(-i)) / (product_(k=1)^K Gamma(gamma_l + n_(a l k)))
+
+(product_(k=1)^K Gamma(gamma_l + n_(a l k) + bb(1){x_(i l) = k})) / Gamma(K gamma_l + \#a_(-i) + 1) \
+
+=& (gamma_l + n_(a l k)) / (K gamma_l + \#a_(-i)) \ \ \
+
+
+
+Lambda(x_(i l) |a = emptyset, gamma_l, x_(-i l)) = 1/K
+$
+
+#todo[Check soft DFCP math]
+
+
+
+
+
 #pagebreak()
 = TODO
 
