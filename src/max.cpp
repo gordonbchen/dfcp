@@ -142,7 +142,7 @@ void soft_viterbi_seq(
     for (int l = HP.L-1; l >= 0; --l) {
         // Likelihood for new cluster.
         auto& ma = a_msgs[l];
-        double new_a_ll = x[idx2d(i,l,HP.L)] == -1 ? 0.0 : -std::log(static_cast<double>(HP.K));
+        double new_a_ll = x[idx2d(xi,l,HP.L)] == -1 ? 0.0 : -std::log(static_cast<double>(HP.K));
 
         if (l == HP.L-1) {
             ma[nullptr] = Msg{new_a_ll, nullptr};
