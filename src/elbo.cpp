@@ -22,7 +22,7 @@ double calc_gammal_elbo_Ell(const HyperParams& HP, const Params& params, const C
             - HP.K * delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, 0.0)
         );
         for (Cluster* a : clusters.rs[l]) {
-            Ell -= delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n);
+            Ell -= delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs);
             for (int k = 0; k < HP.K; ++k) {
                 Ell += delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, a->nk[k]);
             }

@@ -80,7 +80,7 @@ double ll_log_gammal(double log_gamma, int l, const HyperParams& HP, const Clust
     if (clusters.soft) {
         ll += clusters.rs[l].size() * (std::lgamma(HP.K*gamma) - HP.K*std::lgamma(gamma));
         for (Cluster* a : clusters.rs[l]) {
-            ll -= std::lgamma(HP.K*gamma + a->n);
+            ll -= std::lgamma(HP.K*gamma + a->n_obs);
             for (int k = 0; k < HP.K; ++k) {
                 ll += std::lgamma(gamma + a->nk[k]);
             }
@@ -104,7 +104,7 @@ double ll_log_gammal_d2(double gamma, int l, const HyperParams& HP, const Cluste
             HP.K*HP.K * boost::math::trigamma(HP.K*gamma) - HP.K*boost::math::trigamma(gamma)
         );
         for (Cluster* a : clusters.rs[l]) {
-            d2 -= HP.K*HP.K * boost::math::trigamma(HP.K*gamma + a->n);
+            d2 -= HP.K*HP.K * boost::math::trigamma(HP.K*gamma + a->n_obs);
             for (int k = 0; k < HP.K; ++k) {
                 d2 += boost::math::trigamma(gamma + a->nk[k]);
             }
