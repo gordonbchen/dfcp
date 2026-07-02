@@ -221,7 +221,7 @@ void soft_viterbi_seq(
 
         a = b_msgs[l].at(b).next;
         a_obj = (a == nullptr) ? clusters.create_cluster(std::vector<int>{}, x, true, l+1, -1) : a;
-        clusters.cluster_add(a_obj, i, x[idx2d(i,l,HP.L)]);
+        clusters.cluster_add(a_obj, i, x[idx2d(i,l+1,HP.L)]);
         if (a == nullptr || b == nullptr) {
             b_obj->add_child(a_obj);
         }
