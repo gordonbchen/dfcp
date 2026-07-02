@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <iterator>
 #include <stdexcept>
@@ -6,8 +7,8 @@
 #include "util.hpp"
 
 
-std::vector<char> count_modes(const std::vector<char>& x, const int N, const int L, const int K) {
-    std::vector<char> modes(L);
+std::vector<int8_t> count_modes(const std::vector<int8_t>& x, const int N, const int L, const int K) {
+    std::vector<int8_t> modes(L);
     std::vector<int> counts(K);
     for (int l = 0; l < L; ++l) {
         std::fill(counts.begin(), counts.end(), 0);

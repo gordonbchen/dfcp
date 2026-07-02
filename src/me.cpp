@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -33,7 +34,7 @@ int main(int argc, char *argv[]) {
 
     int N = 0;
     int L = 0;
-    std::vector<char> x;
+    std::vector<int8_t> x;
     std::string line;
     while (std::getline(seq_file, line)) {
         if (N == 0) {
@@ -95,14 +96,14 @@ int main(int argc, char *argv[]) {
         throw std::invalid_argument("Does not support validation and tree eval.");
     }
     int n_val_seqs = 0;
-    std::vector<char> x_val_masked;
+    std::vector<int8_t> x_val_masked;
     x_val_masked.reserve(do_val ? static_cast<size_t>(val * x.size()) : 0);
 
     int n_masked_alleles = 0;
     std::vector<SparseX> x_val_true;
     x_val_true.reserve(do_val ? static_cast<size_t>(val * mask * x.size()) : 0);
 
-    std::vector<char> x_train;
+    std::vector<int8_t> x_train;
     x_train.reserve(static_cast<size_t>((1.0-val) * x.size()));
 
     if (val > 0.0) {
@@ -173,7 +174,7 @@ int main(int argc, char *argv[]) {
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
-        std::vector<char> modes{count_modes(x_train, n_train, HP.L, HP.K)};
+        std::vector<int8_t> modes{count_modes(x_train, n_train, HP.L, HP.K)};
 
         int n_dfcp_correct = 0;
         int n_mode_correct = 0;

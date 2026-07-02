@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <limits>
 #include <vector>
+#include <cstdint>
 
 
 class EarlyStopping {
@@ -41,15 +42,15 @@ class EarlyStopping {
 struct SparseX {
     size_t i;
     size_t l;
-    char x;
-    SparseX(size_t i_, size_t l_, char x_) : i(i_), l(l_), x(x_) {}
+    int8_t x;
+    SparseX(size_t i_, size_t l_, int8_t x_) : i(i_), l(l_), x(x_) {}
 };
 
 inline size_t idx2d(size_t r, size_t c, size_t width) {
     return r*width + c;
 }
 
-std::vector<char> count_modes(const std::vector<char>& x, const int N, const int L, const int K);
+std::vector<int8_t> count_modes(const std::vector<int8_t>& x, const int N, const int L, const int K);
 
 double parse_double(char *s);
 int parse_int(char *s);

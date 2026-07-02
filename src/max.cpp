@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
@@ -27,7 +28,7 @@ double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
 }
 
 void hard_viterbi_seq(
-    Clusters& clusters, const std::vector<char>& x,
+    Clusters& clusters, const std::vector<int8_t>& x,
     int i, int xi,
     const HyperParams& HP, const Params& params
 ) {
@@ -132,7 +133,7 @@ void hard_viterbi_seq(
 }
 
 void soft_viterbi_seq(
-    Clusters& clusters, const std::vector<char>& x,
+    Clusters& clusters, const std::vector<int8_t>& x,
     int i, int xi,
     const HyperParams& HP, const Params& params
 ) {
@@ -237,7 +238,7 @@ void soft_viterbi_seq(
 }
 
 void viterbi_seq(
-    Clusters& clusters, const std::vector<char>& x,
+    Clusters& clusters, const std::vector<int8_t>& x,
     int i, int xi,
     const HyperParams& HP, const Params& params
 ) {
@@ -248,7 +249,7 @@ void viterbi_seq(
 }
 
 void max_step(
-    Clusters& clusters, const std::vector<char>& x, const HyperParams& HP, const Params& params
+    Clusters& clusters, const std::vector<int8_t>& x, const HyperParams& HP, const Params& params
 ) {
     for (int i = 0; i < HP.N; ++i) {
         for (int l = 0; l < HP.L; ++l) {
@@ -262,7 +263,7 @@ void max_step(
     }
 }
 
-void add_seqs(Clusters& clusters, const std::vector<char>& new_x, const Params& params, HyperParams& HP) {
+void add_seqs(Clusters& clusters, const std::vector<int8_t>& new_x, const Params& params, HyperParams& HP) {
     int old_N = HP.N;
     int n_new = new_x.size() / HP.L;
     HP.N += n_new;

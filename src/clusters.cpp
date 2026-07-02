@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -38,7 +39,7 @@ int Cluster::get_imputed_emission() {
 }
 
 
-Clusters::Clusters(const HyperParams& HP_, bool soft_, const std::vector<char>& x) :
+Clusters::Clusters(const HyperParams& HP_, bool soft_, const std::vector<int8_t>& x) :
     HP(HP_),
     soft(soft_),
     nR(0),
@@ -53,7 +54,7 @@ Clusters::Clusters(const HyperParams& HP_, bool soft_, const std::vector<char>& 
         seqs.push_back(i);
     }
 
-    std::vector<char> modes{count_modes(x, HP.N, HP.L, HP.K)};
+    std::vector<int8_t> modes{count_modes(x, HP.N, HP.L, HP.K)};
 
     Cluster* r = create_cluster(seqs, x, true, 0, modes[0]);
     Cluster* q = nullptr;
@@ -67,7 +68,7 @@ Clusters::Clusters(const HyperParams& HP_, bool soft_, const std::vector<char>& 
 }
 
 std::tuple<std::vector<size_t>, size_t> count_emissions(
-    const std::vector<int>& seqs, const std::vector<char>& x, const HyperParams& HP, int l
+    const std::vector<int>& seqs, const std::vector<int8_t>& x, const HyperParams& HP, int l
 ) {
     size_t n_obs = 0;
     std::vector<size_t> nk(HP.K, 0);
@@ -81,7 +82,7 @@ std::tuple<std::vector<size_t>, size_t> count_emissions(
 }
 
 Cluster* Clusters::create_cluster(
-    const std::vector<int>& seqs, const std::vector<char>& x, bool is_r, int l, int emission
+    const std::vector<int>& seqs, const std::vector<int8_t>& x, bool is_r, int l, int emission
 ) {
     if (!soft && (is_r != (emission != -1))) {
         throw std::invalid_argument("only r cluster can have emissions.");
