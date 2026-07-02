@@ -82,7 +82,9 @@ Cluster* Clusters::create_cluster(
     }
 
     std::vector<size_t> nk = (soft && is_r) ? count_emissions(seqs, x, HP, l) : std::vector<size_t>(0);
-    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(is_r, l, soft, seqs.size(), emission, nk);
+    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(
+        is_r, l, soft, seqs.size(), emission, std::move(nk)
+    );
 
     Cluster* ptr = u_ptr.get();
     all_clusters[ptr] = std::move(u_ptr);
