@@ -114,8 +114,7 @@ void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
             throw std::runtime_error("seq already assigned to r cluster");
         };
         r_assign[idx2d(idx, cluster->l, HP.L)] = cluster;
-        if (soft) {
-            if (emission == -1) { throw std::invalid_argument("soft r cluster must have emission."); }
+        if (soft && (emission != -1)) {
             ++cluster->nk[emission];
         }
         return;
@@ -131,8 +130,7 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
 
     if (cluster->is_r) {
         r_assign[idx2d(idx, cluster->l, HP.L)] = nullptr;
-        if (soft) {
-            if (emission == -1) { throw std::invalid_argument("soft r cluster must have emission."); }
+        if (soft && (emission != -1)) {
             --cluster->nk[emission];
         }
     }
