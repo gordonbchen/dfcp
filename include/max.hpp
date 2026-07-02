@@ -8,5 +8,5 @@
 
 void max_step(Clusters& clusters, const std::vector<char>& x, const HyperParams& HP, const Params& params);
 
-void add_seqs(Clusters& clusters, const std::vector<char>& x, const Params& params, HyperParams& HP);
+void add_seqs(Clusters& clusters, const std::vector<char>& new_x, const Params& params, HyperParams& HP);
 
