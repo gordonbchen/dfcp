@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <tuple>
 #include <utility>
 #include <vector>
 #include <unordered_map>
@@ -10,8 +11,11 @@
 #include "util.hpp"
 
 
-Cluster::Cluster(bool is_r_, int l_, bool soft_, size_t n_, int emission_, std::vector<size_t> nk_)
-    : is_r(is_r_), l(l_), soft(soft_), n(n_), emission(emission_), nk(nk_) {}
+Cluster::Cluster(
+    bool is_r_, int l_, bool soft_, size_t n_,
+    int emission_, std::vector<size_t> nk_, size_t n_obs_
+)
+    : is_r(is_r_), l(l_), soft(soft_), n(n_), emission(emission_), nk(nk_), n_obs(n_obs_) {}
 
 void Cluster::add_child(Cluster *child) {
     children.push_back(child);
@@ -62,16 +66,18 @@ Clusters::Clusters(const HyperParams& HP_, bool soft_, const std::vector<char>& 
     }
 }
 
-std::vector<size_t> count_emissions(
+std::tuple<std::vector<size_t>, size_t> count_emissions(
     const std::vector<int>& seqs, const std::vector<char>& x, const HyperParams& HP, int l
 ) {
+    size_t n_obs = 0;
     std::vector<size_t> nk(HP.K, 0);
     for (int i : seqs) {
         if (x[idx2d(i, l, HP.L)] != -1) {
             ++nk[x[idx2d(i, l, HP.L)]];
+            ++n_obs;
         }
     }
-    return nk;
+    return std::tuple<std::vector<size_t>, size_t>{nk, n_obs};
 }
 
 Cluster* Clusters::create_cluster(
@@ -81,9 +87,10 @@ Cluster* Clusters::create_cluster(
         throw std::invalid_argument("only r cluster can have emissions.");
     }
 
-    std::vector<size_t> nk = (soft && is_r) ? count_emissions(seqs, x, HP, l) : std::vector<size_t>(0);
+    auto [nk, n_obs] = (soft && is_r) ? count_emissions(seqs, x, HP, l)
+        : std::tuple<std::vector<size_t>, size_t>{std::vector<size_t>(0), 0};
     std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(
-        is_r, l, soft, seqs.size(), emission, std::move(nk)
+        is_r, l, soft, seqs.size(), emission, std::move(nk), n_obs
     );
 
     Cluster* ptr = u_ptr.get();
@@ -118,6 +125,7 @@ void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
         r_assign[idx2d(idx, cluster->l, HP.L)] = cluster;
         if (soft && (emission != -1)) {
             ++cluster->nk[emission];
+            ++cluster->n_obs;
         }
         return;
     }
@@ -134,6 +142,7 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
         r_assign[idx2d(idx, cluster->l, HP.L)] = nullptr;
         if (soft && (emission != -1)) {
             --cluster->nk[emission];
+            --cluster->n_obs;
         }
     }
     else {

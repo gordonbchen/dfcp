@@ -146,9 +146,12 @@ void soft_viterbi_seq(
         if (l == HP.L-1) {
             ma[nullptr] = Msg{new_a_ll, nullptr};
             for (Cluster *a : clusters.rs[l]) {
-                int emission_count = (x[idx2d(xi,l,HP.L)]==-1) ? a->mode().count : a->nk[x[idx2d(xi,l,HP.L)]];
-                double ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, emission_count);
-                ll -= delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n);
+                double ll = 0.0;
+                if (x[idx2d(xi,l,HP.L)] != -1) {
+                    int emission_count = a->nk[x[idx2d(xi,l,HP.L)]];
+                    ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, emission_count);
+                    ll -= delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs);
+                }
                 ma[a] = Msg{ll, nullptr};
             }
             continue;
@@ -186,9 +189,12 @@ void soft_viterbi_seq(
         // a messages.
         ma[nullptr] = Msg{new_a_ll + new_b_ll, nullptr};
         for (Cluster* a : clusters.rs[l]) {
-            int emission_count = (x[idx2d(xi,l,HP.L)] == -1) ? a->mode().count : a->nk[x[idx2d(xi,l,HP.L)]];
-            double emission_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, emission_count);
-            emission_ll -= delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n);
+            double emission_ll = 0.0;
+            if (x[idx2d(xi,l,HP.L)] != -1) {
+                int emission_count = a->nk[x[idx2d(xi,l,HP.L)]];
+                emission_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, emission_count);
+                emission_ll -= delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs);
+            }
 
             Cluster* best_b = nullptr;
             double nFl = a->children.size();

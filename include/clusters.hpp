@@ -23,12 +23,16 @@ struct Cluster {
 
     const int emission;
     std::vector<size_t> nk;
+    size_t n_obs;
 
     std::vector<Cluster*> parents;
     std::vector<Cluster*> children;
 
 
-    Cluster(bool is_r_, int l_, bool soft_, size_t n_, int emission_, std::vector<size_t> nk_);
+    Cluster(
+        bool is_r_, int l_, bool soft_, size_t n_,
+        int emission_, std::vector<size_t> nk_, size_t n_obs_
+    );
 
     void add_child(Cluster *child);
 
