@@ -6,7 +6,7 @@
 
 
 class EarlyStopping {
-    private: 
+    private:
         double min_val = std::numeric_limits<double>::infinity();
         int steps_since_min = 0;
 
@@ -51,6 +51,6 @@ inline size_t idx2d(size_t r, size_t c, size_t width) {
 
 std::vector<char> count_modes(const std::vector<char>& x, const int N, const int L, const int K);
 
-void parse_double(char *s, double& x);
-void parse_int(char *s, int& x);
+double parse_double(char *s);
+int parse_int(char *s);
 

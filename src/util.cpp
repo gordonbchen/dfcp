@@ -23,15 +23,17 @@ std::vector<char> count_modes(const std::vector<char>& x, const int N, const int
     return modes;
 }
 
-void parse_double(char *s, double& x) {
+double parse_double(char *s) {
     char* end_ptr = nullptr;
-    x = std::strtod(s, &end_ptr);
+    double x = std::strtod(s, &end_ptr);
     if (end_ptr == s) { throw std::invalid_argument("Failed to parse double arg value."); };
+    return x;
 }
 
-void parse_int(char *s, int& x) {
+int parse_int(char *s) {
     char* end_ptr = nullptr;
-    x = std::strtol(s, &end_ptr, 10);
+    int x = std::strtol(s, &end_ptr, 10);
     if (end_ptr == s) { throw std::invalid_argument("Failed to parse int arg value."); };
+    return x;
 }
 

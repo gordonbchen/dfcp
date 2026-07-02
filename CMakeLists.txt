@@ -12,7 +12,6 @@ find_package(OpenMP REQUIRED)
 add_executable(dfcp
     src/me.cpp
     src/clusters.cpp
-    src/soft_clusters.cpp
     src/max.cpp
     src/expect.cpp
     src/elbo.cpp
