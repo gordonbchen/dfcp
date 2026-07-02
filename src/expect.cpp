@@ -1,16 +1,16 @@
+#include <boost/math/special_functions/logistic_sigmoid.hpp>
+#include <boost/math/tools/minima.hpp>
 #include <cmath>
-#include <stdexcept>
 #include <omp.h>
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/special_functions/trigamma.hpp>
 #include <boost/math/special_functions/polygamma.hpp>
-#include <boost/math/special_functions/logistic_sigmoid.hpp>
-#include <boost/math/tools/minima.hpp>
+#include <stdexcept>
 #include "expect.hpp"
 #include "hyperparams.hpp"
-#include "params.hpp"
 #include "clusters.hpp"
 #include "math.hpp"
+#include "params.hpp"
 #include "util.hpp"
 
 
@@ -29,6 +29,7 @@ void laplace_log_approx(
     sigma2 = (std::exp(logx_var) - 1.0) * std::exp(2.0*logx_mode + logx_var);
     if (sigma2 <= 0.0) { throw std::runtime_error("sigma2 < 0."); };
 }
+
 
 double delta_ElogGamma_invx(double mu, double sigma2, double a, double b) {
     double x = a/mu + b;
@@ -71,28 +72,56 @@ double ll_log_alpha_d2(double alpha, const HyperParams& HP, const Params& params
     return alpha*alpha * d2 - 1;
 }
 
+
 double ll_log_gammal(double log_gamma, int l, const HyperParams& HP, const Clusters& clusters) {
     double gamma = std::exp(log_gamma);
-
     double ll = (HP.phi_1-1)*std::log(gamma) - HP.phi_2*gamma;
+
+    if (clusters.soft) {
+        ll += clusters.rs[l].size() * (std::lgamma(HP.K*gamma) - HP.K*std::lgamma(gamma));
+        for (Cluster* a : clusters.rs[l]) {
+            ll -= std::lgamma(HP.K*gamma + a->n_obs);
+            for (int k = 0; k < HP.K; ++k) {
+                ll += std::lgamma(gamma + a->nk[k]);
+            }
+        }
+        return ll + log_gamma;
+    }
+
     ll += std::lgamma(HP.K*gamma) - std::lgamma(HP.K*gamma + clusters.rs[l].size());
     for (int k = 0; k < HP.K; ++k) {
         ll += std::lgamma(gamma + clusters.rs_by_emit[idx2d(l, k, HP.K)].size());
     }
     ll -= HP.K * std::lgamma(gamma);
-
     return ll + log_gamma;
 }
 
 double ll_log_gammal_d2(double gamma, int l, const HyperParams& HP, const Clusters& clusters) {
     double d2 = (1.0 - HP.phi_1) / (gamma*gamma);
-    d2 += HP.K*HP.K * (boost::math::trigamma(HP.K*gamma) - boost::math::trigamma(HP.K*gamma + clusters.rs[l].size()));
+
+    if (clusters.soft) {
+        d2 += clusters.rs[l].size() * (
+            HP.K*HP.K * boost::math::trigamma(HP.K*gamma) - HP.K*boost::math::trigamma(gamma)
+        );
+        for (Cluster* a : clusters.rs[l]) {
+            d2 -= HP.K*HP.K * boost::math::trigamma(HP.K*gamma + a->n_obs);
+            for (int k = 0; k < HP.K; ++k) {
+                d2 += boost::math::trigamma(gamma + a->nk[k]);
+            }
+        }
+        return gamma*gamma * d2 - 1;
+    }
+
+    d2 += HP.K*HP.K * (
+        boost::math::trigamma(HP.K*gamma)-boost::math::trigamma(HP.K*gamma + clusters.rs[l].size())
+    );
     for (int k = 0; k < HP.K; ++k) {
         d2 += boost::math::trigamma(gamma + clusters.rs_by_emit[idx2d(l, k, HP.K)].size());
-        d2 -= boost::math::trigamma(gamma);
     }
+    d2 -= HP.K * boost::math::trigamma(gamma);
     return gamma*gamma * d2 - 1;
 }
+
 
 double delta_ElogGamma_x_d2_invx(double mu, double sigma2, double a, double b) {
     double x = a*mu + b;
@@ -106,7 +135,9 @@ double delta_ElogGamma_x_d2_invx(double mu, double sigma2, double a, double b) {
     return d2;
 }
 
-double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
+double ll_logit_dl(
+    double logit_dl, int l, const HyperParams& HP, const Params& params, const Clusters& clusters
+) {
     double d = boost::math::logistic_sigmoid(logit_dl);
 
     int nQl = clusters.qs[l].size();
@@ -114,7 +145,7 @@ double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& 
     double ll = (nQl - nRl1 + HP.v_1 - 1.0) * std::log(d);
     ll += (HP.v_2 - 1.0) * std::log(1.0 - d);
     ll -= nQl * std::lgamma(1.0 - d);
-    for (Cluster* b : clusters.qs[l]) {
+    for (auto* b : clusters.qs[l]) {
         ll += std::lgamma(b->n - d);
     }
     ll += delta_ElogGamma_x(params.mu_alpha, params.sigma2_alpha, 1.0/d, 0.0);
@@ -123,13 +154,15 @@ double ll_logit_dl(double logit_dl, int l, const HyperParams& HP, const Params& 
     return ll + std::log(d) + std::log(1.0-d);
 }
 
-double ll_logit_dl_d2(double d, int l, const HyperParams& HP, const Params& params, const Clusters& clusters) {
+double ll_logit_dl_d2(
+    double d, int l, const HyperParams& HP, const Params& params, const Clusters& clusters
+) {
     int nQl = clusters.qs[l].size();
     int nRl1 = clusters.rs[l].size() + clusters.rs[l+1].size();
     double d2 = (nRl1 - nQl + 1.0 - HP.v_1) / (d*d);
     d2 -= (HP.v_2 - 1.0) / std::pow(1.0 - d, 2);
     d2 -= nQl * boost::math::trigamma(1.0 - d);
-    for (Cluster* b : clusters.qs[l]) {
+    for (auto* b : clusters.qs[l]) {
         d2 += boost::math::trigamma(b->n - d);
     }
 
@@ -140,6 +173,7 @@ double ll_logit_dl_d2(double d, int l, const HyperParams& HP, const Params& para
     d2 -= std::pow(1.0 - 2.0*d, 2) + 2.0*d*(1.0-d);
     return d2;
 }
+
 
 void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters) {
     // alpha update.

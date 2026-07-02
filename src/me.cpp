@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -5,13 +6,11 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
-#include <limits>
 #include <string_view>
 #include <random>
 #include <cstdlib>
 #include <stdexcept>
 #include <chrono>
-#include <tuple>
 #include "hyperparams.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
@@ -22,58 +21,6 @@
 #include "json.hpp"
 #include "util.hpp"
 
-
-void parse_double(char *s, double& x) {
-    char* end_ptr = nullptr;
-    x = std::strtod(s, &end_ptr);
-    if (end_ptr == s) { throw std::invalid_argument("Failed to parse double arg value."); };
-}
-
-void parse_int(char *s, int& x) {
-    char* end_ptr = nullptr;
-    x = std::strtol(s, &end_ptr, 10);
-    if (end_ptr == s) { throw std::invalid_argument("Failed to parse int arg value."); };
-}
-
-class EarlyStopping {
-    private: 
-        double min_val = std::numeric_limits<double>::infinity();
-        int steps_since_min = 0;
-
-    public:
-        int step = 0;
-        const int patience;
-        const bool minimize;
-        const double tol;
-
-        EarlyStopping(int patience_ = 3, bool minimize_ = true, double tol_ = 1e-5) :
-            patience(patience_), minimize(minimize_), tol(tol_)
-        {}
-
-        void update(double x) {
-            ++step;
-            if (!minimize) {
-                x = -x;
-            }
-            if (min_val-x > tol) {
-                steps_since_min = 0;
-                min_val = x;
-                return;
-            }
-            ++steps_since_min;
-        }
-
-        bool converged() const {
-            return steps_since_min > patience;
-        }
-};
-
-struct SparseX {
-    size_t i;
-    size_t l;
-    char x;
-    SparseX(size_t i_, size_t l_, char x_) : i(i_), l(l_), x(x_) {}
-};
 
 int main(int argc, char *argv[]) {
     Json json;
@@ -87,7 +34,7 @@ int main(int argc, char *argv[]) {
 
     int N = 0;
     int L = 0;
-    std::vector<char> x;
+    std::vector<int8_t> x;
     std::string line;
     while (std::getline(seq_file, line)) {
         if (N == 0) {
@@ -111,25 +58,29 @@ int main(int argc, char *argv[]) {
     int variant_start_pos = -1;
     char *tree_vis_fname = nullptr;
 
+    bool soft = false;
+
     int i = 2;
     while (i < argc) {
         if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
 
         std::string_view arg{argv[i]};
-        if (arg == "--tau_1") { parse_double(argv[i+1], HP.tau_1); }
-        else if (arg == "--tau_2") { parse_double(argv[i+1], HP.tau_2); }
-        else if (arg == "--v_1") { parse_double(argv[i+1], HP.v_1); }
-        else if (arg == "--v_2") { parse_double(argv[i+1], HP.v_2); }
-        else if (arg == "--phi_1") { parse_double(argv[i+1], HP.phi_1); }
-        else if (arg == "--phi_2") { parse_double(argv[i+1], HP.phi_2); }
+        if (arg == "--tau_1") { HP.tau_1 = parse_double(argv[i+1]); }
+        else if (arg == "--tau_2") { HP.tau_2 = parse_double(argv[i+1]); }
+        else if (arg == "--v_1") { HP.v_1 = parse_double(argv[i+1]); }
+        else if (arg == "--v_2") { HP.v_2 = parse_double(argv[i+1]); }
+        else if (arg == "--phi_1") { HP.phi_1 = parse_double(argv[i+1]); }
+        else if (arg == "--phi_2") { HP.phi_2 = parse_double(argv[i+1]); }
 
-        else if (arg == "--val") { parse_double(argv[i+1], val); }
-        else if (arg == "--mask") { parse_double(argv[i+1], mask); }
+        else if (arg == "--val") { val = parse_double(argv[i+1]); }
+        else if (arg == "--mask") { mask = parse_double(argv[i+1]); }
 
         else if (arg == "--tree") { tree_fname = argv[i+1]; }
         else if (arg == "--variant_pos") { variant_pos_fname = argv[i+1]; }
-        else if (arg == "--variant_start_pos") { parse_int(argv[i+1], variant_start_pos); }
+        else if (arg == "--variant_start_pos") { variant_start_pos = parse_int(argv[i+1]); }
         else if (arg == "--tree_vis") { tree_vis_fname = argv[i+1]; }
+
+        else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
 
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
@@ -138,17 +89,21 @@ int main(int argc, char *argv[]) {
 
     // Split val for imputation.
     bool do_val = val > 0.0;
-    if (do_val != (mask > 0.0)) { throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0."); };
-    if (do_val && (tree_fname != nullptr)) {throw std::invalid_argument("Does not support validation and tree eval.");}
+    if (do_val != (mask > 0.0)) {
+        throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0.");
+    };
+    if (do_val && (tree_fname != nullptr)) {
+        throw std::invalid_argument("Does not support validation and tree eval.");
+    }
     int n_val_seqs = 0;
-    std::vector<char> x_val_masked;
+    std::vector<int8_t> x_val_masked;
     x_val_masked.reserve(do_val ? static_cast<size_t>(val * x.size()) : 0);
 
     int n_masked_alleles = 0;
     std::vector<SparseX> x_val_true;
     x_val_true.reserve(do_val ? static_cast<size_t>(val * mask * x.size()) : 0);
 
-    std::vector<char> x_train;
+    std::vector<int8_t> x_train;
     x_train.reserve(static_cast<size_t>((1.0-val) * x.size()));
 
     if (val > 0.0) {
@@ -183,7 +138,7 @@ int main(int argc, char *argv[]) {
 
     // Init params and clusters.
     Params params{HP};
-    Clusters clusters{HP, x_train};
+    Clusters clusters{HP, soft, x_train};
 
     EarlyStopping early_stop{2, false, 1e-3};
     double elbo = 0.0;
@@ -219,12 +174,12 @@ int main(int argc, char *argv[]) {
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
-        std::vector<char> modes{count_modes(x_train, n_train, HP.L, HP.K)};
+        std::vector<int8_t> modes{count_modes(x_train, n_train, HP.L, HP.K)};
 
         int n_dfcp_correct = 0;
         int n_mode_correct = 0;
         for (SparseX& s : x_val_true) {
-            if (s.x == clusters.r_assign[idx2d(n_train + s.i, s.l, HP.L)]->emission) {
+            if (s.x == clusters.r_assign[idx2d(n_train + s.i, s.l, HP.L)]->get_imputed_emission()) {
                 ++n_dfcp_correct;
             }
             if (s.x == modes[s.l]) {
@@ -236,13 +191,14 @@ int main(int argc, char *argv[]) {
 
         std::cerr << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
             << "ms\nmode_impute_acc=" << mode_impute_acc << '\n';
-        json.add("dfcp_impute_acc", dfcp_impute_acc).add("t_impute", t_impute).add("mode_impute_acc", mode_impute_acc);
+        json.add("dfcp_impute_acc", dfcp_impute_acc).add("t_impute", t_impute)
+            .add("mode_impute_acc", mode_impute_acc);
     }
 
     // Tree parsimony.
     if (tree_fname != nullptr) {
         if ((variant_pos_fname == nullptr) || (variant_start_pos < 0)) {
-            throw std::invalid_argument("Evaluating trees requires variant position file and variant start pos.");
+            throw std::invalid_argument("Tree eval requires variant position file and variant start pos.");
         }
         std::vector<int> variant_pos{parse_pos_file_idx(variant_pos_fname, variant_start_pos, HP.L)};
         auto [coal_trees, recomb_pos] = parse_tree_file(tree_fname);
@@ -269,10 +225,14 @@ int main(int argc, char *argv[]) {
             for (int i = 0; i < HP.N; ++i) {
                 emission_clusters[i] = x_train[idx2d(i, l, HP.L)];
             }
-            emission_excess_parsimony += calc_excess_parsimony(coal_trees[tree_idxs[l]], emission_clusters, -1);
+            emission_excess_parsimony += calc_excess_parsimony(
+                coal_trees[tree_idxs[l]], emission_clusters, -1
+            );
 
             if ((tree_vis_fname != nullptr) && (l < 5)) {
-                tree_to_dot(tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assignments, emission_clusters, l, 5);
+                tree_to_dot(
+                    tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assignments, emission_clusters, l, 5
+                );
             }
         }
         auto t1 = std::chrono::steady_clock::now();
