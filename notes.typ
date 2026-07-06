@@ -1187,8 +1187,7 @@ h''(gamma_l) =& (1-phi.alt_1)/gamma_l^2 + sum_(a in cal(R)_l) [
 $
 
 
-= Maximization
-== Likelihood
+= Maximization Likelihood
 $
 Lambda(x_(i l) = k|a_(-i), gamma_l, x_(-i l))
 
@@ -1207,18 +1206,12 @@ Lambda(x_(i l) = k|a_(-i), gamma_l, x_(-i l))
 Lambda(x_(i l) |a = emptyset, gamma_l, x_(-i l)) = 1/K
 $
 
-#todo[Check soft DFCP math]
-
 
 
 
 
 #pagebreak()
 = TODO
-
-== trees
-- tree file give trees at recombination events. from pos to next-1.
-- binary data filename loc number is idx for polymorphism.
 
 == benches
 - N=2500, L=100000

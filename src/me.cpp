@@ -167,6 +167,12 @@ int main(int argc, char *argv[]) {
     }
     json.add("train_log", train_log);
 
+    Json param_log;
+    param_log.add("mu_alpha", params.mu_alpha);
+    param_log.add("mu_gamma", params.mu_gamma);
+    param_log.add("mu_d", params.mu_d);
+    json.add("params", param_log);
+
     // Impute.
     if (n_val_seqs > 0) {
         auto t0 = std::chrono::steady_clock::now();
