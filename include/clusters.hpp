@@ -19,10 +19,9 @@ struct Cluster {
     const bool is_r;
     const int l;
     const bool soft;
+    const int emission;
 
     size_t n;
-
-    const int emission;
     std::vector<size_t> nk;
     size_t n_obs;
 
@@ -30,10 +29,7 @@ struct Cluster {
     std::vector<Cluster*> children;
 
 
-    Cluster(
-        bool is_r_, int l_, bool soft_, size_t n_,
-        int emission_, std::vector<size_t> nk_, size_t n_obs_
-    );
+    Cluster(bool is_r_, int l_, bool soft_, int emission_, int K);
 
     void add_child(Cluster *child);
 
@@ -62,6 +58,8 @@ struct Clusters {
     Cluster* create_cluster(
         const std::vector<int>& seqs, const std::vector<int8_t>& x, bool is_r, int l, int emission
     );
+
+    Cluster* create_empty_cluster(bool is_r, int l, int emission);
 
     void cluster_add(Cluster* cluster, int idx, int emission);
 

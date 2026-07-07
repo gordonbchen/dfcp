@@ -28,8 +28,7 @@ double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
 }
 
 void hard_viterbi_seq(
-    Clusters& clusters, const std::vector<int8_t>& x,
-    int i, int xi,
+    Clusters& clusters, std::vector<int8_t>::const_iterator xi, int i,
     const HyperParams& HP, const Params& params
 ) {
     std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
@@ -37,13 +36,13 @@ void hard_viterbi_seq(
     for (int l = HP.L-1; l >= 0; --l) {
         // Likelihood for new cluster.
         auto& ma = a_msgs[l];
-        int emission = x[idx2d(xi,l,HP.L)] == -1 ? clusters.cluster_mode(l) : x[idx2d(xi,l,HP.L)];
+        int emission = xi[l] == -1 ? clusters.cluster_mode(l) : xi[l];
         int nkl = clusters.rs_by_emit[idx2d(l,emission,HP.K)].size();
         double new_a_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl);
         new_a_ll -= delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
 
         std::unordered_set<Cluster*>& matching_as = (
-            x[idx2d(xi,l,HP.L)] == -1 ? clusters.rs[l] : clusters.rs_by_emit[idx2d(l, emission, HP.K)]
+            xi[l] == -1 ? clusters.rs[l] : clusters.rs_by_emit[idx2d(l, emission, HP.K)]
         );
         if (l == HP.L-1) {
             ma[nullptr] = Msg{new_a_ll, nullptr};
@@ -72,8 +71,7 @@ void hard_viterbi_seq(
         Cluster* best_a = nullptr;
         double best_a_ll = params.mu_log_alpha + next_ma.at(nullptr).ll;
         std::unordered_set<Cluster*>& matching_next_as = (
-            x[idx2d(xi,l+1,HP.L)] == -1 ? clusters.rs[l+1]
-            : clusters.rs_by_emit[idx2d(l+1, x[idx2d(xi,l+1,HP.L)], HP.K)]
+            xi[l+1] == -1 ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xi[l+1], HP.K)]
         );
         for (Cluster *a : matching_next_as) {
             double nCl = a->parents.size();
@@ -108,23 +106,23 @@ void hard_viterbi_seq(
     Cluster* a = std::max_element(a_msgs[0].begin(), a_msgs[0].end(),
         [](const auto& a, const auto& b) { return a.second.ll < b.second.ll; }
     )->first;
-    int emission = x[idx2d(xi,0,HP.L)] == -1 ? clusters.cluster_mode(0) : x[idx2d(xi,0,HP.L)];
-    Cluster* a_obj = (a == nullptr) ? clusters.create_cluster(std::vector<int>{}, x, true, 0, emission) : a;
+    int emission = xi[0] == -1 ? clusters.cluster_mode(0) : xi[0];
+    Cluster* a_obj = (a == nullptr) ? clusters.create_empty_cluster(true, 0, emission) : a;
     clusters.cluster_add(a_obj, i, emission);
 
     Cluster* b = nullptr;
     Cluster* b_obj = nullptr;
     for (int l = 0; l < HP.L-1; ++l) {
         b = a_msgs[l].at(a).next;
-        b_obj = (b == nullptr) ? clusters.create_cluster(std::vector<int>{}, x, false, l, -1) : b;
+        b_obj = (b == nullptr) ? clusters.create_empty_cluster(false, l, -1) : b;
         clusters.cluster_add(b_obj, i, -1);
         if (a == nullptr || b == nullptr) {
             a_obj->add_child(b_obj);
         }
 
         a = b_msgs[l].at(b).next;
-        emission = x[idx2d(xi,l+1,HP.L)] == -1 ? clusters.cluster_mode(l+1) : x[idx2d(xi,l+1,HP.L)];
-        a_obj = (a == nullptr) ? clusters.create_cluster(std::vector<int>{}, x, true, l+1, emission) : a;
+        emission = xi[l+1] == -1 ? clusters.cluster_mode(l+1) : xi[l+1];
+        a_obj = (a == nullptr) ? clusters.create_empty_cluster(true, l+1, emission) : a;
         clusters.cluster_add(a_obj, i, emission);
         if (a == nullptr || b == nullptr) {
             b_obj->add_child(a_obj);
@@ -133,8 +131,7 @@ void hard_viterbi_seq(
 }
 
 void soft_viterbi_seq(
-    Clusters& clusters, const std::vector<int8_t>& x,
-    int i, int xi,
+    Clusters& clusters, std::vector<int8_t>::const_iterator xi, int i,
     const HyperParams& HP, const Params& params
 ) {
     std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
@@ -142,14 +139,14 @@ void soft_viterbi_seq(
     for (int l = HP.L-1; l >= 0; --l) {
         // Likelihood for new cluster.
         auto& ma = a_msgs[l];
-        double new_a_ll = x[idx2d(xi,l,HP.L)] == -1 ? 0.0 : -std::log(static_cast<double>(HP.K));
+        double new_a_ll = xi[l] == -1 ? 0.0 : -std::log(static_cast<double>(HP.K));
 
         if (l == HP.L-1) {
             ma[nullptr] = Msg{new_a_ll, nullptr};
             for (Cluster *a : clusters.rs[l]) {
                 double ll = 0.0;
-                if (x[idx2d(xi,l,HP.L)] != -1) {
-                    int emission_count = a->nk[x[idx2d(xi,l,HP.L)]];
+                if (xi[l] != -1) {
+                    int emission_count = a->nk[xi[l]];
                     ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, emission_count);
                     ll -= delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs);
                 }
@@ -191,8 +188,8 @@ void soft_viterbi_seq(
         ma[nullptr] = Msg{new_a_ll + new_b_ll, nullptr};
         for (Cluster* a : clusters.rs[l]) {
             double emission_ll = 0.0;
-            if (x[idx2d(xi,l,HP.L)] != -1) {
-                int emission_count = a->nk[x[idx2d(xi,l,HP.L)]];
+            if (xi[l] != -1) {
+                int emission_count = a->nk[xi[l]];
                 emission_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, emission_count);
                 emission_ll -= delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs);
             }
@@ -215,22 +212,22 @@ void soft_viterbi_seq(
     Cluster* a = std::max_element(a_msgs[0].begin(), a_msgs[0].end(),
         [](const auto& a, const auto& b) { return a.second.ll < b.second.ll; }
     )->first;
-    Cluster* a_obj = (a == nullptr) ? clusters.create_cluster(std::vector<int>{}, x, true, 0, -1) : a;
-    clusters.cluster_add(a_obj, i, x[idx2d(xi,0,HP.L)]);
+    Cluster* a_obj = (a == nullptr) ? clusters.create_empty_cluster(true, 0, -1) : a;
+    clusters.cluster_add(a_obj, i, xi[0]);
 
     Cluster* b = nullptr;
     Cluster* b_obj = nullptr;
     for (int l = 0; l < HP.L-1; ++l) {
         b = a_msgs[l].at(a).next;
-        b_obj = (b == nullptr) ? clusters.create_cluster(std::vector<int>{}, x, false, l, -1) : b;
+        b_obj = (b == nullptr) ? clusters.create_empty_cluster(false, l, -1) : b;
         clusters.cluster_add(b_obj, i, -1);
         if (a == nullptr || b == nullptr) {
             a_obj->add_child(b_obj);
         }
 
         a = b_msgs[l].at(b).next;
-        a_obj = (a == nullptr) ? clusters.create_cluster(std::vector<int>{}, x, true, l+1, -1) : a;
-        clusters.cluster_add(a_obj, i, x[idx2d(xi,l+1,HP.L)]);
+        a_obj = (a == nullptr) ? clusters.create_empty_cluster(true, l+1, -1) : a;
+        clusters.cluster_add(a_obj, i, xi[l+1]);
         if (a == nullptr || b == nullptr) {
             b_obj->add_child(a_obj);
         }
@@ -238,14 +235,13 @@ void soft_viterbi_seq(
 }
 
 void viterbi_seq(
-    Clusters& clusters, const std::vector<int8_t>& x,
-    int i, int xi,
+    Clusters& clusters, std::vector<int8_t>::const_iterator xi, int i,
     const HyperParams& HP, const Params& params
 ) {
     if (clusters.soft) {
-        return soft_viterbi_seq(clusters, x, i, xi, HP, params);
+        return soft_viterbi_seq(clusters, xi, i, HP, params);
     }
-    return hard_viterbi_seq(clusters, x, i, xi, HP, params);
+    return hard_viterbi_seq(clusters, xi, i, HP, params);
 }
 
 void max_step(
@@ -259,19 +255,21 @@ void max_step(
             }
             clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L-1)], i, -1);
         }
-        viterbi_seq(clusters, x, i, i, HP, params);
+        viterbi_seq(clusters, x.begin() + i*HP.L, i, HP, params);
     }
 }
 
-void add_seqs(Clusters& clusters, const std::vector<int8_t>& new_x, const Params& params, HyperParams& HP) {
+void add_seqs(
+    Clusters& clusters, std::vector<int8_t>::const_iterator new_x, int n_new,
+    HyperParams& HP, const Params& params
+) {
     int old_N = HP.N;
-    int n_new = new_x.size() / HP.L;
     HP.N += n_new;
     clusters.r_assign.resize(HP.N * HP.L, nullptr);
     clusters.q_assign.resize(HP.N * (HP.L-1), nullptr);
 
     for (int i = 0; i < n_new; ++i) {
-        viterbi_seq(clusters, new_x, old_N + i, i, HP, params);
+        viterbi_seq(clusters, new_x + i*HP.L, old_N + i, HP, params);
     }
 }
 

@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
 
     int N = 0;
     int L = 0;
-    std::vector<int8_t> x;
+    std::vector<int8_t> x_raw;
     std::string line;
     while (std::getline(seq_file, line)) {
         if (N == 0) {
@@ -42,11 +42,11 @@ int main(int argc, char *argv[]) {
         }
         for (char c : line) {
             if (c < '0' || c > '9') { throw std::runtime_error("Invalid allele char."); };
-            x.push_back(c - '0');
+            x_raw.push_back(c - '0');
         }
         ++N;
     }
-    int K = *std::max_element(x.begin(), x.end()) + 1;
+    int K = *std::max_element(x_raw.begin(), x_raw.end()) + 1;
     HyperParams HP{.N=N, .L=L, .K=K};
 
     // Parse optional args.
@@ -92,19 +92,14 @@ int main(int argc, char *argv[]) {
     if (do_val != (mask > 0.0)) {
         throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0.");
     };
-    if (do_val && (tree_fname != nullptr)) {
-        throw std::invalid_argument("Does not support validation and tree eval.");
-    }
+    std::vector<int8_t> x(HP.N * HP.L, -1);
+    int n_train_seqs = 0;
     int n_val_seqs = 0;
-    std::vector<int8_t> x_val_masked;
-    x_val_masked.reserve(do_val ? static_cast<size_t>(val * x.size()) : 0);
+    std::vector<int> raw_to_split_idxs(HP.N, -1);
 
     int n_masked_alleles = 0;
     std::vector<SparseX> x_val_true;
-    x_val_true.reserve(do_val ? static_cast<size_t>(val * mask * x.size()) : 0);
-
-    std::vector<int8_t> x_train;
-    x_train.reserve(static_cast<size_t>((1.0-val) * x.size()));
+    x_val_true.reserve(do_val ? static_cast<size_t>(val * mask * HP.N * HP.L) : 0);
 
     if (val > 0.0) {
         std::random_device rd;
@@ -113,32 +108,39 @@ int main(int argc, char *argv[]) {
         std::bernoulli_distribution mask_dist(mask);
 
         for (int i = 0; i < HP.N; ++i) {
-            auto line = x.begin() + i*HP.L;
+            auto line = x_raw.begin() + i*HP.L;
             if (!val_dist(gen)) {
-                x_train.insert(x_train.end(), line, line + HP.L);
+                std::copy(line, line+HP.L, x.begin() + n_train_seqs*HP.L);
+                raw_to_split_idxs[i] = n_train_seqs;
+                ++n_train_seqs;
                 continue;
             }
-            x_val_masked.insert(x_val_masked.end(), line, line + HP.L);
+            std::copy(line, line+HP.L, x.end() - (n_val_seqs+1)*HP.L);
+            raw_to_split_idxs[i] = HP.N - (n_val_seqs+1);
             for (int l = 0; l < HP.L; ++l) {
                 if (!mask_dist(gen)) { continue; }
-                x_val_true.emplace_back(n_val_seqs, l, x_val_masked[idx2d(n_val_seqs, l, HP.L)]);
-                x_val_masked[idx2d(n_val_seqs, l, HP.L)] = -1;
+                x_val_true.emplace_back(HP.N - (n_val_seqs+1), l, line[l]);
+                x[idx2d(HP.N - (n_val_seqs+1), l, HP.L)] = -1;
                 ++n_masked_alleles;
             }
             ++n_val_seqs;
         }
-        HP.N -= n_val_seqs;
+        HP.N = n_train_seqs;
+        if (n_train_seqs == 0) { throw std::runtime_error("no train seqs."); }
+        if (n_masked_alleles == 0) { throw std::runtime_error("invalid validation split."); }
         std::cerr << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_alleles=" << n_masked_alleles << '\n';
         json.add("n_val_seqs", n_val_seqs).add("n_masked_alleles", n_masked_alleles);
     }
     else {
-        x_train = std::move(x);
+        x = std::move(x_raw);
+        for (int i = 0; i < HP.N; ++i) {
+            raw_to_split_idxs[i] = i;
+        }
     }
-    int n_train = HP.N;
 
     // Init params and clusters.
     Params params{HP};
-    Clusters clusters{HP, soft, x_train};
+    Clusters clusters{HP, soft, x};
 
     EarlyStopping early_stop{2, false, 1e-3};
     double elbo = 0.0;
@@ -146,7 +148,7 @@ int main(int argc, char *argv[]) {
     std::vector<Json> train_log;
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
-        max_step(clusters, x_train, HP, params);
+        max_step(clusters, x, HP, params);
         auto t1 = std::chrono::steady_clock::now();
         expect_step(HP, params, clusters);
         auto t2 = std::chrono::steady_clock::now();
@@ -176,29 +178,34 @@ int main(int argc, char *argv[]) {
     // Impute.
     if (n_val_seqs > 0) {
         auto t0 = std::chrono::steady_clock::now();
-        add_seqs(clusters, x_val_masked, params, HP);
+        add_seqs(clusters, x.begin() + n_train_seqs*HP.L, n_val_seqs, HP, params);
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
-        std::vector<int8_t> modes{count_modes(x_train, n_train, HP.L, HP.K)};
+        std::vector<int8_t> modes{count_modes(x, n_train_seqs, HP.L, HP.K)};
 
         int n_dfcp_correct = 0;
         int n_mode_correct = 0;
         for (SparseX& s : x_val_true) {
-            if (s.x == clusters.r_assign[idx2d(n_train + s.i, s.l, HP.L)]->get_imputed_emission()) {
+            if (s.x == clusters.r_assign[idx2d(s.i, s.l, HP.L)]->get_imputed_emission()) {
                 ++n_dfcp_correct;
             }
             if (s.x == modes[s.l]) {
                 ++n_mode_correct;
             }
         }
-        double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / static_cast<double>(n_masked_alleles);
-        double mode_impute_acc = static_cast<double>(n_mode_correct) / static_cast<double>(n_masked_alleles);
+        double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / n_masked_alleles;
+        double mode_impute_acc = static_cast<double>(n_mode_correct) / n_masked_alleles;
 
         std::cerr << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
-            << "ms\nmode_impute_acc=" << mode_impute_acc << '\n';
+            << "ms mode_impute_acc=" << mode_impute_acc << '\n';
         json.add("dfcp_impute_acc", dfcp_impute_acc).add("t_impute", t_impute)
             .add("mode_impute_acc", mode_impute_acc);
+    }
+
+    // Unmask x for eval.
+    for (SparseX& s : x_val_true) {
+        x[idx2d(s.i, s.l, HP.L)] = s.x;
     }
 
     // Tree parsimony.
@@ -219,39 +226,77 @@ int main(int argc, char *argv[]) {
             for (Cluster* c : clusters.rs[l]) {
                 cluster_idxs.emplace(c, cluster_idxs.size());
             }
-            std::vector<int> cluster_assignments(HP.N);
+            std::vector<int> cluster_assign(HP.N);
             for (int i = 0; i < HP.N; ++i) {
-                cluster_assignments[i] = cluster_idxs.at(clusters.r_assign[idx2d(i, l, HP.L)]);
+                cluster_assign[i] = cluster_idxs.at(clusters.r_assign[idx2d(raw_to_split_idxs[i], l, HP.L)]);
             }
             excess_parsimony += calc_excess_parsimony(
-                coal_trees[tree_idxs[l]], cluster_assignments, clusters.rs[l].size()
+                coal_trees[tree_idxs[l]], cluster_assign, clusters.rs[l].size()
             );
 
             std::vector<int> emission_clusters(HP.N);
             for (int i = 0; i < HP.N; ++i) {
-                emission_clusters[i] = x_train[idx2d(i, l, HP.L)];
+                emission_clusters[i] = x[idx2d(raw_to_split_idxs[i], l, HP.L)];
             }
             emission_excess_parsimony += calc_excess_parsimony(
                 coal_trees[tree_idxs[l]], emission_clusters, -1
             );
 
-            if ((tree_vis_fname != nullptr) && (l < 5)) {
+            if ((tree_vis_fname != nullptr) && (l < 8)) {
                 tree_to_dot(
-                    tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assignments, emission_clusters, l, 5
+                    tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assign, emission_clusters, l, 8
                 );
             }
         }
-        auto t1 = std::chrono::steady_clock::now();
-        auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-
         double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
         double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
+
+        auto t1 = std::chrono::steady_clock::now();
+        auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
         std::cerr << "mean_excess_parsimony=" << mean_excess_parsimony
-            << " t_parsimony=" << t_parsimony << "ms\n"
-            << "mean_emission_excess_parsimony=" << mean_emission_excess_parsimony << '\n';
-        json.add("mean_excess_parsimony", mean_excess_parsimony).add("t_parsimony", t_parsimony)
-            .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony);
+            << " mean_emission_excess_parsimony=" << mean_emission_excess_parsimony
+            << " t_parsimony=" << t_parsimony << "ms\n";
+        json.add("mean_excess_parsimony", mean_excess_parsimony)
+            .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony)
+            .add("t_parsimony", t_parsimony);
     }
+
+    // IOU.
+    auto t0 = std::chrono::steady_clock::now();
+    double mean_iou = 0.0;
+    double mean_emission_iou = 0.0;
+    for (int l = 0; l < HP.L-1; ++l) {
+        int n_intersect = 0;
+        int n_union = 0;
+
+        int n_emission_intersect = 0;
+        int n_emission_union = 0;
+
+        for (int i = 0; i < HP.N; ++i) {
+            for (int j = i+1; j < HP.N; ++j) {
+                int l_same = clusters.r_assign[idx2d(i,l,HP.L)] == clusters.r_assign[idx2d(j,l,HP.L)];
+                int l1_same = clusters.r_assign[idx2d(i,l+1,HP.L)] == clusters.r_assign[idx2d(j,l+1,HP.L)];
+                n_intersect += l_same && l1_same;
+                n_union += l_same || l1_same;
+
+                int l_emission_same = x[idx2d(i,l,HP.L)] == x[idx2d(j,l,HP.L)];
+                int l1_emission_same = x[idx2d(i,l+1,HP.L)] == x[idx2d(j,l+1,HP.L)];
+                n_emission_intersect += l_emission_same && l1_emission_same;
+                n_emission_union += l_emission_same || l1_emission_same;
+            }
+        }
+        mean_iou += (n_union == 0) ? 1.0 : static_cast<double>(n_intersect) / n_union;
+        mean_emission_iou += (n_emission_union == 0) ? 1.0
+            : static_cast<double>(n_emission_intersect) / n_emission_union;
+    }
+    mean_iou /= HP.L-1;
+    mean_emission_iou /= HP.L-1;
+    auto t1 = std::chrono::steady_clock::now();
+    auto t_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cerr << "mean_iou=" << mean_iou << " mean_emission_iou=" << mean_emission_iou
+        << " t_iou=" << t_iou << "ms\n";
+    json.add("mean_iou", mean_iou).add("mean_emission_iou", mean_emission_iou).add("t_iou", t_iou);
+
     std::cout << json.str() << '\n';
     return 0;
 }

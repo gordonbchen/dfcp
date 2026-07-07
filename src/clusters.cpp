@@ -2,7 +2,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <tuple>
 #include <utility>
 #include <vector>
 #include <unordered_map>
@@ -12,11 +11,9 @@
 #include "util.hpp"
 
 
-Cluster::Cluster(
-    bool is_r_, int l_, bool soft_, size_t n_,
-    int emission_, std::vector<size_t> nk_, size_t n_obs_
-)
-    : is_r(is_r_), l(l_), soft(soft_), n(n_), emission(emission_), nk(nk_), n_obs(n_obs_) {}
+Cluster::Cluster(bool is_r_, int l_, bool soft_, int emission_, int K)
+    : is_r(is_r_), l(l_), soft(soft_), emission(emission_),
+      n(0), nk(0, K), n_obs(0) {}
 
 void Cluster::add_child(Cluster *child) {
     children.push_back(child);
@@ -67,47 +64,30 @@ Clusters::Clusters(const HyperParams& HP_, bool soft_, const std::vector<int8_t>
     }
 }
 
-std::tuple<std::vector<size_t>, size_t> count_emissions(
-    const std::vector<int>& seqs, const std::vector<int8_t>& x, const HyperParams& HP, int l
-) {
-    size_t n_obs = 0;
-    std::vector<size_t> nk(HP.K, 0);
-    for (int i : seqs) {
-        if (x[idx2d(i, l, HP.L)] != -1) {
-            ++nk[x[idx2d(i, l, HP.L)]];
-            ++n_obs;
-        }
-    }
-    return std::tuple<std::vector<size_t>, size_t>{nk, n_obs};
-}
-
 Cluster* Clusters::create_cluster(
     const std::vector<int>& seqs, const std::vector<int8_t>& x, bool is_r, int l, int emission
 ) {
+    Cluster* c = create_empty_cluster(is_r, l, emission);
+    for (const int& i : seqs) {
+        cluster_add(c, i, x[idx2d(i, l, HP.L)]);
+    }
+    return c;
+}
+
+Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
     if (!soft && (is_r != (emission != -1))) {
         throw std::invalid_argument("only r cluster can have emissions.");
     }
 
-    auto [nk, n_obs] = (soft && is_r) ? count_emissions(seqs, x, HP, l)
-        : std::tuple<std::vector<size_t>, size_t>{std::vector<size_t>(0), 0};
-    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(
-        is_r, l, soft, seqs.size(), emission, std::move(nk), n_obs
-    );
-
+    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(is_r, l, soft, emission, HP.K);
     Cluster* ptr = u_ptr.get();
     all_clusters[ptr] = std::move(u_ptr);
 
     if (!is_r) {
-        for (const int& i : seqs) {
-            q_assign[idx2d(i, l, HP.L-1)] = ptr;
-        }
         qs[l].insert(ptr);
         return ptr;
     }
 
-    for (const int& i : seqs) {
-        r_assign[idx2d(i, l, HP.L)] = ptr;
-    }
     rs[l].insert(ptr);
     ++nR;
     if (!soft) {
