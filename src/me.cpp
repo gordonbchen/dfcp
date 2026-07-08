@@ -297,6 +297,11 @@ int main(int argc, char *argv[]) {
         << " t_iou=" << t_iou << "ms\n";
     json.add("mean_iou", mean_iou).add("mean_emission_iou", mean_emission_iou).add("t_iou", t_iou);
 
+    // Average # of clusters.
+    double mean_clusters = static_cast<double>(clusters.nR) / HP.L;
+    std::cerr << "mean_clusters=" << mean_clusters << '\n';
+    json.add("mean_clusters", mean_clusters);
+
     std::cout << json.str() << '\n';
     return 0;
 }
