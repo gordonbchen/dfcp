@@ -1023,51 +1023,6 @@ $EE_q [log (alpha + d_l \#Q^(-i)_l)]$
 
 
 #pagebreak()
-= Trees
-- fastsimcoal gives coalescent trees at each position
-- given a tree, is the dfcp marginal clustering in it? metric for how far away
-- or cutting to make n clusters, distance b/t tree clusters and dfcp clusters
-
-== Parsimony score
-- given a tree and clusters, how can I assign cluster labels to internal ancestral nodes to explain the
-  observed cluster labels with as few changes along edges as possible
-
-- $s_T (cal(X)) = min_(hat(cal(X)) : V(T) -> cal(K)) \#{(u, v) in E(T) : hat(cal(X))(u) != hat(cal(X))(v)}$
-
-  subject to $cal(X)(x) = hat(cal(X))(x)$ on leaves $x$
-
-- optimal parsimony score for $k$ clusters = $k-1$
-
-  excess parsimony score: $s_T (cal(X)) - (k-1)$
-
-- at optimality: clusters represent subtrees
-
-== Fitch's Algorithm
-- let $P(v)$ be the parsimony score of a subtree rooted at $v$
-- let $S(v)$ be the set of cluster labels for the vertex $v$ that can achieve $P(v)$
-
-base case: at edges, $P(v) = 0$, $S(v) = {C(v)}$
-
-recursion: vertex $v$ has children $a, b$.
-- if $S(a) inter S(b) = emptyset$
-  - there is no cluster label that can be assigned to $v$ to not increase parsimony
-  - $P(v) = P(a) + P(b) + 1$
-  - $S(v) = S(a) union S(b)$
-- else $S(a) inter S(b) != emptyset$
-  - $P(v) = P(a) + P(b)$
-  - $S(v) = S(a) inter S(b)$
-
-
-== Other branch-length aware metrics
-- best time cut comparison: but we don't necessarily need clustering to correspond to a time cut
-- within cluster tree difference
-
-
-
-
-
-
-#pagebreak()
 = Soft DFCP
 
 == DFCP
@@ -1208,22 +1163,105 @@ $
 
 
 
+#pagebreak()
+= Hyperparams
+
+== $gamma_l$ 
+Cluster has $n$ observed alleles, all A.
+
+$
+p(x_(i l) = k|a, x^(-i)) =& (gamma_l + n_(a l k)^(-i)) / (K gamma_l + n_(a l)^(-i)) \
+
+p(x_(i l) != A|n_A = n) =& ((K-1) gamma_l) / (K gamma_l + n_(a l)^(-i))
+$
+
+prob of mismatch should be $approx$ bit flip ratio?
+
+try $gamma_l ~ "Gamma"(1, 20)$
+
+$
+p =& ((K-1) gamma_l) / (K gamma_l + n_(a l)^(-i)) \
+
+p K gamma_l + p n =& (K-1) gamma_l \
+
+p n =& ((1-p) K -1) gamma_l \
+
+(p n) / ((1-p) K -1) &= gamma_l \
+$
+
+
+== $alpha$
+$
+E[\#cal(R)_l | alpha] approx& alpha log (1 + N / alpha)
+$
+
+
+
+
+#pagebreak()
+= Trees
+- fastsimcoal gives coalescent trees at each position
+- given a tree, is the dfcp marginal clustering in it? metric for how far away
+
+== Parsimony score
+- given a tree and clusters, how can I assign cluster labels to internal ancestral nodes to explain the
+  observed cluster labels with as few changes along edges as possible
+
+- $s_T (cal(X)) = min_(hat(cal(X)) : V(T) -> cal(K)) \#{(u, v) in E(T) : hat(cal(X))(u) != hat(cal(X))(v)}$
+
+  subject to $cal(X)(x) = hat(cal(X))(x)$ on leaves $x$
+
+- optimal parsimony score for $k$ clusters = $k-1$
+
+  excess parsimony score: $s_T (cal(X)) - (k-1)$
+
+- at optimality: clusters represent subtrees
+
+== Fitch's Algorithm
+- let $P(v)$ be the parsimony score of a subtree rooted at $v$
+- let $S(v)$ be the set of cluster labels for the vertex $v$ that can achieve $P(v)$
+
+base case: at edges, $P(v) = 0$, $S(v) = {C(v)}$
+
+recursion: vertex $v$ has children $a, b$.
+- if $S(a) inter S(b) = emptyset$
+  - there is no cluster label that can be assigned to $v$ to not increase parsimony
+  - $P(v) = P(a) + P(b) + 1$
+  - $S(v) = S(a) union S(b)$
+- else $S(a) inter S(b) != emptyset$
+  - $P(v) = P(a) + P(b)$
+  - $S(v) = S(a) inter S(b)$
+
+
+== Other metrics
++ % of MRCA (Most Recent Common Ancestor): |a| / (\# leaves under MRCA)
+  - weighted avg: $sum_a (|a|) / N (|a|) / m(a)$
+
++ cluster stability: jaccard index $J(C_l, C_(l+1)) = (|B_l inter B_(l+1)|) / (|B_l union B_(l+1)|)$
+
+
+=== Bad
++ average within cluster coalescent time: but penalizes model for not splitting tree farther
+  even if no mutation
+
++ fixed time clustering: dfcp doesn't have to split the tree at the same height,
+  mutations can appear at different times on different branches.
+
+
+
 
 
 #pagebreak()
 = TODO
 
-== benches
-- N=2500, L=100000
-- imputation bench
+== hyperparam tuning
+- bayesian optimizationm
+- % MCRA metric
+- cluster metric paper
 
 == next possible
 - eval internal repr of shapeit / beagle
 - coreset
 - changing model (multimodal: adding a likelihood)
 - different processes (pitman dfcp: coalescent process on tree = crp marginally)
-
-== icebox
-- stronger imputation baseline: beagle / impute2
-- cluster init
 
