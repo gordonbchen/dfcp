@@ -110,7 +110,7 @@ struct BitSet {
     size_t n_words;
     std::vector<uint64_t> bm;
 
-    BitSet(size_t size_) : size(size_), n_words(1 + (size_ >> 6)), bm(1 + (size_ >> 6), 0) {}
+    BitSet(size_t size_) : size(size_), n_words((size_ + 63) >> 6), bm((size_ + 63) >> 6, 0) {}
 
     void set(size_t idx) {
         if (idx >= size) {
