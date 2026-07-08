@@ -13,7 +13,7 @@
 
 Cluster::Cluster(bool is_r_, int l_, bool soft_, int emission_, int K)
     : is_r(is_r_), l(l_), soft(soft_), emission(emission_),
-      n(0), nk(0, K), n_obs(0) {}
+      n(0), nk(K, 0), n_obs(0) {}
 
 void Cluster::add_child(Cluster *child) {
     children.push_back(child);
