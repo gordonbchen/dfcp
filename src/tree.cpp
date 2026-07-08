@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <tuple>
 #include <cmath>
+#include <utility>
 #include <vector>
 #include <cstring>
 #include <bit>
@@ -103,40 +104,95 @@ std::tuple<std::vector<std::unordered_map<int, std::tuple<int, int>>>, std::vect
     return std::tuple{trees, recomb_pos};
 }
 
-int count_observed_labels(const std::vector<int>& labels) {
-    uint64_t bm = 0;
-    for (int x : labels) {
-        if (x < 0 || x >= 64) { throw std::runtime_error("Label out of uint64_t range."); }
-        bm |= 1ULL << x;
+
+struct BitSet {
+    size_t size;
+    size_t n_words;
+    std::vector<uint64_t> bm;
+
+    BitSet(size_t size_) : size(size_), n_words(1 + (size_ >> 6)), bm(1 + (size_ >> 6), 0) {}
+
+    void set(size_t idx) {
+        if (idx >= size) {
+            throw std::invalid_argument("idx is too large for bit set.");
+        }
+        bm[idx >> 6] |= 1ULL << (((1 << 6) - 1) & idx);
     }
-    return std::popcount(bm);
+
+    bool is_empty() {
+        for (size_t i = 0; i < n_words; ++i) {
+            if (bm[i] != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void intersect(const BitSet& l, const BitSet& r) {
+        if (!((size == l.size) && (l.size == r.size))) {
+            throw std::invalid_argument("BitSets must be the same size.");
+        }
+        for (size_t i = 0; i < n_words; ++i) {
+            bm[i] = l.bm[i] & r.bm[i];
+        }
+    }
+
+    void sunion(const BitSet& l, const BitSet& r) {
+        if (!((size == l.size) && (l.size == r.size))) {
+            throw std::invalid_argument("BitSets must be the same size.");
+        }
+        for (size_t i = 0; i < n_words; ++i) {
+            bm[i] = l.bm[i] | r.bm[i];
+        }
+    }
+
+    size_t count1s() {
+        size_t n = 0;
+        for (size_t i = 0; i < n_words; ++i) {
+            n += std::popcount(bm[i]);
+        }
+        return n;
+    }
+};
+
+int count_observed_labels(const std::vector<int>& labels, size_t max_size) {
+    BitSet bm{max_size};
+    for (int x : labels) {
+        if (x < 0 || static_cast<size_t>(x) >= max_size) {
+            throw std::runtime_error("label not b/t 0, max_size.");
+        }
+        bm.set(x);
+    }
+    return bm.count1s();
 }
 
 struct ParsimonyMsg {
     int score;
-    uint64_t cluster_bm;
+    BitSet cluster_bm;
 };
 
 ParsimonyMsg calc_parsimony(
     int idx,
     const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
-    const std::vector<int>& cluster_assignments
+    const std::vector<int>& cluster_assignments,
+    const size_t n_clusters
 ) {
-    uint64_t cluster_bm = 0;
+    BitSet cluster_bm{n_clusters};
     if (!coal_tree.contains(idx)) {
-        cluster_bm |= 1ULL << cluster_assignments[idx];
-        return ParsimonyMsg{0, cluster_bm};
+        cluster_bm.set(cluster_assignments[idx]);
+        return ParsimonyMsg{0, std::move(cluster_bm)};
     }
 
     const auto& [left, right] = coal_tree.at(idx);
-    ParsimonyMsg lp = calc_parsimony(left, coal_tree, cluster_assignments);
-    ParsimonyMsg rp = calc_parsimony(right, coal_tree, cluster_assignments);
+    ParsimonyMsg lp = calc_parsimony(left, coal_tree, cluster_assignments, n_clusters);
+    ParsimonyMsg rp = calc_parsimony(right, coal_tree, cluster_assignments, n_clusters);
 
-    cluster_bm = lp.cluster_bm & rp.cluster_bm;
-    if (cluster_bm != 0) {
-        return ParsimonyMsg{lp.score + rp.score, cluster_bm};
+    cluster_bm.intersect(lp.cluster_bm, rp.cluster_bm);
+    if (!cluster_bm.is_empty()) {
+        return ParsimonyMsg{lp.score + rp.score, std::move(cluster_bm)};
     }
-    return ParsimonyMsg{lp.score + rp.score + 1, lp.cluster_bm | rp.cluster_bm};
+    cluster_bm.sunion(lp.cluster_bm, rp.cluster_bm);
+    return ParsimonyMsg{lp.score + rp.score + 1, std::move(cluster_bm)};
 }
 
 int calc_excess_parsimony(
@@ -144,11 +200,7 @@ int calc_excess_parsimony(
     const std::vector<int>& cluster_assignments,
     int n_clusters
 ) {
-    if (n_clusters == -1) {
-        n_clusters = count_observed_labels(cluster_assignments);
-    }
-    if (n_clusters > 64) { throw std::runtime_error("uint64_t insufficient for cluster set bitvector."); };
-    int parsimony = calc_parsimony(-1, coal_tree, cluster_assignments).score;
+    int parsimony = calc_parsimony(-1, coal_tree, cluster_assignments, n_clusters).score;
     int excess_parsimony = parsimony - (n_clusters - 1);
     if (excess_parsimony < 0) { throw std::runtime_error("Negative excess parsimony."); }
     return excess_parsimony;

@@ -238,8 +238,9 @@ int main(int argc, char *argv[]) {
             for (int i = 0; i < HP.N; ++i) {
                 emission_clusters[i] = x[idx2d(raw_to_split_idxs[i], l, HP.L)];
             }
+            int n_obs_emissions = count_observed_labels(emission_clusters, HP.K);
             emission_excess_parsimony += calc_excess_parsimony(
-                coal_trees[tree_idxs[l]], emission_clusters, -1
+                coal_trees[tree_idxs[l]], emission_clusters, n_obs_emissions 
             );
 
             if ((tree_vis_fname != nullptr) && (l < 8)) {
