@@ -138,6 +138,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < HP.N; ++i) {
             raw_to_split_idxs[i] = i;
         }
+        n_train_seqs = HP.N;
     }
 
     // Init params and clusters.
