@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -224,7 +225,65 @@ std::string node_name(int x, int l) {
     return std::format("\"l{}_{}\"", l, x);
 }
 
-const std::vector<std::string>colors = {"yellowgreen", "cyan", "orange", "deeppink", "red"};
+struct RGB {
+    double r;
+    double g;
+    double b;
+};
+
+double hue_to_rgb(double p, double q, double t) {
+    if (t < 0.0) {
+        t += 1.0;
+    }
+    if (t > 1.0) {
+        t -= 1.0;
+    }
+
+    if (t < 1.0 / 6.0) {
+        return p + (q - p) * 6.0 * t;
+    }
+    if (t < 1.0 / 2.0) {
+        return q;
+    }
+    if (t < 2.0 / 3.0) {
+        return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+    }
+
+    return p;
+}
+
+RGB hsl_to_rgb(double h, double s, double l) {
+    if (s == 0.0) {
+        return RGB{l, l, l};
+    }
+
+    double q = (l < 0.5) ? l * (1.0 + s) : l + s - l * s;
+    double p = 2.0 * l - q;
+
+    double r = hue_to_rgb(p, q, h + 1.0 / 3.0);
+    double g = hue_to_rgb(p, q, h);
+    double b = hue_to_rgb(p, q, h - 1.0 / 3.0);
+
+    return RGB{r, g, b};
+}
+
+std::string rgb_to_hex(RGB c) {
+    int r = static_cast<int>(std::round(255.0 * std::clamp(c.r, 0.0, 1.0)));
+    int g = static_cast<int>(std::round(255.0 * std::clamp(c.g, 0.0, 1.0)));
+    int b = static_cast<int>(std::round(255.0 * std::clamp(c.b, 0.0, 1.0)));
+
+    return std::format("#{:02X}{:02X}{:02X}", r, g, b);
+}
+
+std::string cluster_color(size_t cluster_idx) {
+    constexpr double golden_ratio_conjugate = 0.6180339887498948482;
+    double h = std::fmod(0.17 + golden_ratio_conjugate * cluster_idx, 1.0);
+    double s = 0.7;
+    double l = 0.7;
+
+    return rgb_to_hex(hsl_to_rgb(h, s, l));
+}
+
 const std::vector<std::string>shapes = {"oval", "box", "polygon", "triangle", "egg"};
 
 void label_leaf(
@@ -235,9 +294,9 @@ void label_leaf(
     const std::string& indent,
     std::ofstream& s
 ) {
-    const std::string& color = colors[cluster_assignments[idx] % colors.size()];
+    const std::string& color = cluster_color(cluster_assignments[idx]);
     const std::string& shape = shapes[emissions[idx] % shapes.size()];
-    s << indent << name << " [label=\"" << idx << "\", fillcolor=" << color << ", shape=" << shape << "];\n";
+    s << indent << name << " [label=\"" << idx << "\", fillcolor=\"" << color << "\", shape=" << shape << "];\n";
 }
 
 void tree_to_dot(
