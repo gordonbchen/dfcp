@@ -53,7 +53,9 @@ struct Clusters {
     std::vector<std::unordered_set<Cluster*>> rs_by_emit;
 
 
-    Clusters(const HyperParams& HP_, bool soft_, const std::vector<int8_t>& x);
+    Clusters(const HyperParams& HP_, bool soft_);
+
+    void block_init(const std::vector<int8_t>& x);
 
     Cluster* create_cluster(
         const std::vector<int>& seqs, const std::vector<int8_t>& x, bool is_r, int l, int emission

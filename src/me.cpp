@@ -59,6 +59,7 @@ int main(int argc, char *argv[]) {
     char *tree_vis_fname = nullptr;
 
     bool soft = false;
+    bool block_init = false;
 
     int i = 2;
     while (i < argc) {
@@ -81,6 +82,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--tree_vis") { tree_vis_fname = argv[i+1]; }
 
         else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
 
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
@@ -140,7 +142,14 @@ int main(int argc, char *argv[]) {
 
     // Init params and clusters.
     Params params{HP};
-    Clusters clusters{HP, soft, x};
+    Clusters clusters{HP, soft};
+    if (block_init) {
+        clusters.block_init(x);
+    }
+    else {
+        HP.N = 0;
+        add_seqs(clusters, x.begin(), n_train_seqs, HP, params);
+    }
 
     EarlyStopping early_stop{2, false, 1e-3};
     double elbo = 0.0;

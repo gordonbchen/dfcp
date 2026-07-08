@@ -36,14 +36,18 @@ int Cluster::get_imputed_emission() {
 }
 
 
-Clusters::Clusters(const HyperParams& HP_, bool soft_, const std::vector<int8_t>& x) :
+Clusters::Clusters(const HyperParams& HP_, bool soft_) :
     HP(HP_),
     soft(soft_),
     nR(0),
-    r_assign(HP.N * HP.L, nullptr), q_assign(HP.N * (HP.L-1), nullptr),
     rs(HP.L), qs(HP.L-1),
     rs_by_emit(soft_ ? 0 : HP_.L * HP_.K)
-{
+{}
+
+void Clusters::block_init(const std::vector<int8_t>& x) {
+    r_assign.resize(HP.N * HP.L, nullptr);
+    q_assign.resize(HP.N * (HP.L-1), nullptr);
+
     // Block init.
     std::vector<int> seqs;
     seqs.reserve(HP.N);
