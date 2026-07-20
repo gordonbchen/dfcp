@@ -1347,6 +1347,18 @@ unsupervised: cluster quality
   $"ARI"(A, B) = (S_(A,B) - E) / (1/2 (S_A + S_B) - E)$
 
 
+== Useful stats
+unsupervised
+- average \# marginal clusters
+- cluster purity
+- partition entropy
+- NMI: guard against degenerate N clusters.
+
+supervised
+- importance score weighted jaccard distance from dfcp cluster to tree
+  - doesn't assume a partitioning, does it over clades.
+
+
 
 
 #pagebreak()
