@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <chrono>
+#include <cmath>
 #include "hyperparams.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
@@ -272,7 +273,7 @@ int main(int argc, char *argv[]) {
             .add("t_parsimony", t_parsimony);
     }
 
-    // IOU.
+    // Cluster stability IOU.
     auto t0 = std::chrono::steady_clock::now();
     double mean_iou = 0.0;
     double mean_emission_iou = 0.0;
@@ -312,6 +313,22 @@ int main(int argc, char *argv[]) {
     double mean_clusters = static_cast<double>(clusters.nR) / HP.L;
     std::cerr << "mean_clusters=" << mean_clusters << '\n';
     json.add("mean_clusters", mean_clusters);
+
+    // Purity.
+    double cluster_purity = 1.0;
+    if (clusters.soft) {
+        cluster_purity = 0.0;
+        for (int l = 0; l < HP.L; ++l) {
+            for (Cluster *c : clusters.rs[l]) {
+                cluster_purity += c->mode().count;
+            }
+        }
+        cluster_purity /= HP.L * n_train_seqs;
+    }
+    std::cerr << "cluster_purity=" << cluster_purity << '\n';
+    json.add("cluster_purity", cluster_purity);
+
+    // TODO: Importance weighted cluster to clade iou.
 
     std::cout << json.str() << '\n';
     return 0;
