@@ -1249,13 +1249,111 @@ recursion: vertex $v$ has children $a, b$.
 
 
 
+#pagebreak()
+= Robust and Interpretable Statistical Genetic Modelling
+supervised: imputation acc
+
+unsupervised: cluster quality
+
+== statistics independent of reference genealogy (true marginal tree at every pos)
+- average \# marginal clusters: $1/L sum_l |cal(R)_l|$
+
+- cluster entropy: $H(C) = -sum_(i in U) (|x_i|)/(|C|) log (|x_i|)/(|C|)$
+  - $U$ unique haplotypes in a cluster
+  - entropy of haplotypes in a cluster
+
+- partition entropy: $H(cal(R)_l) = -sum_(C in cal(R)_l) (|C|)/N log (|C|)/N$
+
+- $"purity"(cal(R)_l) = 1/N sum_k max_j |C_k inter x_j|$
+  - normalized sum of cluster purity, how many in cluster are the same as a representative haplotype
+
+- mutual information: how much more information you get about X by knowing Y.
+
+  $
+  I(X, Y) =& H(X) - H(X|Y) \
+  =& - sum_x p(x) log p(x) + sum_(x y) p(x y) log p(x|y) \
+  =& - sum_x p(x) log p(x) + sum_(x y) p(x y) log (p(x y))/(p(y)) \
+  =& - sum_y sum_x p(x y) log p(x) + sum_(x y) p(x y) log (p(x y))/(p(y)) \
+  =& sum_(x y) p(x y) log (p(x y))/(p(x) p(y))
+  $
+
+  mutual information b/t partition and classes: how much info you get about the cluster by knwoing the haplotype.
+
+  $
+  "MI"(cal(R)_l, U) =& sum_(k=1)^K sum_(j=1)^U p(C_k x_j) log (p(C_k x_j)) / (p(C_k) p(x_j)) \
+  =& sum_(k=1)^K sum_(j=1)^U (|C_k inter x_j|)/N log N (|C_k inter x_j|) / (|C_k| |x_j|) \
+  $
+
+  mutual information maximized for degenerate each haplotype gets its own cluster
+
+  $"NMI" =& ("MI"(cal(R), U)) / sqrt(H(cal(R)) H(U))$
+  or
+  $"NMI" =& (2"MI"(cal(R), U)) / (H(cal(R)) + H(U))$
+
+== statistics conditional on reference geneaology
+- mutual information b/t reference partition and dfcp partition
+
+  $
+  "MI"(cal(R)_1, cal(R)_2) =& sum_(k_1) sum_(k_2) p(k_1, k_2) log (p(k_1, k_2)) / (p(k_1) p(k_2)) \
+  =& sum_(k_1) sum_(k_2) (|k_1 inter k_2|)/N log N (|k_1 inter k_2|) / (|k_1| |k_2|) \
+  $
+
+- adjusted mutual information
+
+  $
+  "AMI"(cal(R)_1, cal(R)_2) =& ("MI"(R_1, R_2) - EE["MI"(R_1, R_2)])
+    / (max(H(R_1), H(R_2)) - EE["MI"(R_1, R_2)])
+  $
+
+  where $EE["MI"(R_1, R_2)]$ is the expected mutual information for random clusters of the same size and \# haplotypes.
+
+- prune and regraft distance, NP hard in general
+
+- marginal tree recovery: $sum_l sum_(C in R) bold(1){C in "Clades"(T_l)}$
+
+- jaccard distance b/t dfcp clusters and marginal trees:
+  $sum_l sum_(C in R) max_(S in "Clades"(T_l)) J(S, C)$
+
+- importance scores: downweight degenerate clusters
+
+  $
+  f_(l,r)(x|alpha, beta) = Gamma(alpha+beta)/(Gamma(alpha) Gamma(beta))
+    ((x-l) / (r-l))^(alpha-1) (1 - (x-l) / (r-l))^(beta-1)
+  $
+
+  then using $x = |c|, c in cal(R)$ and $l=1, r=N$, we can downweight degenerate clusters.
+
+  scaled jaccard distance: using $alpha=beta = 1, 2, 5$ penalize degenerate clusters.
+
+  $
+  (sum_l sum_(C in R) f_(1,N)(C) max_(S in "Clades"(T_l)) J(S, C))
+    / (sum_l sum_(C in R) f_(1,N)(C))
+  $
+
+- adjusted rand index
+
+  2 clusterings $A, B$
+
+  $n_(q,r) = |A_q inter B_r|$, shared haplotypes in clusters.
+
+  $binom(n_(q,r), 2)$ is the number of haplotype pairs in both $A_q inter B_r$
+
+  $S_(A B) = sum_(q,r) binom(n_(q,r),2)$, is the number of haplotype pairs in the same cluster between all clusters in $A, B$.
+
+  $T = binom(N, 2)$ is the total number of hapltoype cluster pairs.
+
+  Expected shared pairs is $E = (S_A S_B) / T$
+
+  $"ARI"(A, B) = (S_(A,B) - E) / (1/2 (S_A + S_B) - E)$
+
+
 
 
 #pagebreak()
 = TODO
 
 == hyperparam tuning
-- bayesian optimizationm
+- bayesian optimization
 - % MCRA metric
 - cluster metric paper
 
