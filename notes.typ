@@ -1364,10 +1364,23 @@ supervised
 #pagebreak()
 = TODO
 
-== hyperparam tuning
-- bayesian optimization
-- % MCRA metric
+== done
 - cluster metric paper
+  - importance weighted max iou b/t clades and clustering
+  - cluser purity
+- bayes opt tuning
+
+== importance weighted max iou
+- not enough to solve degeneracy
+
+- degenerate dfcp clustering (mean clusters is 99.8, N=100, clade_beta=2): 0.476972 / 0.486889 = 0.979
+
+  emission clusters: 81.4158 / 88.072 = 0.924
+
+  even with clade_beta 5, 10, 20, 100 doesn't solve degenerate clusters.
+
+  different normalization?
+
 
 == next possible
 - eval internal repr of shapeit / beagle
