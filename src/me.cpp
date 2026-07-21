@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
     char *variant_pos_fname = nullptr;
     int variant_start_pos = -1;
     char *tree_vis_fname = nullptr;
-    double clade_beta = 1.0;
+    double clade_beta = 2.0;
 
     bool soft = false;
     bool block_init = false;
