@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--mask") { mask = parse_double(argv[i+1]); }
 
         else if (arg == "--tree") { tree_fname = argv[i+1]; }
-        else if (arg == "--variant_pos") { variant_pos_fname = argv[i+1]; }
+        else if (arg == "--variant_pos_fname") { variant_pos_fname = argv[i+1]; }
         else if (arg == "--variant_start_pos") { variant_start_pos = parse_int(argv[i+1]); }
         else if (arg == "--tree_vis") { tree_vis_fname = argv[i+1]; }
         else if (arg == "--clade_beta") {
