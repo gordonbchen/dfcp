@@ -291,6 +291,9 @@ int main(int argc, char *argv[]) {
         double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
         double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
 
+        if (clade_weight_sum == 0.0) {
+            throw std::runtime_error("Clade IOU is undefined: no nontrivial clusters.");
+        }
         double clade_iou = weighted_clade_iou_sum / clade_weight_sum;
 
         auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t_parsimony_duration).count();
