@@ -282,9 +282,9 @@ int main(int argc, char *argv[]) {
             t_clade_iou_duration += std::chrono::steady_clock::now() - t_clade_iou0;
 
             // Tree viz.
-            if ((tree_vis_fname != nullptr) && (l < 8)) {
+            if ((tree_vis_fname != nullptr) && (l < 16)) {
                 tree_to_dot(
-                    tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assign, emission_clusters, l, 8
+                    tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assign, emission_clusters, l, 16
                 );
             }
         }
@@ -359,7 +359,7 @@ int main(int argc, char *argv[]) {
                 cluster_purity += c->mode().count;
             }
         }
-        cluster_purity /= HP.L * n_train_seqs;
+        cluster_purity /= HP.N*HP.L - n_masked_alleles;
     }
     std::cerr << "cluster_purity=" << cluster_purity << '\n';
     json.add("cluster_purity", cluster_purity);
