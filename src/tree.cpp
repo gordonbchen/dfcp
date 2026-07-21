@@ -223,8 +223,8 @@ std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::v
 
 struct CladeIOUMsg {
     double iou;
-    int children;
-    int items;
+    int leaves;
+    int isect;
 };
 
 CladeIOUMsg calc_max_clade_iou_dfs(
@@ -240,18 +240,18 @@ CladeIOUMsg calc_max_clade_iou_dfs(
         CladeIOUMsg r_msg{calc_max_clade_iou_dfs(r, coal_tree, cluster_assign, cluster_idx, cluster_size)};
 
         CladeIOUMsg msg;
-        msg.children = l_msg.children + r_msg.children;
-        msg.items = l_msg.items + r_msg.items;
+        msg.leaves = l_msg.leaves + r_msg.leaves;
+        msg.isect = l_msg.isect + r_msg.isect;
 
-        double iou = static_cast<double>(msg.items) / (msg.children + cluster_size - msg.items);
+        double iou = static_cast<double>(msg.isect) / (msg.leaves + cluster_size - msg.isect);
         msg.iou = std::max(iou, std::max(l_msg.iou, r_msg.iou));
         return msg;
     }
 
     CladeIOUMsg msg;
-    msg.children = 1;
-    msg.items = cluster_assign[v] == cluster_idx ? 1 : 0;
-    msg.iou = static_cast<double>(msg.items) / (msg.children + cluster_size - msg.items);
+    msg.leaves = 1;
+    msg.isect = cluster_assign[v] == cluster_idx ? 1 : 0;
+    msg.iou = static_cast<double>(msg.isect) / (msg.leaves + cluster_size - msg.isect);
     return msg;
 }
 
