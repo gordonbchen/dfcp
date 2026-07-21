@@ -237,6 +237,8 @@ int main(int argc, char *argv[]) {
 
         double weighted_clade_iou_sum = 0.0;
         double clade_weight_sum = 0.0;
+        double emission_weighted_clade_iou_sum = 0.0;
+        double emission_clade_weight_sum = 0.0;
         std::chrono::steady_clock::duration t_clade_iou_duration{};
 
         for (int l = 0; l < HP.L; ++l) {
@@ -279,6 +281,24 @@ int main(int argc, char *argv[]) {
                 weighted_clade_iou_sum += weight * max_clade_iou;
                 clade_weight_sum += weight;
             }
+
+            std::vector<int> emission_counts(HP.K, 0);
+            for (int i = 0; i < HP.N; ++i) {
+                ++emission_counts[x[idx2d(i, l, HP.L)]];
+            }
+            for (int k = 0; k < HP.K; ++k) {
+                if (emission_counts[k] == 0) {
+                    continue;
+                }
+                double max_clade_iou = calc_max_clade_iou(
+                    coal_trees[tree_idxs[l]], emission_clusters, k, emission_counts[k]
+                );
+
+                double z = static_cast<double>(emission_counts[k] - 1) / (HP.N - 1);
+                double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
+                emission_weighted_clade_iou_sum += weight * max_clade_iou;
+                emission_clade_weight_sum += weight;
+            }
             t_clade_iou_duration += std::chrono::steady_clock::now() - t_clade_iou0;
 
             // Tree viz.
@@ -292,21 +312,26 @@ int main(int argc, char *argv[]) {
         double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
 
         if (clade_weight_sum == 0.0) {
-            throw std::runtime_error("Clade IOU is undefined: no nontrivial clusters.");
+            throw std::runtime_error("clade_iou is undefined: no nontrivial clusters.");
         }
         double clade_iou = weighted_clade_iou_sum / clade_weight_sum;
+        if (emission_clade_weight_sum == 0.0) {
+            throw std::runtime_error("emission_clade_iou is undefined: no nontrivial clusters.");
+        }
+        double emission_clade_iou = emission_weighted_clade_iou_sum / emission_clade_weight_sum;
 
         auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t_parsimony_duration).count();
         auto t_clade_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t_clade_iou_duration).count();
         std::cerr << "mean_excess_parsimony=" << mean_excess_parsimony
             << " mean_emission_excess_parsimony=" << mean_emission_excess_parsimony
             << " t_parsimony=" << t_parsimony << "ms\n"
-            << "clade_iou=" << clade_iou << " clade_beta=" << clade_beta
-            << " t_clade_iou=" << t_clade_iou << "ms\n";
+            << "clade_iou=" << clade_iou << " emission_clade_iou=" << emission_clade_iou
+            << " clade_beta=" << clade_beta << " t_clade_iou=" << t_clade_iou << "ms\n";
         json.add("mean_excess_parsimony", mean_excess_parsimony)
             .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony)
             .add("t_parsimony", t_parsimony)
-            .add("clade_iou", clade_iou).add("clade_beta", clade_beta).add("t_clade_iou", t_clade_iou);
+            .add("clade_iou", clade_iou).add("emission_clade_iou", emission_clade_iou)
+            .add("clade_beta", clade_beta).add("t_clade_iou", t_clade_iou);
     }
 
     // Cluster stability IOU.
