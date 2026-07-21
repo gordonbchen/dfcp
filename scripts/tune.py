@@ -1,72 +1,98 @@
 import subprocess
-import random
-import math
 import json
 from argparse import ArgumentParser
+from functools import partial
+from bayes_opt import BayesianOptimization, acquisition
 
 
-p = ArgumentParser()
-p.add_argument("--seq_file", default="data/sims/haps_SIMOUT_1.txt.gz_SIMOUT_14572-15071.txt")
-p.add_argument("--mask", default="0.2")
-p.add_argument("--val", default="0.2")
-p.add_argument("--trials", type=int, default=100)
-p.add_argument("--seed", type=int, default=0)
-args = p.parse_args()
+def dfcp_reparam(
+    seq_file: str,
+    mask: float, val: float,
+    tau_mu: float, tau_1: float, phi_mu: float, phi_1: float, v_mu: float, v_conc: float,
+    soft: int, block_init: int
+):
+    tau_2 = tau_1 / tau_mu
+    phi_2 = phi_1 / phi_mu
+
+    v_1 = v_mu * v_conc
+    v_2 = (1-v_mu) * v_conc
+
+    return dfcp(
+        seq_file=seq_file,
+        mask=mask, val=val,
+        tau_1=tau_1, tau_2=tau_2, v_1=v_1, v_2=v_2, phi_1=phi_1, phi_2=phi_2,
+        soft=soft, block_init=block_init
+    )
 
 
-rng = random.Random(args.seed)
-logu = lambda lo, hi: math.exp(rng.uniform(math.log(lo), math.log(hi)))
+def dfcp(
+    seq_file: str,
+    mask: float, val: float,
+    tau_1: float, tau_2: float, v_1: float, v_2: float, phi_1: float, phi_2: float,
+    soft: int, block_init: int
+) -> float:
+    cmd = [
+        "./build/dfcp", seq_file, 
 
-def gamma_hp(mean_lo=0.001, mean_hi=100, shape_lo=0.001, shape_hi=100):
-    mean, shape = logu(mean_lo, mean_hi), logu(shape_lo, shape_hi)
-    return shape, shape / mean
+        "--mask", mask, "--val", val,
 
-def beta_hp(mean_lo=0.01, mean_hi=0.99, conc_lo=0.01, conc_hi=10000):
-    m, k = rng.uniform(mean_lo, mean_hi), logu(conc_lo, conc_hi)
-    return m * k, (1 - m) * k
+        "--tau_1", str(tau_1), "--tau_2", str(tau_2),
+        "--v_1", str(v_1), "--v_2", str(v_2),
+        "--phi_1", str(phi_1), "--phi_2", str(phi_2),
+
+        "--soft", str(soft),
+        "--block_init", str(block_init),
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode:
+        return 0.0
+
+    out = json.loads(res.stdout)
+    impute_acc = out["dfcp_impute_acc"]
+    return impute_acc
 
 
-subprocess.run(["./build.sh"], check=True)
+if __name__ == "__main__":
+    p = ArgumentParser()
+    p.add_argument("--seq_file", default="data/sims/haps_SIMOUT_1.txt.gz_SIMOUT_14572-15071.txt")
+    p.add_argument("--mask", default="0.2")
+    p.add_argument("--val", default="0.2")
+    p.add_argument("--soft", type=int, default=0)
+    p.add_argument("--block_init", type=int, default=0)
+    p.add_argument("--init_points", type=int, default=10)
+    p.add_argument("--n_iter", type=int, default=100)
+    args = p.parse_args()
 
-runs = []
-best = None
-try:
-    for i in range(args.trials):
-        tau_1, tau_2 = gamma_hp()
-        phi_1, phi_2 = gamma_hp()
-        v_1, v_2 = beta_hp()
+    f = partial(
+        dfcp_reparam,
+        seq_file=args.seq_file,
+        mask=args.mask, val=args.val,
+        soft=args.soft, block_init=args.block_init,
+    )
 
-        cmd = [
-            "./build/dfcp", args.seq_file, "--mask", args.mask, "--val", args.val,
-            "--tau_1", str(tau_1), "--tau_2", str(tau_2),
-            "--v_1", str(v_1), "--v_2", str(v_2),
-            "--phi_1", str(phi_1), "--phi_2", str(phi_2),
-            "--soft", "1"
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode:
-            print(f"{i}: FAILED")
-            continue
+    pbounds = {
+        # beta distribution: https://www.desmos.com/calculator/bdftcfvdus
+        # mu = alpha / (alpha + beta)
+        # conc = alpha + beta
+        "v_mu": (0, 1), "v_conc": (0.1, 200),
 
-        out = json.loads(res.stdout)
-        acc = out["dfcp_impute_acc"]
+        # gamma distribution: https://www.desmos.com/calculator/49vz26bvex
+        # mu = alpha / beta
+        "tau_mu": (0.1, 100), "tau_1": (0, 100),
+        "phi_mu": (0.1, 100), "phi_1": (0, 100),
+    }
 
-        cur = dict(acc=acc, tau_1=tau_1, tau_2=tau_2, v_1=v_1, v_2=v_2, phi_1=phi_1, phi_2=phi_2)
-        if best is None or (acc > best["acc"]):
-            best = cur
-        runs.append(cur)
+    optim = BayesianOptimization(
+        f=f,
+        acquisition_function=acquisition.UpperConfidenceBound(),
+        pbounds=pbounds,
+        verbose=2,
+        random_state=42
+    )
 
-        print(f"{i}: acc={acc:.4f} "
-              f"tau=({tau_1:.4g},{tau_2:.4g}) v=({v_1:.4g},{v_2:.4g}) phi=({phi_1:.4g},{phi_2:.4g}) "
-              f"best_acc={best['acc']:.4f}")
-except (Exception, KeyboardInterrupt) as e:
-    print(e)
+    subprocess.run(["./build.sh"], check=True)
+    optim.maximize(init_points=args.init_points, n_iter=args.n_iter)
+    print(optim.max)
 
-print("BEST:", best)
-runs = sorted(runs, key=lambda x : x["acc"])
-for r in runs:
-    print(r)
-
-with open("runs.json", "w") as f:
-    json.dump(runs, f, indent=2)
+    optim.save_state("optim.json")
 
