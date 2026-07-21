@@ -5,32 +5,18 @@ from functools import partial
 from bayes_opt import BayesianOptimization, acquisition
 
 
-def dfcp_reparam(
+def get_dfcp_cmd(
     seq_file: str,
     mask: float, val: float,
     tau_mu: float, tau_1: float, phi_mu: float, phi_1: float, v_mu: float, v_conc: float,
     soft: int, block_init: int
-):
+) -> list[str]:
     tau_2 = tau_1 / tau_mu
     phi_2 = phi_1 / phi_mu
 
     v_1 = v_mu * v_conc
     v_2 = (1-v_mu) * v_conc
 
-    return dfcp(
-        seq_file=seq_file,
-        mask=mask, val=val,
-        tau_1=tau_1, tau_2=tau_2, v_1=v_1, v_2=v_2, phi_1=phi_1, phi_2=phi_2,
-        soft=soft, block_init=block_init
-    )
-
-
-def dfcp(
-    seq_file: str,
-    mask: float, val: float,
-    tau_1: float, tau_2: float, v_1: float, v_2: float, phi_1: float, phi_2: float,
-    soft: int, block_init: int
-) -> float:
     cmd = [
         "./build/dfcp", seq_file, 
 
@@ -43,6 +29,23 @@ def dfcp(
         "--soft", str(soft),
         "--block_init", str(block_init),
     ]
+    return cmd
+
+
+def dfcp(
+    seq_file: str,
+    mask: float, val: float,
+    tau_mu: float, tau_1: float, phi_mu: float, phi_1: float, v_mu: float, v_conc: float,
+    soft: int, block_init: int
+) -> float:
+    cmd = get_dfcp_cmd(
+        seq_file=seq_file,
+        mask=mask, val=val,
+        tau_mu=tau_mu, tau_1=tau_1,
+        phi_mu=phi_mu, phi_1=phi_1,
+        v_mu=v_mu, v_conc=v_conc,
+        soft=soft, block_init=block_init
+    )
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode:
         return 0.0
@@ -64,7 +67,7 @@ if __name__ == "__main__":
     args = p.parse_args()
 
     f = partial(
-        dfcp_reparam,
+        dfcp,
         seq_file=args.seq_file,
         mask=args.mask, val=args.val,
         soft=args.soft, block_init=args.block_init,
@@ -92,7 +95,17 @@ if __name__ == "__main__":
 
     subprocess.run(["./build.sh"], check=True)
     optim.maximize(init_points=args.init_points, n_iter=args.n_iter)
-    print(optim.max)
-
     optim.save_state("optim.json")
+
+    print(optim.max, "\n")
+    params = optim.max["params"]
+    cmd = get_dfcp_cmd(
+        seq_file=args.seq_file,
+        mask=args.mask, val=args.val,
+        tau_mu=params["tau_mu"], tau_1=params["tau_1"],
+        phi_mu=params["phi_mu"], phi_1=params["phi_1"],
+        v_mu=params["v_mu"], v_conc=params["v_conc"],
+        soft=args.soft, block_init=args.block_init
+    )
+    print(" ".join(cmd))
 
