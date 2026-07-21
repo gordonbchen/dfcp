@@ -8,19 +8,13 @@ from bayes_opt import BayesianOptimization, acquisition
 def get_dfcp_cmd(
     seq_file: str,
     mask: float, val: float,
-    tau_mu: float, tau_1: float, phi_mu: float, phi_1: float, v_mu: float, v_conc: float,
+    tau_1: float, tau_2: float, v_1: float, v_2: float, phi_1: float, phi_2: float,
     soft: int, block_init: int
 ) -> list[str]:
-    tau_2 = tau_1 / tau_mu
-    phi_2 = phi_1 / phi_mu
-
-    v_1 = v_mu * v_conc
-    v_2 = (1-v_mu) * v_conc
-
-    cmd = [
+    return [
         "./build/dfcp", seq_file, 
 
-        "--mask", mask, "--val", val,
+        "--mask", str(mask), "--val", str(val),
 
         "--tau_1", str(tau_1), "--tau_2", str(tau_2),
         "--v_1", str(v_1), "--v_2", str(v_2),
@@ -29,21 +23,20 @@ def get_dfcp_cmd(
         "--soft", str(soft),
         "--block_init", str(block_init),
     ]
-    return cmd
 
 
 def dfcp(
     seq_file: str,
     mask: float, val: float,
-    tau_mu: float, tau_1: float, phi_mu: float, phi_1: float, v_mu: float, v_conc: float,
+    tau_1: float, tau_2: float, v_1: float, v_2: float, phi_1: float, phi_2: float,
     soft: int, block_init: int
 ) -> float:
     cmd = get_dfcp_cmd(
         seq_file=seq_file,
         mask=mask, val=val,
-        tau_mu=tau_mu, tau_1=tau_1,
-        phi_mu=phi_mu, phi_1=phi_1,
-        v_mu=v_mu, v_conc=v_conc,
+        tau_1=tau_1, tau_2=tau_2,
+        v_1=v_1, v_2=v_2,
+        phi_1=phi_1, phi_2=phi_2,
         soft=soft, block_init=block_init
     )
     res = subprocess.run(cmd, capture_output=True, text=True)
@@ -74,15 +67,9 @@ if __name__ == "__main__":
     )
 
     pbounds = {
-        # beta distribution: https://www.desmos.com/calculator/bdftcfvdus
-        # mu = alpha / (alpha + beta)
-        # conc = alpha + beta
-        "v_mu": (0, 1), "v_conc": (0.1, 200),
-
-        # gamma distribution: https://www.desmos.com/calculator/49vz26bvex
-        # mu = alpha / beta
-        "tau_mu": (0.1, 100), "tau_1": (0, 100),
-        "phi_mu": (0.1, 100), "phi_1": (0, 100),
+        "tau_1": (0.01, 10), "tau_2": (0.01, 10),
+        "v_1": (0.01, 10), "v_2": (0.01, 10),
+        "phi_1": (0.01, 10), "phi_2": (0.01, 10),
     }
 
     optim = BayesianOptimization(
@@ -90,7 +77,6 @@ if __name__ == "__main__":
         acquisition_function=acquisition.UpperConfidenceBound(),
         pbounds=pbounds,
         verbose=2,
-        random_state=42
     )
 
     subprocess.run(["./build.sh"], check=True)
@@ -98,14 +84,11 @@ if __name__ == "__main__":
     optim.save_state("optim.json")
 
     print(optim.max, "\n")
-    params = optim.max["params"]
     cmd = get_dfcp_cmd(
         seq_file=args.seq_file,
         mask=args.mask, val=args.val,
-        tau_mu=params["tau_mu"], tau_1=params["tau_1"],
-        phi_mu=params["phi_mu"], phi_1=params["phi_1"],
-        v_mu=params["v_mu"], v_conc=params["v_conc"],
-        soft=args.soft, block_init=args.block_init
+        soft=args.soft, block_init=args.block_init,
+        **optim.max["params"]
     )
     print(" ".join(cmd))
 
