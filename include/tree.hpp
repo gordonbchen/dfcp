@@ -22,6 +22,13 @@ int calc_excess_parsimony(
 
 std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::vector<int>& recomb_pos);
 
+double calc_max_clade_iou(
+    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::vector<int>& cluster_assign,
+    int cluster_idx,
+    int cluster_size
+);
+
 void tree_to_dot(
     const char *file,
     const std::unordered_map<int, std::tuple<int, int>>& coal_tree,

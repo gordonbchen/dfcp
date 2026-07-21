@@ -221,6 +221,50 @@ std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::v
 }
 
 
+struct CladeIOUMsg {
+    double iou;
+    int children;
+    int items;
+};
+
+CladeIOUMsg calc_max_clade_iou_dfs(
+    int v,
+    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::vector<int>& cluster_assign,
+    int cluster_idx,
+    int cluster_size
+) {
+    if (v < 0) {
+        const auto& [l, r] = coal_tree.at(v);
+        CladeIOUMsg l_msg{calc_max_clade_iou_dfs(l, coal_tree, cluster_assign, cluster_idx, cluster_size)};
+        CladeIOUMsg r_msg{calc_max_clade_iou_dfs(r, coal_tree, cluster_assign, cluster_idx, cluster_size)};
+
+        CladeIOUMsg msg;
+        msg.children = l_msg.children + r_msg.children;
+        msg.items = l_msg.items + r_msg.items;
+
+        double iou = static_cast<double>(msg.items) / (msg.children + cluster_size - msg.items);
+        msg.iou = std::max(iou, std::max(l_msg.iou, r_msg.iou));
+        return msg;
+    }
+
+    CladeIOUMsg msg;
+    msg.children = 1;
+    msg.items = cluster_assign[v] == cluster_idx ? 1 : 0;
+    msg.iou = static_cast<double>(msg.items) / (msg.children + cluster_size - msg.items);
+    return msg;
+}
+
+double calc_max_clade_iou(
+    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::vector<int>& cluster_assign,
+    int cluster_idx,
+    int cluster_size
+) {
+    return calc_max_clade_iou_dfs(-1, coal_tree, cluster_assign, cluster_idx, cluster_size).iou;
+}
+
+
 std::string node_name(int x, int l) {
     return std::format("\"l{}_{}\"", l, x);
 }

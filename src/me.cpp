@@ -58,6 +58,7 @@ int main(int argc, char *argv[]) {
     char *variant_pos_fname = nullptr;
     int variant_start_pos = -1;
     char *tree_vis_fname = nullptr;
+    double clade_beta = 1.0;
 
     bool soft = false;
     bool block_init = false;
@@ -81,6 +82,10 @@ int main(int argc, char *argv[]) {
         else if (arg == "--variant_pos") { variant_pos_fname = argv[i+1]; }
         else if (arg == "--variant_start_pos") { variant_start_pos = parse_int(argv[i+1]); }
         else if (arg == "--tree_vis") { tree_vis_fname = argv[i+1]; }
+        else if (arg == "--clade_beta") {
+            clade_beta = parse_double(argv[i+1]);
+            if (clade_beta < 1.0) { throw std::invalid_argument("clade_beta must be at least 1."); }
+        }
 
         else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
@@ -181,9 +186,7 @@ int main(int argc, char *argv[]) {
     json.add("train_log", train_log);
 
     Json param_log;
-    param_log.add("mu_alpha", params.mu_alpha);
-    param_log.add("mu_gamma", params.mu_gamma);
-    param_log.add("mu_d", params.mu_d);
+    param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d);
     json.add("params", param_log);
 
     // Impute.
@@ -219,7 +222,7 @@ int main(int argc, char *argv[]) {
         x[idx2d(s.i, s.l, HP.L)] = s.x;
     }
 
-    // Tree parsimony.
+    // Tree eval.
     if (tree_fname != nullptr) {
         if ((variant_pos_fname == nullptr) || (variant_start_pos < 0)) {
             throw std::invalid_argument("Tree eval requires variant position file and variant start pos.");
@@ -228,10 +231,18 @@ int main(int argc, char *argv[]) {
         auto [coal_trees, recomb_pos] = parse_tree_file(tree_fname);
         std::vector<int> tree_idxs{get_tree_idxs(variant_pos, recomb_pos)};
 
-        auto t0 = std::chrono::steady_clock::now();
         int excess_parsimony = 0;
         int emission_excess_parsimony = 0;
+        std::chrono::steady_clock::duration t_parsimony_duration{};
+
+        double weighted_clade_iou_sum = 0.0;
+        double clade_weight_sum = 0.0;
+        std::chrono::steady_clock::duration t_clade_iou_duration{};
+
         for (int l = 0; l < HP.L; ++l) {
+            // Parismony.
+            auto t_parsimony0 = std::chrono::steady_clock::now();
+
             std::unordered_map<Cluster*, int> cluster_idxs;
             cluster_idxs.reserve(clusters.rs[l].size());
             for (Cluster* c : clusters.rs[l]) {
@@ -254,6 +265,23 @@ int main(int argc, char *argv[]) {
                 coal_trees[tree_idxs[l]], emission_clusters, n_obs_emissions 
             );
 
+            t_parsimony_duration += std::chrono::steady_clock::now() - t_parsimony0;
+
+            // Importance-weighted clade iou.
+            auto t_clade_iou0 = std::chrono::steady_clock::now();
+            for (const auto& [c, cluster_idx] : cluster_idxs) {
+                double max_clade_iou = calc_max_clade_iou(
+                    coal_trees[tree_idxs[l]], cluster_assign, cluster_idx, c->n
+                );
+
+                double z = static_cast<double>(c->n - 1) / (HP.N - 1);
+                double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
+                weighted_clade_iou_sum += weight * max_clade_iou;
+                clade_weight_sum += weight;
+            }
+            t_clade_iou_duration += std::chrono::steady_clock::now() - t_clade_iou0;
+
+            // Tree viz.
             if ((tree_vis_fname != nullptr) && (l < 8)) {
                 tree_to_dot(
                     tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assign, emission_clusters, l, 8
@@ -263,14 +291,19 @@ int main(int argc, char *argv[]) {
         double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
         double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
 
-        auto t1 = std::chrono::steady_clock::now();
-        auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        double clade_iou = weighted_clade_iou_sum / clade_weight_sum;
+
+        auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t_parsimony_duration).count();
+        auto t_clade_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t_clade_iou_duration).count();
         std::cerr << "mean_excess_parsimony=" << mean_excess_parsimony
             << " mean_emission_excess_parsimony=" << mean_emission_excess_parsimony
-            << " t_parsimony=" << t_parsimony << "ms\n";
+            << " t_parsimony=" << t_parsimony << "ms\n"
+            << "clade_iou=" << clade_iou << " clade_beta=" << clade_beta
+            << " t_clade_iou=" << t_clade_iou << "ms\n";
         json.add("mean_excess_parsimony", mean_excess_parsimony)
             .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony)
-            .add("t_parsimony", t_parsimony);
+            .add("t_parsimony", t_parsimony)
+            .add("clade_iou", clade_iou).add("clade_beta", clade_beta).add("t_clade_iou", t_clade_iou);
     }
 
     // Cluster stability IOU.
@@ -327,8 +360,6 @@ int main(int argc, char *argv[]) {
     }
     std::cerr << "cluster_purity=" << cluster_purity << '\n';
     json.add("cluster_purity", cluster_purity);
-
-    // TODO: Importance weighted cluster to clade iou.
 
     std::cout << json.str() << '\n';
     return 0;
