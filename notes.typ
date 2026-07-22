@@ -1364,27 +1364,25 @@ supervised
 #pagebreak()
 = TODO
 
-== done
-- cluster metric paper
-  - importance weighted max iou b/t clades and clustering
-  - cluser purity
-- bayes opt tuning
+== initialization
+- durbin (biological sequence analysis): positional bwt
+- shapeit clustering
 
-== importance weighted max iou
-- not enough to solve degeneracy
+== hp tuning
+- botorch with pareto (https://botorch.org/docs/multi_objective)
 
-- degenerate dfcp clustering (mean clusters is 99.8, N=100, clade_beta=2): 0.476972 / 0.486889 = 0.979
+== max clade iou
+- denom should be based on clustering of true marginal tree
+- cut tree w/ same \# of clusters as dfcp, then use that normalization weighting
 
-  emission clusters: 81.4158 / 88.072 = 0.924
+== dfcp w/ epsilon switch
+- dfcp with mismatch = fixed constant epsilon likelihood instead of 0
 
-  even with clade_beta 5, 10, 20, 100 doesn't solve degenerate clusters.
-
-  different normalization?
-
+== ARG model
+- read The Effect of Single Recombination Events on Coalescent Tree Height and Shape
+- need probabilistic model tying marginal trees together, w/ kingman's coalescent distributed marginal trees
 
 == next possible
 - eval internal repr of shapeit / beagle
-- coreset
-- changing model (multimodal: adding a likelihood)
-- different processes (pitman dfcp: coalescent process on tree = crp marginally)
+- multimodal: adding likelihood terms
 
