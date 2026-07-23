@@ -1455,7 +1455,42 @@ prop& (lambda_1+N-m_l - 1) log epsilon.alt + (lambda_2+m_l - 1) log (1-epsilon.a
 epsilon.alt ~& "Beta"(lambda_1 + N - m_l, lambda_2 + m_l) \ \
 $
 
-#todo[interesting that despite the $1\/K-1$ factor, this is still a beta bernoulli update.]
+#todo[interesting that despite the $1\/K-1$ factor, this is still a beta bernoulli update.] \ \
+
+
+== Maximization Likelihood
+$a != emptyset$
+$
+Lambda(x_(i l) | a) = cases(
+  1-epsilon.alt wide& x_(i l) = theta_(a l),
+  epsilon.alt \/ (K-1) wide& "otherwise"
+)
+$
+
+$a = emptyset$
+
+$
+beta_l ~ "Dirichlet"(gamma_l) \
+
+theta_(a l) ~ "Categorical"(beta_l)
+$
+
+$
+Lambda(x_(i l) = k | a=emptyset) = (gamma_l + n_(k l)) / (K gamma_l + \#cal(R)_l^(-i))
+$
+
+$
+EE_q log Lambda(x_(i l) | a) = cases(
+  cases(
+    log(1-epsilon.alt)       wide& x_(i l) = theta_(a l),
+    log(epsilon.alt \/ K-1)  wide& "otherwise"
+  )
+  wide& a != emptyset,
+
+  EE_(gamma_l)[ log (gamma_l + n_(k l)) ] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ]
+  wide& a = emptyset
+)
+$
 
 
 
