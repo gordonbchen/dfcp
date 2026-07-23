@@ -1429,9 +1429,9 @@ sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|gamma_l, epsilon.alt) =&
 log Gamma(K gamma_l) / Gamma(K gamma_l + \#cal(R)_l)
   + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l) \
 
-  +& m_l log (1-epsilon.alt) + (N-m_l) log epsilon.alt / (K-1) \ \
+  +& m log (1-epsilon.alt) + (N-m) log epsilon.alt / (K-1) \ \
 
-m_l =& sum_(i=1)^N bold(1){x_(i l) = theta_(a_(i l) l)}
+m =& sum_(i=1)^N sum_(l=1)^L bold(1){x_(i l) = theta_(a_(i l) l)}
 $
 
 Note that variational update for $alpha, d_l, gamma_l$ is the same. \ \
@@ -1444,15 +1444,15 @@ log q^*(epsilon.alt)
 prop& log p(X|C, gamma_l, epsilon.alt) + log p(epsilon.alt|lambda_1, lambda_2) \ \
 
 
-prop& m_l log (1-epsilon.alt) + (N-m_l) log epsilon.alt / (K-1)
+prop& m log (1-epsilon.alt) + (N-m) log epsilon.alt / (K-1)
 
 + (lambda_1-1) log epsilon.alt + (lambda_2-1) log (1-epsilon.alt) \ \
 
 
-prop& (lambda_1+N-m_l - 1) log epsilon.alt + (lambda_2+m_l - 1) log (1-epsilon.alt) \ \ \
+prop& (lambda_1+N-m - 1) log epsilon.alt + (lambda_2+m - 1) log (1-epsilon.alt) \ \ \
 
 
-epsilon.alt ~& "Beta"(lambda_1 + N - m_l, lambda_2 + m_l) \ \
+epsilon.alt ~& "Beta"(lambda_1 + N - m, lambda_2 + m) \ \
 $
 
 #todo[interesting that despite the $1\/K-1$ factor, this is still a beta bernoulli update.] \ \
