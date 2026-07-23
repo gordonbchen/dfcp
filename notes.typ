@@ -1366,6 +1366,96 @@ supervised
 - 
 
 
+#pagebreak()
+= Noisy DFCP
+
+== DFCP
+$
+alpha ~& "Gamma"(tau_1, tau_2) \
+
+d_l ~& "Beta"(v_1, v_2) \ \
+
+
+R_0 ~& "CRP"(R, alpha, 0) \
+
+Q_l ~& "Frag"(R_l, 0, d_l) \
+
+R_(l+1) ~& "Coag"(Q_l, alpha\/d_l, 0) \ \ \
+
+
+gamma_l ~& "Gamma"(phi.alt_1, phi.alt_2) \
+
+beta_l ~& "Dirichlet"(gamma_l) \
+
+theta_(a l) ~& "Categorical"(beta_l) \ \
+
+x_(i l) =& theta_(a_(i l), l)
+$
+
+== Noisy
+$
+gamma_l ~& "Gamma"(phi.alt_1, phi.alt_2) \
+
+beta_l ~& "Dirichlet"(gamma_l) \
+
+theta_(a l) ~& "Categorical"(beta_l) \ \
+
+
+epsilon.alt ~& "Beta"(lambda_1, lambda_2) \ \
+
+PP[x_(i l) = k] =& cases(
+  k = theta_(a l) wide&    1 - epsilon.alt,
+  "otherwise"      wide&    epsilon.alt \/ (K-1)
+) \ \
+$
+
+$
+log p(C, gamma, alpha, d, X)
+
+=& log p(R_1|alpha)
+
++ sum_(l=1)^(L-1) [ log p(Q_l|R_l, d_l) + log p(R_(l+1)|Q_l, alpha, d_l)] \ 
+
++& log p(alpha|tau_1, tau_2) + sum_(l=1)^(L-1) log p(d_l|v_1, v_2) + sum_(l=1)^L log p(gamma_l|phi.alt_1, phi.alt_2) \
+
++& log p(epsilon.alt|lambda_1, lambda_2) \
+
++& sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|gamma_l, epsilon.alt) \ \
+$
+
+$
+sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|gamma_l, epsilon.alt) =&
+
+log Gamma(K gamma_l) / Gamma(K gamma_l + \#cal(R)_l)
+  + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l) \
+
+  +& m_l log (1-epsilon.alt) + (N-m_l) log epsilon.alt / (K-1) \ \
+
+m_l =& sum_(i=1)^N bold(1){x_(i l) = theta_(a_(i l) l)}
+$
+
+Note that variational update for $alpha, d_l, gamma_l$ is the same. \ \
+
+
+== Variational update for $epsilon.alt$
+$
+log q^*(epsilon.alt)
+
+prop& log p(X|C, gamma_l, epsilon.alt) + log p(epsilon.alt|lambda_1, lambda_2) \ \
+
+
+prop& m_l log (1-epsilon.alt) + (N-m_l) log epsilon.alt / (K-1)
+
++ (lambda_1-1) log epsilon.alt + (lambda_2-1) log (1-epsilon.alt) \ \
+
+
+prop& (lambda_1+N-m_l - 1) log epsilon.alt + (lambda_2+m_l - 1) log (1-epsilon.alt) \ \ \
+
+
+epsilon.alt ~& "Beta"(lambda_1 + N - m_l, lambda_2 + m_l) \ \
+$
+
+#todo[interesting that despite the $1\/K-1$ factor, this is still a beta bernoulli update.]
 
 
 
