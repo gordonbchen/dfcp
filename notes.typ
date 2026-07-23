@@ -1452,7 +1452,7 @@ prop& m log (1-epsilon.alt) + (N-m) log epsilon.alt / (K-1)
 prop& (lambda_1+N-m - 1) log epsilon.alt + (lambda_2+m - 1) log (1-epsilon.alt) \ \ \
 
 
-epsilon.alt ~& "Beta"(lambda_1 + N - m, lambda_2 + m) \ \
+epsilon.alt ~& "Beta"(alpha_epsilon.alt = lambda_1 + N - m, beta_epsilon.alt = lambda_2 + m) \ \
 $
 
 #todo[interesting that despite the $1\/K-1$ factor, this is still a beta bernoulli update.] \ \
@@ -1482,14 +1482,30 @@ $
 $
 EE_q log Lambda(x_(i l) | a) = cases(
   cases(
-    log(1-epsilon.alt)       wide& x_(i l) = theta_(a l),
-    log(epsilon.alt \/ K-1)  wide& "otherwise"
+    EE_epsilon.alt [ log(1-epsilon.alt) ]          wide& x_(i l) = theta_(a l),
+    EE_epsilon.alt [ log epsilon.alt ] - log(K-1)  wide& "otherwise"
   )
   wide& a != emptyset,
 
   EE_(gamma_l)[ log (gamma_l + n_(k l)) ] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ]
   wide& a = emptyset
-)
+) \ \ \
+$
+
+$
+EE_epsilon.alt [ log(epsilon.alt) ] =& psi(alpha_epsilon.alt) - psi(alpha_epsilon.alt + beta_epsilon.alt) \
+
+EE_epsilon.alt [ log(1-epsilon.alt) ] =& psi(beta_epsilon.alt) - psi(beta_epsilon.alt + alpha_epsilon.alt) \
+$
+
+$
+x ~& "Beta"(alpha, beta) \
+
+p(x) =& Gamma(alpha+beta)/(Gamma(alpha)Gamma(beta)) x^(alpha-1) (1-x)^(beta-1) \ \
+
+p(1-x) =& Gamma(alpha+beta)/(Gamma(alpha)Gamma(beta)) (1-x)^(alpha-1) (x)^(beta-1) \
+
+1-x ~& "Beta"(beta, alpha)
 $
 
 
