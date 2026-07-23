@@ -1251,11 +1251,8 @@ recursion: vertex $v$ has children $a, b$.
 
 #pagebreak()
 = Robust and Interpretable Statistical Genetic Modelling
-supervised: imputation acc
 
-unsupervised: cluster quality
-
-== statistics independent of reference genealogy (true marginal tree at every pos)
+== statistics independent of reference genealogy
 - average \# marginal clusters: $1/L sum_l |cal(R)_l|$
 
 - cluster entropy: $H(C) = -sum_(i in U) (|x_i|)/(|C|) log (|x_i|)/(|C|)$
@@ -1356,7 +1353,19 @@ unsupervised
 
 supervised
 - importance score weighted jaccard distance from dfcp cluster to tree
-  - doesn't assume a partitioning, does it over clades.
+
+
+
+#pagebreak()
+#show link: it => underline(text(fill: blue)[#it])
+== #link("https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0060123&type=printable")[
+  The Effect of Single Recombination Events on Tree Height and Shape
+]
+
+- spatial coalescent is not markov?
+- 
+
+
 
 
 
