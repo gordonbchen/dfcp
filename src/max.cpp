@@ -272,17 +272,12 @@ void max_cluster_emissions(Clusters& clusters, const HyperParams& HP, const Para
     double Elog_mismatch = boost::math::digamma(params.alpha_eps) - digamma_eps_sum - std::log(HP.K-1.0);
 
     for (int l = 0; l < HP.L; ++l) {
-        std::vector<double> cluster_emission_ll(HP.K, 0.0);
-        for (int k = 0; k < HP.K; ++k) {
-            int nkl = clusters.rs_by_emit[idx2d(l,k,HP.K)].size();
-            cluster_emission_ll[k] = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl);
-        }
-
         for (Cluster* a : clusters.rs[l]) {
             int best_k = 0;
             double best_ll = -std::numeric_limits<double>::infinity();
             for (int k = 0; k < HP.K; ++k) {
-                double ll = cluster_emission_ll[k]
+                int nkl = clusters.rs_by_emit[idx2d(l,k,HP.K)].size() - (a->emission == k);
+                double ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl)
                     + a->nk[k]*Elog_match + (a->n_obs - a->nk[k])*Elog_mismatch;
                 if (ll > best_ll) {
                     best_ll = ll;

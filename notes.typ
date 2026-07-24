@@ -1510,16 +1510,16 @@ $
 $
 theta_(a l)
 
-=& "argmax"_k med EE_q [ log p(theta_(a l) = k|gamma_l) + log p(X_(a l)|theta_(a l), epsilon.alt) ] \
+=& "argmax"_k med EE_q [ log p(theta_(a l) = k|theta_(-a l),gamma_l) + log p(X_(a l)|theta_(a l), epsilon.alt) ] \
 
 =& "argmax"_k [
-  EE_(gamma_l)[ log (gamma_l + n_(k l)) ] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ] \
+  EE_(gamma_l)[ log (gamma_l + n_(k l)^(-a)) ] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-a)) ] \
   +& m_(k a l) EE_epsilon.alt [log(1-epsilon.alt)]
   + (O_(a l) - m_(k a l)) (EE_epsilon.alt [log epsilon.alt] - log (K-1))
 ] \
 
 =& "argmax"_k [
-  EE_(gamma_l)[ log (gamma_l + n_(k l)) ]
+  EE_(gamma_l)[ log (gamma_l + n_(k l)^(-a)) ]
   + m_(k a l) EE_epsilon.alt [log(1-epsilon.alt)]
   + (O_(a l) - m_(k a l)) (EE_epsilon.alt [log epsilon.alt] - log (K-1))
 ]
