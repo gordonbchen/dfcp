@@ -35,7 +35,7 @@ void hard_viterbi_seq(
 ) {
     double digamma_eps_alpha_beta = boost::math::digamma(params.alpha_eps + params.beta_eps);
     double Elog_match = boost::math::digamma(params.alpha_eps) - digamma_eps_alpha_beta;
-    double Elog_mismatch = boost::math::digamma(params.beta_eps) - digamma_eps_alpha_beta - std::log(HP.K-1);
+    double Elog_mismatch = boost::math::digamma(params.beta_eps)-digamma_eps_alpha_beta - std::log(HP.K-1.0);
 
     std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
