@@ -115,6 +115,7 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
 
     if (clusters.noisy) {
         // eps.
+        // TODO: this can be simplified?
         double digamma_alpha = boost::math::digamma(params.alpha_eps);
         double digamma_beta = boost::math::digamma(params.beta_eps);
         double digamma_sum = boost::math::digamma(params.alpha_eps + params.beta_eps);
