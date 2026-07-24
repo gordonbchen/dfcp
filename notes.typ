@@ -1533,18 +1533,35 @@ $
 
 == ELBO $epsilon.alt$ term
 $
-sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|theta_l, C, epsilon.alt) + log p(epsilon.alt|lambda_1, lambda_2) =& 
+sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|theta_l, C, epsilon.alt) + log p(epsilon.alt|lambda_1, lambda_2)
 
-(lambda_1 + O - m - 1) log epsilon.alt + (lambda_2 + m - 1) log (1-epsilon.alt) \
+=& (lambda_1 + O - m - 1) log epsilon.alt + (lambda_2 + m - 1) log (1-epsilon.alt) \
+  -& (O-m) log(K-1) - log "Beta"(lambda_1, lambda_2) \
 
--& (O-m) log(K-1) - log "Beta"(lambda_1, lambda_2) \ \ \
+=& (alpha_epsilon.alt - 1) log epsilon.alt + (beta_epsilon.alt - 1) log (1 - epsilon.alt) \
+  -& (O-m) log (K-1) - log "Beta"(lambda_1, lambda_2) \ \
+
+
+sum_(i=1)^N sum_(l=1)^L EE_epsilon.alt [ log p(x_(i l)|theta_l, C, epsilon.alt) ]
+  + log p(epsilon.alt|lambda_1, lambda_2)
+
+=& (alpha_epsilon.alt - 1) (psi(alpha_epsilon.alt) - psi(alpha_epsilon.alt + beta_epsilon.alt))
+
+  + (beta_epsilon.alt - 1) (psi(alpha_epsilon.alt) - psi(alpha_epsilon.alt + beta_epsilon.alt)) \
+
+  -& (O-m) log (K-1) - log "Beta"(lambda_1, lambda_2) \ \
 $
 
 $
 x ~& "Beta"(alpha, beta) \
 
 H(x) =& log "Beta"(alpha, beta) - (alpha-1) psi(alpha) - (beta-1) psi(beta)
-  + (alpha + beta - 2) psi(alpha + beta)
+  + (alpha + beta - 2) psi(alpha + beta) \ \ \
+$
+
+$
+"ELBO contrib" = log "Beta"(alpha_epsilon.alt, beta_epsilon.alt) - log "Beta"(lambda_1, lambda_2)
+  - (O-m) log (K-1)
 $
 
 
