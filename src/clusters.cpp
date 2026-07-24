@@ -103,9 +103,6 @@ Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
 
 void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
     ++cluster->n;
-    if (noisy && (emission != -1)) {
-        ++n_obs;
-    }
 
     if (cluster->is_r) {
         if (r_assign[idx2d(idx, cluster->l, HP.L)] != nullptr) {
@@ -116,8 +113,11 @@ void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
             ++cluster->nk[emission];
             ++cluster->n_obs;
         }
-        if (noisy && (emission == cluster->emission)) {
-            ++n_matches;
+        if (noisy && (emission != -1)) {
+            ++n_obs;
+            if (emission == cluster->emission) {
+                ++n_matches;
+            }
         }
         return;
     }
@@ -129,9 +129,6 @@ void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
 
 void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
     --cluster->n;
-    if (noisy && (emission != -1)) {
-        --n_obs;
-    }
 
     if (cluster->is_r) {
         r_assign[idx2d(idx, cluster->l, HP.L)] = nullptr;
@@ -139,9 +136,13 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
             --cluster->nk[emission];
             --cluster->n_obs;
         }
-        if (noisy && (emission == cluster->emission)) {
-            --n_matches;
+        if (noisy && (emission != -1)) {
+            --n_obs;
+            if (emission == cluster->emission) {
+                --n_matches;
+            }
         }
+
     }
     else {
         q_assign[idx2d(idx, cluster->l, HP.L-1)] = nullptr;
@@ -186,6 +187,7 @@ void Clusters::set_emission(Cluster* c, int new_emission) {
     }
     rs_by_emit[idx2d(c->l,c->emission,HP.K)].erase(c);
     rs_by_emit[idx2d(c->l,new_emission,HP.K)].insert(c);
+    // TODO: why is this unsafe????
     n_matches += c->nk[new_emission] - c->nk[c->emission];
     c->emission = new_emission;
 }
