@@ -282,9 +282,8 @@ void max_cluster_emissions(Clusters& clusters, const HyperParams& HP, const Para
             int best_k = 0;
             double best_ll = -std::numeric_limits<double>::infinity();
             for (int k = 0; k < HP.K; ++k) {
-                int mismatches = a->n_obs - a->nk[k];
                 double ll = cluster_emission_ll[k]
-                    + a->nk[k] * Elog_match + mismatches * (Elog_mismatch - std::log(HP.K - 1.0));
+                    + a->nk[k]*Elog_match + (a->n_obs - a->nk[k])*Elog_mismatch;
                 if (ll > best_ll) {
                     best_ll = ll;
                     best_k = k;
