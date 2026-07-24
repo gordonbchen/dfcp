@@ -18,7 +18,7 @@ struct Mode {
 struct Cluster {
     const bool is_r;
     const int l;
-    const int emission;
+    int emission;
 
     size_t n;
     std::vector<size_t> nk;
@@ -53,6 +53,7 @@ struct Clusters {
 
     std::vector<std::unordered_set<Cluster*>> rs_by_emit;
     size_t n_matches;
+    size_t n_obs;
 
 
     Clusters(const HyperParams& HP_, bool soft_, bool noisy_);
@@ -68,6 +69,8 @@ struct Clusters {
     void cluster_add(Cluster* cluster, int idx, int emission);
 
     void cluster_remove(Cluster* cluster, int idx, int emission);
+
+    void set_emission(Cluster* c, int new_emission);
 
     int cluster_mode(int l);
 };

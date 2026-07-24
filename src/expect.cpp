@@ -218,7 +218,7 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
 
     if (clusters.noisy) {
         // eps update.
-        params.alpha_eps = HP.lambda_1 + HP.N*HP.L - clusters.n_matches;
+        params.alpha_eps = HP.lambda_1 + clusters.n_obs - clusters.n_matches;
         params.beta_eps = HP.lambda_2 + clusters.n_matches;
     }
 }

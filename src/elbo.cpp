@@ -117,16 +117,17 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
         // eps.
         double digamma_alpha = boost::math::digamma(params.alpha_eps);
         double digamma_beta = boost::math::digamma(params.beta_eps);
-        double digamma_alpha_beta = boost::math::digamma(params.alpha_eps + params.beta_eps);
-        double Elog_eps = digamma_alpha - digamma_alpha_beta;
-        double Elog_1eps = digamma_beta - digamma_alpha_beta;
-        elbo += (params.alpha_eps-1)*Elog_eps + (params.beta_eps-1)*Elog_1eps;
-        elbo += (static_cast<double>(clusters.n_matches) - HP.N*HP.L) * std::log(HP.K-1.0);
+        double digamma_sum = boost::math::digamma(params.alpha_eps + params.beta_eps);
+        double Elog_mismatch = digamma_alpha - digamma_sum;
+        double Elog_match = digamma_beta - digamma_sum;
+        elbo += (params.alpha_eps-1)*Elog_mismatch + (params.beta_eps-1)*Elog_match
+            - (clusters.n_obs - clusters.n_matches) * std::log(HP.K-1.0)
+            - betaln(HP.lambda_1, HP.lambda_2);
 
         // eps entropy.
         elbo += betaln(params.alpha_eps, params.beta_eps)
             - (params.alpha_eps-1)*digamma_alpha - (params.beta_eps-1)*digamma_beta
-            + (params.alpha_eps+params.beta_eps-2) * digamma_alpha_beta;
+            + (params.alpha_eps+params.beta_eps-2) * digamma_sum;
     }
     return elbo;
 }

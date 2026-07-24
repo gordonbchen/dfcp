@@ -1418,45 +1418,50 @@ log p(C, gamma, alpha, d, X)
 
 +& log p(alpha|tau_1, tau_2) + sum_(l=1)^(L-1) log p(d_l|v_1, v_2) + sum_(l=1)^L log p(gamma_l|phi.alt_1, phi.alt_2) \
 
-+& log p(epsilon.alt|lambda_1, lambda_2) \
++& sum_(l=1)^L log p(theta_l|gamma_l)
 
-+& sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|gamma_l, epsilon.alt) \ \
+  + sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|theta_l, C, epsilon.alt)
+
+  + log p(epsilon.alt|lambda_1, lambda_2) \
 $
 
-$
-sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|gamma_l, epsilon.alt) =&
-
-log Gamma(K gamma_l) / Gamma(K gamma_l + \#cal(R)_l)
-  + sum_(k in {A,T,C,G}) log Gamma(gamma_l + n_k) / Gamma(gamma_l) \
-
-  +& m log (1-epsilon.alt) + (N L - m) log epsilon.alt / (K-1) \ \
-
-m =& sum_(i=1)^N sum_(l=1)^L bold(1){x_(i l) = theta_(a_(i l) l)}
-$
-
-Note that variational update for $alpha, d_l, gamma_l$ is the same. \ \
+Note that variational update for $alpha, d_l, gamma_l$ is the same.
 
 
+
+#pagebreak()
 == Variational update for $epsilon.alt$
+$
+sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|theta_l, C, epsilon.alt)
+
+  =& m log (1-epsilon.alt) + (O - m) log epsilon.alt / (K-1) \
+
+  =& m log (1-epsilon.alt) + (O - m) (log epsilon.alt - log (K-1)) \ \ \
+
+
+m =& sum_(i=1)^N sum_(l=1)^L bold(1){x_(i l) = theta_(a_(i l) l)} \
+
+O =& sum_(i=1)^N sum_(l=1)^L bold(1){x_(i l) != -1} \ \ \
+$
+
+
 $
 log q^*(epsilon.alt)
 
-prop& log p(X|C, gamma_l, epsilon.alt) + log p(epsilon.alt|lambda_1, lambda_2) \ \
+prop& log p(X|Theta, C, gamma_l, epsilon.alt) + log p(epsilon.alt|lambda_1, lambda_2) \ \
 
 
-prop& m log (1-epsilon.alt) + (N L - m) log epsilon.alt / (K-1)
+prop& m log (1-epsilon.alt) + (O - m) log epsilon.alt
 
 + (lambda_1-1) log epsilon.alt + (lambda_2-1) log (1-epsilon.alt) \ \
 
 
-prop& (lambda_1 + N L - m - 1) log epsilon.alt + (lambda_2+m - 1) log (1-epsilon.alt) \ \ \
-
-
-epsilon.alt ~& "Beta"(alpha_epsilon.alt = lambda_1 + N L - m, beta_epsilon.alt = lambda_2 + m) \ \
+prop& (lambda_1 + O - m - 1) log epsilon.alt + (lambda_2+m - 1) log (1-epsilon.alt) \ \ \
 $
 
-#todo[interesting that despite the $1\/K-1$ factor, this is still a beta bernoulli update.] \ \
-
+$
+epsilon.alt ~& "Beta"(alpha_epsilon.alt = lambda_1 + O - m, beta_epsilon.alt = lambda_2 + m)
+$
 
 == Maximization Likelihood
 $a != emptyset$
@@ -1476,7 +1481,7 @@ theta_(a l) ~ "Categorical"(beta_l)
 $
 
 $
-Lambda(x_(i l) = k | a=emptyset) = (gamma_l + n_(k l)) / (K gamma_l + \#cal(R)_l^(-i))
+Lambda(x_(i l) = k | a=emptyset) = (gamma_l + n_(k l)) / (K gamma_l + \#cal(R)_l^(-i)) dot (1-epsilon.alt)
 $
 
 $
@@ -1488,8 +1493,9 @@ EE_q log Lambda(x_(i l) | a) = cases(
   wide& a != emptyset,
 
   EE_(gamma_l)[ log (gamma_l + n_(k l)) ] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ]
+    + EE_epsilon.alt [log(1-epsilon.alt)]
   wide& a = emptyset
-) \ \ \
+) \ \
 $
 
 $
@@ -1498,16 +1504,48 @@ EE_epsilon.alt [ log(epsilon.alt) ] =& psi(alpha_epsilon.alt) - psi(alpha_epsilo
 EE_epsilon.alt [ log(1-epsilon.alt) ] =& psi(beta_epsilon.alt) - psi(beta_epsilon.alt + alpha_epsilon.alt) \
 $
 
+
+#pagebreak()
+== Maximize cluster emissions
+$
+theta_(a l)
+
+=& "argmax"_k med EE_q [ log p(theta_(a l) = k|gamma_l) + log p(X_(a l)|theta_(a l), epsilon.alt) ] \
+
+=& "argmax"_k [
+  EE_(gamma_l)[ log (gamma_l + n_(k l)) ] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ] \
+  +& m_(k a l) EE_epsilon.alt [log(1-epsilon.alt)]
+  + (O_(a l) - m_(k a l)) (EE_epsilon.alt [log epsilon.alt] - log (K-1))
+] \
+
+=& "argmax"_k [
+  EE_(gamma_l)[ log (gamma_l + n_(k l)) ]
+  + m_(k a l) EE_epsilon.alt [log(1-epsilon.alt)]
+  + (O_(a l) - m_(k a l)) (EE_epsilon.alt [log epsilon.alt] - log (K-1))
+]
+$
+
+$
+m_(k a l) =& sum_(i in a) bold(1){x_(i l) = k} \
+
+O_(a l) =& sum_(i in a) bold(1){x_(i l) != -1} \ \ \
+$
+
+== ELBO $epsilon.alt$ term
+$
+sum_(i=1)^N sum_(l=1)^L log p(x_(i l)|theta_l, C, epsilon.alt) + log p(epsilon.alt|lambda_1, lambda_2) =& 
+
+(lambda_1 + O - m - 1) log epsilon.alt + (lambda_2 + m - 1) log (1-epsilon.alt) \
+
+-& (O-m) log(K-1) - log "Beta"(lambda_1, lambda_2) \ \ \
+$
+
 $
 x ~& "Beta"(alpha, beta) \
 
-p(x) =& Gamma(alpha+beta)/(Gamma(alpha)Gamma(beta)) x^(alpha-1) (1-x)^(beta-1) \ \
-
-p(1-x) =& Gamma(alpha+beta)/(Gamma(alpha)Gamma(beta)) (1-x)^(alpha-1) (x)^(beta-1) \
-
-1-x ~& "Beta"(beta, alpha)
+H(x) =& log "Beta"(alpha, beta) - (alpha-1) psi(alpha) - (beta-1) psi(beta)
+  + (alpha + beta - 2) psi(alpha + beta)
 $
-
 
 
 
@@ -1526,7 +1564,7 @@ $
 - cut tree w/ same \# of clusters as dfcp, then use that normalization weighting
 
 == dfcp w/ epsilon switch
-- dfcp with mismatch = fixed constant epsilon likelihood instead of 0
+- dfcp with mismatch = epsilon likelihood instead of 0
 
 == ARG model
 - read The Effect of Single Recombination Events on Coalescent Tree Height and Shape

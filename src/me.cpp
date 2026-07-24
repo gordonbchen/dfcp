@@ -391,11 +391,10 @@ int main(int argc, char *argv[]) {
                 cluster_purity += c->mode().count;
             }
         }
-        // TODO: masked alleles should be imputed as cluster mode and counted here.
         cluster_purity /= HP.N*HP.L - n_masked_alleles;
     }
     else if (clusters.noisy) {
-        cluster_purity = clusters.n_matches / static_cast<double>(HP.N * HP.L);
+        cluster_purity = clusters.n_matches / static_cast<double>(clusters.n_obs);
     }
     std::cerr << "cluster_purity=" << cluster_purity << '\n';
     json.add("cluster_purity", cluster_purity);

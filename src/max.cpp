@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
@@ -33,9 +34,9 @@ void hard_viterbi_seq(
     Clusters& clusters, std::vector<int8_t>::const_iterator xi, int i,
     const HyperParams& HP, const Params& params
 ) {
-    double digamma_eps_alpha_beta = boost::math::digamma(params.alpha_eps + params.beta_eps);
-    double Elog_match = boost::math::digamma(params.beta_eps)-digamma_eps_alpha_beta;
-    double Elog_mismatch = boost::math::digamma(params.alpha_eps)-digamma_eps_alpha_beta - std::log(HP.K-1.0);
+    double digamma_eps_sum = boost::math::digamma(params.alpha_eps + params.beta_eps);
+    double Elog_match = boost::math::digamma(params.beta_eps) - digamma_eps_sum;
+    double Elog_mismatch = boost::math::digamma(params.alpha_eps) - digamma_eps_sum - std::log(HP.K-1.0);
 
     std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
@@ -46,6 +47,9 @@ void hard_viterbi_seq(
         int nkl = clusters.rs_by_emit[idx2d(l,emission,HP.K)].size();
         double new_a_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl)
             - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
+        if (clusters.noisy && (xi[l] != -1)) {
+            new_a_ll += Elog_match;
+        }
 
         std::unordered_set<Cluster*>& matching_as = (
             clusters.noisy || (xi[l] == -1) ? clusters.rs[l] : clusters.rs_by_emit[idx2d(l, emission, HP.K)]
@@ -53,8 +57,8 @@ void hard_viterbi_seq(
         if (l == HP.L-1) {
             ma[nullptr] = Msg{new_a_ll, nullptr};
             for (Cluster *a : matching_as) {
-                if (clusters.noisy) {
-                    ma[a] = Msg{(xi[l]==-1) || (xi[l] == a->emission) ? Elog_match : Elog_mismatch, nullptr};
+                if (clusters.noisy && (xi[l] != -1)) {
+                    ma[a] = Msg{xi[l] == a->emission ? Elog_match : Elog_mismatch, nullptr};
                 }
                 else {
                     ma[a] = Msg{0.0, nullptr};
@@ -111,8 +115,8 @@ void hard_viterbi_seq(
                 }
             }
             best_b_ll -= std::log(static_cast<double>(a->n));
-            if (clusters.noisy) {
-                best_b_ll += (xi[l] == -1) || (xi[l] == a->emission) ? Elog_match : Elog_mismatch;
+            if (clusters.noisy && (xi[l] != -1)) {
+                best_b_ll += xi[l] == a->emission ? Elog_match : Elog_mismatch;
             }
             ma[a] = Msg{best_b_ll, best_b};
         }
@@ -124,7 +128,7 @@ void hard_viterbi_seq(
     )->first;
     int emission = xi[0] == -1 ? clusters.cluster_mode(0) : xi[0];
     Cluster* a_obj = (a == nullptr) ? clusters.create_empty_cluster(true, 0, emission) : a;
-    clusters.cluster_add(a_obj, i, emission);
+    clusters.cluster_add(a_obj, i, xi[0]);
 
     Cluster* b = nullptr;
     Cluster* b_obj = nullptr;
@@ -139,7 +143,7 @@ void hard_viterbi_seq(
         a = b_msgs[l].at(b).next;
         emission = xi[l+1] == -1 ? clusters.cluster_mode(l+1) : xi[l+1];
         a_obj = (a == nullptr) ? clusters.create_empty_cluster(true, l+1, emission) : a;
-        clusters.cluster_add(a_obj, i, emission);
+        clusters.cluster_add(a_obj, i, xi[l+1]);
         if (a == nullptr || b == nullptr) {
             b_obj->add_child(a_obj);
         }
@@ -260,6 +264,37 @@ void viterbi_seq(
     return hard_viterbi_seq(clusters, xi, i, HP, params);
 }
 
+void max_cluster_emissions(Clusters& clusters, const HyperParams& HP, const Params& params) {
+    if (!clusters.noisy) { throw std::runtime_error("Only need to maximize cluster emissions if noisy."); }
+
+    double digamma_eps_sum = boost::math::digamma(params.alpha_eps + params.beta_eps);
+    double Elog_match = boost::math::digamma(params.beta_eps) - digamma_eps_sum;
+    double Elog_mismatch = boost::math::digamma(params.alpha_eps) - digamma_eps_sum - std::log(HP.K-1.0);
+
+    for (int l = 0; l < HP.L; ++l) {
+        std::vector<double> cluster_emission_ll(HP.K, 0.0);
+        for (int k = 0; k < HP.K; ++k) {
+            int nkl = clusters.rs_by_emit[idx2d(l,k,HP.K)].size();
+            cluster_emission_ll[k] = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl);
+        }
+
+        for (Cluster* a : clusters.rs[l]) {
+            int best_k = 0;
+            double best_ll = -std::numeric_limits<double>::infinity();
+            for (int k = 0; k < HP.K; ++k) {
+                int mismatches = a->n_obs - a->nk[k];
+                double ll = cluster_emission_ll[k]
+                    + a->nk[k] * Elog_match + mismatches * (Elog_mismatch - std::log(HP.K - 1.0));
+                if (ll > best_ll) {
+                    best_ll = ll;
+                    best_k = k;
+                }
+            }
+            clusters.set_emission(a, best_k);
+        }
+    }
+}
+
 void max_step(
     Clusters& clusters, const std::vector<int8_t>& x, const HyperParams& HP, const Params& params
 ) {
@@ -272,6 +307,9 @@ void max_step(
             clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L-1)], i, -1);
         }
         viterbi_seq(clusters, x.begin() + i*HP.L, i, HP, params);
+    }
+    if (clusters.noisy) {
+        max_cluster_emissions(clusters, HP, params);
     }
 }
 
@@ -286,6 +324,9 @@ void add_seqs(
 
     for (int i = 0; i < n_new; ++i) {
         viterbi_seq(clusters, new_x + i*HP.L, old_N + i, HP, params);
+    }
+    if (clusters.noisy) {
+        max_cluster_emissions(clusters, HP, params);
     }
 }
 
