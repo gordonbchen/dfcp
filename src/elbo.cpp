@@ -112,6 +112,22 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
     for (int l = 0; l < HP.L - 1; ++l) {
         elbo += normal_entropy(params.sigma2_logit_d[l]);
     }
+
+    if (clusters.noisy) {
+        // eps.
+        double digamma_alpha = boost::math::digamma(params.alpha_eps);
+        double digamma_beta = boost::math::digamma(params.beta_eps);
+        double digamma_alpha_beta = boost::math::digamma(params.alpha_eps + params.beta_eps);
+        double Elog_eps = digamma_alpha - digamma_alpha_beta;
+        double Elog_1eps = digamma_beta - digamma_alpha_beta;
+        elbo += (params.alpha_eps-1)*Elog_eps + (params.beta_eps-1)*Elog_1eps;
+        elbo += (static_cast<double>(clusters.n_matches) - HP.N*HP.L) * std::log(HP.K-1.0);
+
+        // eps entropy.
+        elbo += betaln(params.alpha_eps, params.beta_eps)
+            - (params.alpha_eps-1)*digamma_alpha - (params.beta_eps-1)*digamma_beta
+            + (params.alpha_eps+params.beta_eps-2) * digamma_alpha_beta;
+    }
     return elbo;
 }
 

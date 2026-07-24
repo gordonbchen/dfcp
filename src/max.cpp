@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <boost/math/special_functions/digamma.hpp>
 #include "max.hpp"
 #include "hyperparams.hpp"
 #include "params.hpp"
@@ -19,9 +20,10 @@ struct Msg {
     Cluster* next;
 };
 
-double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c) {
+double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, bool noisy) {
     auto it = msgs.find(c);
     if (it == msgs.end()) {
+        if (noisy) { throw std::runtime_error("All msgs should be present if noisy."); }
         return -std::numeric_limits<double>::infinity();
     }
     return it->second.ll;
@@ -31,6 +33,10 @@ void hard_viterbi_seq(
     Clusters& clusters, std::vector<int8_t>::const_iterator xi, int i,
     const HyperParams& HP, const Params& params
 ) {
+    double digamma_eps_alpha_beta = boost::math::digamma(params.alpha_eps + params.beta_eps);
+    double Elog_match = boost::math::digamma(params.alpha_eps) - digamma_eps_alpha_beta;
+    double Elog_mismatch = boost::math::digamma(params.beta_eps) - digamma_eps_alpha_beta - std::log(HP.K-1);
+
     std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
     for (int l = HP.L-1; l >= 0; --l) {
@@ -38,16 +44,21 @@ void hard_viterbi_seq(
         auto& ma = a_msgs[l];
         int emission = xi[l] == -1 ? clusters.cluster_mode(l) : xi[l];
         int nkl = clusters.rs_by_emit[idx2d(l,emission,HP.K)].size();
-        double new_a_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl);
-        new_a_ll -= delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
+        double new_a_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl)
+            - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
 
         std::unordered_set<Cluster*>& matching_as = (
-            xi[l] == -1 ? clusters.rs[l] : clusters.rs_by_emit[idx2d(l, emission, HP.K)]
+            clusters.noisy || (xi[l] == -1) ? clusters.rs[l] : clusters.rs_by_emit[idx2d(l, emission, HP.K)]
         );
         if (l == HP.L-1) {
             ma[nullptr] = Msg{new_a_ll, nullptr};
             for (Cluster *a : matching_as) {
-                ma[a] = Msg{0.0, nullptr};
+                if (clusters.noisy) {
+                    ma[a] = Msg{(xi[l]==-1) || (xi[l] == a->emission) ? Elog_match : Elog_mismatch, nullptr};
+                }
+                else {
+                    ma[a] = Msg{0.0, nullptr};
+                }
             }
             continue;
         }
@@ -60,8 +71,8 @@ void hard_viterbi_seq(
                 throw std::runtime_error("b clusters should only have 1 child.");
             };
             Cluster* next_a = *b->children.begin();
-            mb[b] = Msg{get_msg_ll(next_ma, next_a), next_a};
-         }
+            mb[b] = Msg{get_msg_ll(next_ma, next_a, clusters.noisy), next_a};
+        }
 
         int nQl = clusters.qs[l].size();
         double mu_y = params.mu_alpha + nQl*params.mu_d[l];
@@ -71,11 +82,12 @@ void hard_viterbi_seq(
         Cluster* best_a = nullptr;
         double best_a_ll = params.mu_log_alpha + next_ma.at(nullptr).ll;
         std::unordered_set<Cluster*>& matching_next_as = (
-            xi[l+1] == -1 ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xi[l+1], HP.K)]
+            clusters.noisy || (xi[l+1] == -1) ?
+            clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xi[l+1], HP.K)]
         );
         for (Cluster *a : matching_next_as) {
             double nCl = a->parents.size();
-            double ll = params.mu_log_d[l] + std::log(nCl) + get_msg_ll(next_ma, a);
+            double ll = params.mu_log_d[l] + std::log(nCl) + get_msg_ll(next_ma, a, clusters.noisy);
             if (ll > best_a_ll) {
                 best_a = a;
                 best_a_ll = ll;
@@ -91,13 +103,17 @@ void hard_viterbi_seq(
             double nFl = a->children.size();
             double best_b_ll = std::log(nFl) + params.mu_log_d[l] + mb[nullptr].ll;
             for (Cluster* b : a->children) {
-                double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->n) + get_msg_ll(mb, b);
+                double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->n)
+                    + get_msg_ll(mb, b, clusters.noisy);
                 if (ll > best_b_ll) {
                     best_b = b;
                     best_b_ll = ll;
                 }
             }
             best_b_ll -= std::log(static_cast<double>(a->n));
+            if (clusters.noisy) {
+                best_b_ll += (xi[l] == -1) || (xi[l] == a->emission) ? Elog_match : Elog_mismatch;
+            }
             ma[a] = Msg{best_b_ll, best_b};
         }
     }

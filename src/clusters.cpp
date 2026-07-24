@@ -11,8 +11,8 @@
 #include "util.hpp"
 
 
-Cluster::Cluster(bool is_r_, int l_, bool soft_, int emission_, int K)
-    : is_r(is_r_), l(l_), soft(soft_), emission(emission_),
+Cluster::Cluster(bool is_r_, int l_, int emission_, int K)
+    : is_r(is_r_), l(l_), emission(emission_),
       n(0), nk(K, 0), n_obs(0) {}
 
 void Cluster::add_child(Cluster *child) {
@@ -31,17 +31,19 @@ Mode Cluster::mode() {
     return mode;
 }
 
-int Cluster::get_imputed_emission() {
+int Cluster::get_imputed_emission(bool soft) {
     return soft ? mode().idx : emission;
 }
 
 
-Clusters::Clusters(const HyperParams& HP_, bool soft_) :
+Clusters::Clusters(const HyperParams& HP_, bool soft_, bool noisy_) :
     HP(HP_),
     soft(soft_),
+    noisy(noisy_),
     nR(0),
     rs(HP.L), qs(HP.L-1),
-    rs_by_emit(soft_ ? 0 : HP_.L * HP_.K)
+    rs_by_emit(soft_ ? 0 : HP_.L * HP_.K),
+    n_matches(0)
 {}
 
 void Clusters::block_init(const std::vector<int8_t>& x) {
@@ -83,7 +85,7 @@ Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
         throw std::invalid_argument("only r cluster can have emissions.");
     }
 
-    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(is_r, l, soft, emission, HP.K);
+    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(is_r, l, emission, HP.K);
     Cluster* ptr = u_ptr.get();
     all_clusters[ptr] = std::move(u_ptr);
 
@@ -112,6 +114,9 @@ void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
             ++cluster->nk[emission];
             ++cluster->n_obs;
         }
+        if (noisy && ((emission == -1) || (emission == cluster->emission))) {
+            ++n_matches;
+        }
         return;
     }
     if (q_assign[idx2d(idx, cluster->l, HP.L-1)] != nullptr) {
@@ -128,6 +133,9 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
         if (soft && (emission != -1)) {
             --cluster->nk[emission];
             --cluster->n_obs;
+        }
+        if (noisy && ((emission == -1) || (emission == cluster->emission))) {
+            --n_matches;
         }
     }
     else {
