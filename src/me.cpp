@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     char *tree_vis_fname = nullptr;
     double clade_beta = 2.0;
 
-    bool noisy = true;
+    bool noisy = false;
     bool soft = false;
     bool block_init = false;
 
