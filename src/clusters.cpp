@@ -187,8 +187,8 @@ void Clusters::set_emission(Cluster* c, int new_emission) {
     }
     rs_by_emit[idx2d(c->l,c->emission,HP.K)].erase(c);
     rs_by_emit[idx2d(c->l,new_emission,HP.K)].insert(c);
-    // TODO: why is this unsafe????
-    n_matches += c->nk[new_emission] - c->nk[c->emission];
+    n_matches += c->nk[new_emission];
+    n_matches -= c->nk[c->emission];
     c->emission = new_emission;
 }
 
