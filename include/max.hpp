@@ -14,3 +14,5 @@ void add_seqs(
     HyperParams& HP, const Params& params
 );
 
+void max_cluster_emissions(Clusters& clusters, const HyperParams& HP, const Params& params);
+

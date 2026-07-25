@@ -263,6 +263,36 @@ void viterbi_seq(
     return hard_viterbi_seq(clusters, xi, i, HP, params);
 }
 
+void max_step(
+    Clusters& clusters, const std::vector<int8_t>& x, const HyperParams& HP, const Params& params
+) {
+    for (int i = 0; i < HP.N; ++i) {
+        for (int l = 0; l < HP.L; ++l) {
+            clusters.cluster_remove(clusters.r_assign[idx2d(i, l, HP.L)], i, x[idx2d(i, l, HP.L)]);
+            if (l == HP.L-1) {
+                break;
+            }
+            clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L-1)], i, -1);
+        }
+        viterbi_seq(clusters, x.begin() + i*HP.L, i, HP, params);
+    }
+}
+
+void add_seqs(
+    Clusters& clusters, std::vector<int8_t>::const_iterator new_x, int n_new,
+    HyperParams& HP, const Params& params
+) {
+    int old_N = HP.N;
+    HP.N += n_new;
+    clusters.r_assign.resize(HP.N * HP.L, nullptr);
+    clusters.q_assign.resize(HP.N * (HP.L-1), nullptr);
+
+    for (int i = 0; i < n_new; ++i) {
+        viterbi_seq(clusters, new_x + i*HP.L, old_N + i, HP, params);
+    }
+}
+
+
 void max_cluster_emissions(Clusters& clusters, const HyperParams& HP, const Params& params) {
     if (!clusters.noisy) { throw std::runtime_error("Only need to maximize cluster emissions if noisy."); }
 
@@ -285,41 +315,6 @@ void max_cluster_emissions(Clusters& clusters, const HyperParams& HP, const Para
             }
             clusters.set_emission(a, best_k);
         }
-    }
-}
-
-void max_step(
-    Clusters& clusters, const std::vector<int8_t>& x, const HyperParams& HP, const Params& params
-) {
-    for (int i = 0; i < HP.N; ++i) {
-        for (int l = 0; l < HP.L; ++l) {
-            clusters.cluster_remove(clusters.r_assign[idx2d(i, l, HP.L)], i, x[idx2d(i, l, HP.L)]);
-            if (l == HP.L-1) {
-                break;
-            }
-            clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L-1)], i, -1);
-        }
-        viterbi_seq(clusters, x.begin() + i*HP.L, i, HP, params);
-    }
-    if (clusters.noisy) {
-        max_cluster_emissions(clusters, HP, params);
-    }
-}
-
-void add_seqs(
-    Clusters& clusters, std::vector<int8_t>::const_iterator new_x, int n_new,
-    HyperParams& HP, const Params& params
-) {
-    int old_N = HP.N;
-    HP.N += n_new;
-    clusters.r_assign.resize(HP.N * HP.L, nullptr);
-    clusters.q_assign.resize(HP.N * (HP.L-1), nullptr);
-
-    for (int i = 0; i < n_new; ++i) {
-        viterbi_seq(clusters, new_x + i*HP.L, old_N + i, HP, params);
-    }
-    if (clusters.noisy) {
-        max_cluster_emissions(clusters, HP, params);
     }
 }
 

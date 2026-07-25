@@ -171,6 +171,9 @@ int main(int argc, char *argv[]) {
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
         max_step(clusters, x, HP, params);
+        if (clusters.noisy) {
+            max_cluster_emissions(clusters, HP, params);
+        }
         auto t1 = std::chrono::steady_clock::now();
         expect_step(HP, params, clusters);
         auto t2 = std::chrono::steady_clock::now();
