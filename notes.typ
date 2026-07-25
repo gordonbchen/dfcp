@@ -1573,7 +1573,7 @@ $
 - $epsilon.alt$ getting too high: label switch / downweighting a cluster
 - no cluster emission maximization after imputation?
 - tuning
-- can missing alleles go into a mismatch? (no? but then what is the point of noisy dfcp?)
+- purpose: allowing mismatches makes clustering fit clades better w/ bit flip errors
 
 == initialization
 - durbin (biological sequence analysis): positional bwt
