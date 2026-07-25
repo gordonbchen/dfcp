@@ -1569,6 +1569,12 @@ $
 #pagebreak()
 = TODO
 
+== noisy dfcp
+- $epsilon.alt$ getting too high: label switch / downweighting a cluster
+- no cluster emission maximization after imputation?
+- tuning
+- can missing alleles go into a mismatch? (no? but then what is the point of noisy dfcp?)
+
 == initialization
 - durbin (biological sequence analysis): positional bwt
 - shapeit clustering
@@ -1579,9 +1585,6 @@ $
 == max clade iou
 - denom should be based on clustering of true marginal tree
 - cut tree w/ same \# of clusters as dfcp, then use that normalization weighting
-
-== dfcp w/ epsilon switch
-- dfcp with mismatch = epsilon likelihood instead of 0
 
 == ARG model
 - read The Effect of Single Recombination Events on Coalescent Tree Height and Shape
