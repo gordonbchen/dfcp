@@ -60,7 +60,7 @@ if __name__ == "__main__":
     )
 
     p.add_argument("--mask", type=float, default=0.2)
-    p.add_argument("--val", type=float, default="0.2")
+    p.add_argument("--val", type=float, default=0.2)
 
     p.add_argument("--noisy", type=int, default=0)
     p.add_argument("--soft", type=int, default=0)
@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
     optim = BayesianOptimization(
         f=f,
-        acquisition_function=acquisition.UpperConfidenceBound(),
+        acquisition_function=acquisition.ExpectedImprovement(0.01),
         pbounds=pbounds,
         verbose=2,
     )
