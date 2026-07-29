@@ -112,6 +112,12 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
     for (int l = 0; l < HP.L - 1; ++l) {
         elbo += normal_entropy(params.sigma2_logit_d[l]);
     }
+
+    if (clusters.noisy) {
+        // eps.
+        elbo += betaln(params.alpha_eps, params.beta_eps) - betaln(HP.lambda_1, HP.lambda_2)
+            - (clusters.n_obs - clusters.n_matches) * std::log(HP.K-1.0);
+    }
     return elbo;
 }
 

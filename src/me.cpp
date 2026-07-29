@@ -60,6 +60,7 @@ int main(int argc, char *argv[]) {
     char *tree_vis_fname = nullptr;
     double clade_beta = 2.0;
 
+    bool noisy = false;
     bool soft = false;
     bool block_init = false;
 
@@ -74,6 +75,10 @@ int main(int argc, char *argv[]) {
         else if (arg == "--v_2") { HP.v_2 = parse_double(argv[i+1]); }
         else if (arg == "--phi_1") { HP.phi_1 = parse_double(argv[i+1]); }
         else if (arg == "--phi_2") { HP.phi_2 = parse_double(argv[i+1]); }
+
+        else if (arg == "--noisy") { noisy = parse_int(argv[i+1]) == 1; }
+        else if (arg == "--lambda_1") { HP.lambda_1 = parse_double(argv[i+1]); }
+        else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
 
         else if (arg == "--val") { val = parse_double(argv[i+1]); }
         else if (arg == "--mask") { mask = parse_double(argv[i+1]); }
@@ -93,6 +98,7 @@ int main(int argc, char *argv[]) {
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
     }
+    if (noisy && soft) { throw std::invalid_argument("noisy is only for hard dfcp."); }
     std::cerr << HP << '\n';
 
     // Split val for imputation.
@@ -149,7 +155,7 @@ int main(int argc, char *argv[]) {
 
     // Init params and clusters.
     Params params{HP};
-    Clusters clusters{HP, soft};
+    Clusters clusters{HP, soft, noisy};
     if (block_init) {
         clusters.block_init(x);
     }
@@ -165,6 +171,9 @@ int main(int argc, char *argv[]) {
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
         max_step(clusters, x, HP, params);
+        if (clusters.noisy) {
+            max_cluster_emissions(clusters, HP, params);
+        }
         auto t1 = std::chrono::steady_clock::now();
         expect_step(HP, params, clusters);
         auto t2 = std::chrono::steady_clock::now();
@@ -186,7 +195,8 @@ int main(int argc, char *argv[]) {
     json.add("train_log", train_log);
 
     Json param_log;
-    param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d);
+    param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d)
+        .add("alpha_eps", params.alpha_eps).add("beta_eps", params.beta_eps);
     json.add("params", param_log);
 
     // Impute.
@@ -201,7 +211,7 @@ int main(int argc, char *argv[]) {
         int n_dfcp_correct = 0;
         int n_mode_correct = 0;
         for (SparseX& s : x_val_true) {
-            if (s.x == clusters.r_assign[idx2d(s.i, s.l, HP.L)]->get_imputed_emission()) {
+            if (s.x == clusters.r_assign[idx2d(s.i, s.l, HP.L)]->get_imputed_emission(clusters.soft)) {
                 ++n_dfcp_correct;
             }
             if (s.x == modes[s.l]) {
@@ -385,6 +395,9 @@ int main(int argc, char *argv[]) {
             }
         }
         cluster_purity /= HP.N*HP.L - n_masked_alleles;
+    }
+    else if (clusters.noisy) {
+        cluster_purity = clusters.n_matches / static_cast<double>(clusters.n_obs);
     }
     std::cerr << "cluster_purity=" << cluster_purity << '\n';
     json.add("cluster_purity", cluster_purity);

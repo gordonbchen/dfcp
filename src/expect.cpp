@@ -215,5 +215,11 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
         if (params.sigma2_d[l] <= 0.0) { throw std::runtime_error("sigma2_d < 0."); };
         params.mu_log_d[l] = delta_Elogx(params.mu_d[l], params.sigma2_d[l], 1.0, 0.0);
     }
+
+    if (clusters.noisy) {
+        // eps update.
+        params.alpha_eps = HP.lambda_1 + clusters.n_obs - clusters.n_matches;
+        params.beta_eps = HP.lambda_2 + clusters.n_matches;
+    }
 }
 

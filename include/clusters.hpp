@@ -18,8 +18,7 @@ struct Mode {
 struct Cluster {
     const bool is_r;
     const int l;
-    const bool soft;
-    const int emission;
+    int emission;
 
     size_t n;
     std::vector<size_t> nk;
@@ -29,13 +28,13 @@ struct Cluster {
     std::vector<Cluster*> children;
 
 
-    Cluster(bool is_r_, int l_, bool soft_, int emission_, int K);
+    Cluster(bool is_r_, int l_, int emission_, int K);
 
     void add_child(Cluster *child);
 
     Mode mode();
 
-    int get_imputed_emission();
+    int get_imputed_emission(bool soft);
 };
 
 
@@ -44,16 +43,20 @@ struct Clusters {
 
     const HyperParams& HP;
     const bool soft;
+    const bool noisy;
     int nR;
 
     std::vector<Cluster*> r_assign;
     std::vector<Cluster*> q_assign;
     std::vector<std::unordered_set<Cluster*>> rs;
     std::vector<std::unordered_set<Cluster*>> qs;
+
     std::vector<std::unordered_set<Cluster*>> rs_by_emit;
+    size_t n_matches;
+    size_t n_obs;
 
 
-    Clusters(const HyperParams& HP_, bool soft_);
+    Clusters(const HyperParams& HP_, bool soft_, bool noisy_);
 
     void block_init(const std::vector<int8_t>& x);
 
@@ -66,6 +69,8 @@ struct Clusters {
     void cluster_add(Cluster* cluster, int idx, int emission);
 
     void cluster_remove(Cluster* cluster, int idx, int emission);
+
+    void set_emission(Cluster* c, int new_emission);
 
     int cluster_mode(int l);
 };

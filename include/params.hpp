@@ -23,6 +23,9 @@ struct Params {
     std::vector<double> mu_log_gamma;
     std::vector<double> sigma2_log_gamma;
 
+    double alpha_eps;
+    double beta_eps;
+
     Params(const HyperParams& HP) :
         mu_alpha(HP.tau_1 / HP.tau_2),
         sigma2_alpha(HP.tau_1 / (HP.tau_2*HP.tau_2)),
@@ -37,7 +40,10 @@ struct Params {
         mu_gamma(HP.L, HP.phi_1 / HP.phi_2),
         sigma2_gamma(HP.L, HP.phi_1 / std::pow(HP.phi_2, 2)),
         mu_log_gamma(HP.L, boost::math::digamma(HP.phi_1) - std::log(HP.phi_2)),
-        sigma2_log_gamma(HP.L, boost::math::trigamma(HP.phi_1))
+        sigma2_log_gamma(HP.L, boost::math::trigamma(HP.phi_1)),
+
+        alpha_eps(HP.lambda_1),
+        beta_eps(HP.lambda_2)
     {}
 };
 
