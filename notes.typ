@@ -1357,16 +1357,6 @@ supervised
 
 
 #pagebreak()
-#show link: it => underline(text(fill: blue)[#it])
-== #link("https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0060123&type=printable")[
-  The Effect of Single Recombination Events on Tree Height and Shape
-]
-
-- spatial coalescent is not markov?
-- 
-
-
-#pagebreak()
 = Noisy DFCP
 
 == DFCP
@@ -1566,31 +1556,154 @@ $
 
 
 
+
+#pagebreak()
+= PBWT
+
+== Suffix array
+- BANANA\$
+- suffixes sorted
+  - \$
+  - A\$
+  - ANA\$
+  - ANANA\$
+  - BANANA\$
+  - NA\$
+  - NANA\$
+- suffix array: [6, 5, 3, 1, 0, 4, 2]
+- searching for ANA by binary search: [2, 4), O(M log N)
+
+== BWT
+- sorted rotations
+  - \$BANANA
+  - A\$BANAN
+  - ANA\$BAN
+  - ANANA\$B
+  - BANANA\$
+  - NA\$BANA
+  - NANA\$BA
+- fist col \$AAABNN is sorted text, last col ANNB\$AA is BWT
+- construction from the suffix array: BWT[i] = T[SA[i] - 1 mod N]
+  - since SA is the idx of first, and the BWT has the char before first
+- similar suffixes grouped, bwt is prev char. bwt assumes similar suffix -> similar prev char.
+- LF mapping: first A in L is first A in F
+
+- $"Occ"(c, i) = |{j : j in [0, i), L[j] = c}|$, the number of chars $c$ in the $i$ prefix of $L$
+
+  $C[c] = |{"chars in T smaller than" c}|$
+
+- Backward search
+  - [l, r) has suffixes beginning with string $Q$. we want to find interval of suffixes starting with $c Q$.
+  - $l' = C[c] + "Occ"(c, l)$
+
+    $r' = C[c] + "Occ"(c, r)$
+
+    rows in L in the interval [l, r) that are c are suffixes that start with cQ. so Occ(c, l) counts the
+    number of cs before the interval (not cQ) and Occ(c, r) counts the number of cs at the end of the interval.
+    then all c starting suffixes start at C[c]. so C[c] + Occ(c, l) goes to suffixes starting with c, but then
+    skips the number of cs without a Q after.
+
+  ex: F=\$AAABNN, L=ANNB\$AA, search for NA
+  - [l, r) =  [0, 7)
+  - A. C[A] = 1. Occ(A, 0) = 0. Occ(A, 7) = 3. [l, r) = [1, 4)
+  - NA. C[N] = 5. Occ(N, 1) = 0. Occ(N, 4) = 2. [l, r) = [5, 7)
+
+
+== PBWT
+- at each position $k$: sort reversed prefixes $x_i [0:k)$.
+
+  let the argsorted inds be $a_k [0] .. a_k [M-1]$, positional prefix array
+
+  $"rev"(x_(a_k [0])[0:k)) <= "rev"(x_(a_k [1])[0:k)) <= ... <= "rev"(x_(a_k [M-1])[0:k))$
+
+  let $y_i^k = x_(a_k [i])$, the ith haplotype sorted at position k by the reversed prefix.
+
+- naively sorting M N-length haplotypes at each position would be O(N^2 M log M)
+
+  but since at each next $k$ we are only adding a single allele to the reversed prefix we can bucket sort.
+
+  let $R_i^k = "rev"(x_i [0:k))$. then $R_i^(k+1) = cases(0 R_i^k, 1 R_i^k)$. So just add already sorted into
+  0 or 1 buckets, then concat 0 and 1 buckets.
+
+  $O(M N)$ to contsruct all positional prefix arrays.
+
+- PBWT: $y_k [i] = x_(a_k [i]) [k]$, transforms the allele matrix after sorting at each position.
+
+- divergence array; $d_k [i] = min{j : y^k_(i-1)[j:k) = y^k_(i)[j:k)}$, the first index where the match begins
+
+  adjacent haplotypes match on $[d_k [i], k)$
+
+  $x = mat(0, 1, 0, 1; 1, 1, 0, 0; 0, 0, 1, 1; 1, 0, 1, 0; 0, 1, 1, 0)$
+
+  $k=3$ already sorted by reversed prefix.
+
+  $d_3 = [-, 1, 3, 1, 2]$
+
+  divergence array b/t nonadjacent haplotypes. since $d_k [i]$ means that i-1 and i match from $d_k [i]$,
+  then the start of the common suffix b/t rows i, j is $D_k(i, j) = max_(m in [i, j)) d_k [m]$
+
+  then we can compute groups that match on $[j, k)$ at $k$
+
+  $d_3 = [-, 1, 3, 1, 2]$. then we need $d_k [i] <= j$ for $i$ and $i-1$ to match on at least $[j, k)$.
+
+  so the matching groups are $[0, 1], [2, 3, 4]$.
+
+- updating $d_k -> d_(k+1)$
+
+  match new allele (in same bucket): $d_(k+1)(i,j) = d_k (i,j)$
+
+  mismatch new allele (b/t 0 and 1 buckets): $d_(k+1)(i,j) = k+1$
+
+  - ex: $k=5$, $a_k [i] = [A,B,C,D,E,F]$, $y_k [i] = 011010$, $d_k = [-, 2, 4, 1, 3, 0]$
+
+    0 bucket: $[A,D,F]$, 1 bucket: $[B, C, E]$
+
+    0 bucket divergences: $[6, 4, 3]$, 1 bucket divergences: $[6, 4, 3]$
+
+    $d_(k+1) = [6, 4, 3, 6, 4, 3]$
+
+  running max algorithm
+  - $p$ = max divergence since prev 0, $q$ = max divergence since prev 1
+  - init $p,q = k+1 = 6$
+  - iterate left to right on prev ordering.
+    - always take max of divergence value and $p, q$
+    - see 0: output $p$, $p=0$.
+    - see 1: output $q$, $q=0$.
+  - $O(N M)$, 1 sweep through M individuals at every N positions
+
+- reporting locally maximal matches with length at least L ending at k
+
+  need $d_k [m] <= k-L$ for $m in (i, j]$ for match b/t $i, j$.
+
+  iterating over k and i, over groups separated by $d_k [i] > k-L$, and over buckets 0 and 1 within groups
+  - allele match: match is not maximal, so no within bucket matches
+  - allele mismatch: then match b/t all 0 and 1 bucket seqs in the group
+  - so report all pairs across 0 and 1 buckets
+  - $O(M N + \# "matches")$
+
+- set maximal matches: locally maximal match b/t $s$ and $x_i$ on $[k_1, k_2)$ is set maximal
+  if there is no other $x_j$ that matches $s$ on an interval strictly containing $[k_1, k_2)$.
+
+
+
+
 #pagebreak()
 = TODO
 
-== noisy dfcp
+== noisy dfcp: allow mismatches for better clustering
 - $epsilon.alt$ getting too high: label switch / downweighting a cluster
-- no cluster emission maximization after imputation?
-- tuning
-- purpose: allowing mismatches makes clustering fit clades better w/ bit flip errors
+- HP tuning: botorch with pareto (https://botorch.org/docs/multi_objective)
+- is noisy dfcp the same as soft dfcp when $K=2$?
+  - no. noisy dfcp has a categorical per location, soft dfcp has a categorical per cluster.
+  - model flexibility: dfcp, noisy dfcp fixed eps, noisy dfcp, noisy dfcp w/ eps per location, soft dfcp.
 
 == initialization
-- durbin (biological sequence analysis): positional bwt
-- shapeit clustering
+- positional bwt
 
-== hp tuning
-- botorch with pareto (https://botorch.org/docs/multi_objective)
-
-== max clade iou
-- denom should be based on clustering of true marginal tree
-- cut tree w/ same \# of clusters as dfcp, then use that normalization weighting
-
-== ARG model
-- read The Effect of Single Recombination Events on Coalescent Tree Height and Shape
-- need probabilistic model tying marginal trees together, w/ kingman's coalescent distributed marginal trees
+== eval
+- internal repr of shapeit / beagle
 
 == next possible
-- eval internal repr of shapeit / beagle
 - multimodal: adding likelihood terms
+- arg model: "The Effect of Single Recombination Events on Coalescent Tree Height and Shape"
 
