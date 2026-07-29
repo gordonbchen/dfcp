@@ -1689,21 +1689,11 @@ $
 
 #pagebreak()
 = TODO
+- pbwt init
+- phasing
+- eval: shapeit, beagle, eagle
 
-== noisy dfcp: allow mismatches for better clustering
-- $epsilon.alt$ getting too high: label switch / downweighting a cluster
-- HP tuning: botorch with pareto (https://botorch.org/docs/multi_objective)
-- is noisy dfcp the same as soft dfcp when $K=2$?
-  - no. noisy dfcp has a categorical per location, soft dfcp has a categorical per cluster.
-  - model flexibility: dfcp, noisy dfcp fixed eps, noisy dfcp, noisy dfcp w/ eps per location, soft dfcp.
-
-== initialization
-- positional bwt
-
-== eval
-- internal repr of shapeit / beagle
-
-== next possible
-- multimodal: adding likelihood terms
+== ideas
+- methylation (cancer data)
 - arg model: "The Effect of Single Recombination Events on Coalescent Tree Height and Shape"
 
