@@ -42,13 +42,16 @@ def get_dfcp_cmd(
     return cmd
 
 
-def dfcp(opt_name: str, **kwargs) -> float:
+def dfcp(opt_name: str, trial_reps: int, **kwargs) -> float:
     cmd = get_dfcp_cmd(**kwargs)
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode:
-        return 0.0
-    out = json.loads(res.stdout)
-    return out[opt_name]
+    mean = 0.0
+    for _ in range(trial_reps):
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode:
+            return 0.0
+        out = json.loads(res.stdout)
+        mean += out[opt_name]
+    return mean / trial_reps
 
 
 if __name__ == "__main__":
@@ -74,6 +77,7 @@ if __name__ == "__main__":
     p.add_argument("--init_points", type=int, default=10)
     p.add_argument("--n_iter", type=int, default=100)
     p.add_argument("--opt_name", type=str, default="dfcp_impute_acc")
+    p.add_argument("--trial_reps", type=int, default=1)
     args = p.parse_args()
 
     eval_args = dict(
@@ -85,7 +89,7 @@ if __name__ == "__main__":
     )
     f = partial(
         dfcp,
-        opt_name=args.opt_name,
+        opt_name=args.opt_name, trial_reps=args.trial_reps,
         **eval_args
     )
 
