@@ -16,13 +16,13 @@ if __name__ == "__main__":
     if args.verbose: print(f"X {X.shape}\n{X}")
 
     # Build prefix and divergence arrays.
-    a = np.zeros((N,L), dtype=np.int32)
+    a = np.zeros((N,L+1), dtype=np.int32)
     a[:, 0] = np.arange(N)
 
-    d = np.zeros((N+1,L), dtype=np.int32)
-    d[-1] = np.arange(L)
+    d = np.zeros((N+1,L+1), dtype=np.int32)
+    d[-1] = np.arange(L+1)
 
-    for l in range(L-1):
+    for l in range(L):
         zeros, ones = [], []
 
         zero_d, one_d = [], []
@@ -41,11 +41,8 @@ if __name__ == "__main__":
                 one_d.append(q)
                 q = 0
 
-        a[:len(zeros),l+1] = zeros
-        a[len(zeros):,l+1] = ones
-
-        d[:len(zero_d),l+1] = zero_d
-        d[len(zero_d):-1,l+1] = one_d
+        a[:,l+1] = zeros + ones
+        d[:N,l+1] = zero_d + one_d
     if args.verbose: print(f"a\n{a}\nd\n{d}")
 
     # PBWTed X.
@@ -61,7 +58,7 @@ if __name__ == "__main__":
     K = 2
     print(f"Finding locally maximal matches of length at least {K}.")
     local_matches = []
-    for l in range(K, L):
+    for l in range(K, L+1):
         zeros, ones = [], []
 
         for i in range(N):
@@ -72,7 +69,7 @@ if __name__ == "__main__":
                 zeros.clear()
                 ones.clear()
 
-            if X[a[i,l],l] == 0:
+            if X[a[i,l],l] == 0: # TODO: all combinations, not zeros x ones at end.
                 zeros.append(a[i,l])
             else:
                 ones.append(a[i,l])
