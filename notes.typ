@@ -1684,6 +1684,20 @@ $
 - set maximal matches: locally maximal match b/t $s$ and $x_i$ on $[k_1, k_2)$ is set maximal
   if there is no other $x_j$ that matches $s$ on an interval strictly containing $[k_1, k_2)$.
 
+  for binary sequences, set maximal matches are adjacent after prefix sorting.
+  let $x_i$ and $x_j$ have a set maximal match on $[k_0, k_1)$.
+  assume FSOC $x_q$ between $x_i$ and $x_j$ in the prefix sorted order.
+  then $x_i [k_0:k_1) = x_q [k_0:k_1) = x_j [k_0:k_1)$. but $x_i$ and $x_j$ are set maximal so
+  cannot be extended to either side, so they must differ on both endpoints. Then $x_q$ must match
+  on an endpt, so $x_i, x_j$ not set maximal, contradiction.
+
+  consider sequence $i$ in the prefix sorted ordering. $i$ matches $i-1$ starting at $d_(k)[i]$,
+  and $i$ matches $i+1$ starting at $d_(k)[i+1]$.
+  - $d_(k)[i] < d_(k)[i+1])$: $i-1$ is a better match than $i+1$. let $i' = i$.
+    scan backwards ($-- i'$) until you find $d_(k)[i'] > d_k [i]$. then $i' .. i$ are
+    set maximal. if we find any $y_k[i] == y_k[i']$ then don't report any set maximal matches
+    since the match can be extended to the right.
+
 
 
 
