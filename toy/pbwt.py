@@ -119,9 +119,11 @@ if __name__ == "__main__":
                 if loc_match: continue
 
             for j in range(lb, i):
-                set_max_matches.append((d[i,l], l, a[i,l], a[j,l]))
+                if d[i,l] < l:
+                    set_max_matches.append((d[i,l], l, a[i,l], a[j,l]))
             for j in range(i+1, ub+1):
-                set_max_matches.append((d[i+1,l], l, a[i,l], a[j,l]))
+                if d[i+1,l] < l:
+                    set_max_matches.append((d[i+1,l], l, a[i,l], a[j,l]))
     if args.verbose: print(f"set maximal matches: {set_max_matches}")
     print(f"# set maximal matches: {len(set_max_matches)}")
 
