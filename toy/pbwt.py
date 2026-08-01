@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
             # Extend forwards.
             if (i != N-1) and (d[i+1,l] <= d[i,l]):
-                while (ub < N-1) and (d[ub,l] <= d[i+1,l]):
+                while (ub < N-1) and (d[ub+1,l] <= d[i+1,l]):
                     ub += 1
                     if (l != L) and (X[a[i,l],l] == X[a[ub,l],l]):
                         loc_match = True
