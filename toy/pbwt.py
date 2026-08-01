@@ -154,10 +154,10 @@ if __name__ == "__main__":
             f, g = f_new, g_new
             continue
 
-        for i in range(f, g):
-            matches.append((e, l, int(a[i,l])))
+        if e < l:
+            for i in range(f, g):
+                matches.append((e, l, int(a[i,l])))
 
-        if l == L-1: break
         f, g = f_new, g_new
 
         e = l+1 if f == N else int(d[f,l+1]) - 1
@@ -170,7 +170,11 @@ if __name__ == "__main__":
             # Extend forwards.
             g += 1
             while (e > 0) and (z[e-1] == X[a[f,l+1],e-1]): e -= 1
-            while (g < N) and (d[g+1,l+1] <= e): g += 1
+            while (g < N) and (d[g,l+1] <= e): g += 1
+
+    if e < L:
+        for i in range(f, g):
+            matches.append((e, L, int(a[i,L])))
 
     print(f"# set maximal matches to z: {len(matches)}")
     if args.verbose: print(f"set maximal matches to z: {matches}")
