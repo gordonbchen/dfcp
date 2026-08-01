@@ -160,7 +160,7 @@ if __name__ == "__main__":
 
         f, g = f_new, g_new
 
-        e = l+1 if f == N else int(d[f,l+1]) - 1
+        e = l+1 if (f == N) or (f == 0) else int(d[f,l+1]) - 1
         if (f == N) or ((f > 0) and (z[e] == 0)):
             # Extend back.
             f -= 1
