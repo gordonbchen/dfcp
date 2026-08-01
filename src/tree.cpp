@@ -102,7 +102,7 @@ std::tuple<std::vector<std::unordered_map<int, std::tuple<int, int>>>, std::vect
         recomb_pos.push_back(parse_coal_tree(line.c_str(), trees[l]));
         ++l;
     }
-    return std::tuple{trees, recomb_pos};
+    return {std::move(trees), std::move(recomb_pos)};
 }
 
 
