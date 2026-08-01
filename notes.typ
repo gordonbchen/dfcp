@@ -1698,6 +1698,34 @@ $
     set maximal. if we find any $y_k[i] == y_k[i']$ then don't report any set maximal matches
     since the match can be extended to the right.
 
+- matching a haplotype not in the PBWT.
+
+  dataset $X$ we already have the PBWT on, new seq $z$. let $z[e_k,k)$ be the largest interval ending at $k$
+  that matches at least 1 panel haplotype. the panel haplotypes are in $[f_k, g_k)$ in the ordering $a_k$.
+
+  extending an existing match. $z[e,k)$ matches on $[f, g)$. want to find $[f', g')$ for $z[e,k+1)$.
+  adding a $0$ or $1$ to the end of $z[e,k)$ puts it into the bucket, and the number of same bucket seqs
+  in the previous stable partition.
+
+  let $u_k (i) = |{j : j < i, y_k [i] = 0}|$. let $v_k (i) = |{j : j < i, y_k [i] = 1}|$.
+  let $c_k = |{i : y_k [i] = 0}|$. then $i -> w_k (i, b)$ where
+
+  $
+  w_k (i, b) = cases(
+    u_k (i) wide &b=0,
+    c_k + v_k (i) wide &b=1
+  )
+  $
+
+  so $[f, g) -> [w_k (f, b), w_k (g, b))$.
+
+  while $[f,g)$ nonempty, $e_(k+1), [f_(k+1), g_(k+1)) = e_k, [w_k (f, b), w_k (g, b))$.
+
+  if $f=g=h$, then no panel haplotypes match $z[0,k+1)$. then $y^k_(h-1)[0,k) < z[0,k+1) < y^k_(h)[0,k)$.
+  then $e' = d_k [h] - 1$ since $z$ matches better with seq $h-1$ or $h$. then extend $e'$ back in position
+  until you find a mismatch, and then extend $f'$ or $g'$ back or forwards (respectively) until the divergence > $e'$.
+
+
 
 
 
