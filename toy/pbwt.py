@@ -105,7 +105,7 @@ if __name__ == "__main__":
                 while (lb > 0) and (d[lb,l] <= d[i,l]):
                     lb -= 1
                     # Not set maximal if can be right extended.
-                    if (l <= L-1) and (X[a[i,l],l] == X[a[lb,l],l]):
+                    if (l != L) and (X[a[i,l],l] == X[a[lb,l],l]):
                         loc_match = True
                         break
                 if loc_match: continue
@@ -114,7 +114,7 @@ if __name__ == "__main__":
             if (i != N-1) and (d[i+1,l] <= d[i,l]):
                 while (ub < N-1) and (d[ub,l] <= d[i+1,l]):
                     ub += 1
-                    if (l <= L-1) and (X[a[i,l],l] == X[a[ub,l],l]):
+                    if (l != L) and (X[a[i,l],l] == X[a[ub,l],l]):
                         loc_match = True
                         break
                 if loc_match: continue
