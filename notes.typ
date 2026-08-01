@@ -1725,7 +1725,17 @@ $
   then $e' = d_k [h] - 1$ since $z$ matches better with seq $h-1$ or $h$. then extend $e'$ back in position
   until you find a mismatch, and then extend $f'$ or $g'$ back or forwards (respectively) until the divergence > $e'$.
 
+== PBWT DFCP initialization
+Unidirectional
+- PBWT on $X$.
+- match length threshold $K$
+- blocks of $a_k$ st $d_k [i,l] <= l-K$ for all $i$ in block.
+- motivation: blocks (partitions) are constructed so that they have similar prefixes.
+- then need a Q cluster for each pair of $({a in R_l}, {a' in R_(l+1)})$ 
 
+adaptive match length threshold: choose largest $K$ to get avg \# clusters $<$ threshold. (binary search?)
+
+bidirectional PBWT to get clusters that match on $[l-K, l]$ and $[l+1, l+1+K)$.
 
 
 
