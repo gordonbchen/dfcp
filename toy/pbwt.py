@@ -82,12 +82,12 @@ if __name__ == "__main__":
         if d[i,L] > L-K:
             for j in range(len(match_group)):
                 for k in range(j+1, len(match_group)):
-                    local_matches.append((L, j, k))
+                    local_matches.append((L, match_group[j], match_group[k]))
             match_group.clear()
         match_group.append(a[i,L])
     for j in range(len(match_group)):
         for k in range(j+1, len(match_group)):
-            local_matches.append((L, j, k))
+            local_matches.append((L, match_group[j], match_group[k]))
 
     if args.verbose: print(f"local matches: {local_matches}")
     print(f"# local matches: {len(local_matches)}")
