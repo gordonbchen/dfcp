@@ -19,8 +19,7 @@ if __name__ == "__main__":
     a = np.zeros((N,L+1), dtype=np.int32)
     a[:, 0] = np.arange(N)
 
-    d = np.zeros((N+1,L+1), dtype=np.int32)
-    d[-1] = np.arange(L+1)
+    d = np.zeros((N,L+1), dtype=np.int32)
 
     for l in range(L):
         zeros, ones = [], []
@@ -101,7 +100,7 @@ if __name__ == "__main__":
             loc_match = False
 
             # Extend back.
-            if (i != 0) and (d[i,l] <= d[i+1,l]):
+            if (i == N-1) or ((i != 0) and (d[i,l] <= d[i+1,l])):
                 while (lb > 0) and (d[lb,l] <= d[i,l]):
                     lb -= 1
                     # Not set maximal if can be right extended.
