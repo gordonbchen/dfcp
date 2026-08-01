@@ -58,7 +58,7 @@ if __name__ == "__main__":
     K = 2
     print(f"Finding locally maximal matches of length at least {K}.")
     local_matches = []
-    for l in range(K, L+1):
+    for l in range(K, L):
         zeros, ones = [], []
 
         for i in range(N):
@@ -69,7 +69,7 @@ if __name__ == "__main__":
                 zeros.clear()
                 ones.clear()
 
-            if X[a[i,l],l] == 0: # TODO: all combinations, not zeros x ones at end.
+            if X[a[i,l],l] == 0:
                 zeros.append(a[i,l])
             else:
                 ones.append(a[i,l])
@@ -77,6 +77,19 @@ if __name__ == "__main__":
         for j in zeros:
             for k in ones:
                 local_matches.append((l, j, k))
+
+    match_group = []  # Final location matches all combinations, no zeros x ones.
+    for i in range(N):
+        if d[i,L] > L-K:
+            for j in range(len(match_group)):
+                for k in range(j+1, len(match_group)):
+                    local_matches.append((L, j, k))
+            match_group.clear()
+        match_group.append(a[i,L])
+    for j in range(len(match_group)):
+        for k in range(j+1, len(match_group)):
+            local_matches.append((L, j, k))
+
     if args.verbose: print(f"local matches: {local_matches}")
     print(f"# local matches: {len(local_matches)}")
 
