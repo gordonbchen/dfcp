@@ -95,7 +95,7 @@ if __name__ == "__main__":
 
     # Set maximal matches.
     set_max_matches = []
-    for l in range(L):
+    for l in range(1, L+1):
         for i in range(N):
             lb, ub = i, i
             loc_match = False
@@ -105,24 +105,24 @@ if __name__ == "__main__":
                 while (lb > 0) and (d[lb,l] <= d[i,l]):
                     lb -= 1
                     # Not set maximal if can be right extended.
-                    if (X[a[i,l],l] == X[a[lb,l],l]) and (l != L-1):
+                    if (l <= L-1) and (X[a[i,l],l] == X[a[lb,l],l]):
                         loc_match = True
                         break
                 if loc_match: continue
 
             # Extend forwards.
             if (i != N-1) and (d[i+1,l] <= d[i,l]):
-                while (ub < N-1) and (d[ub,l] <= d[i,l]):
+                while (ub < N-1) and (d[ub,l] <= d[i+1,l]):
                     ub += 1
-                    if X[a[i,l],l] == X[a[ub,l],l] and (l != L-1):
+                    if (l <= L-1) and (X[a[i,l],l] == X[a[ub,l],l]):
                         loc_match = True
                         break
                 if loc_match: continue
 
             for j in range(lb, i):
-                set_max_matches.append((l, i, j))
-            for j in range(i+1, ub):
-                set_max_matches.append((l, i, j))
+                set_max_matches.append((d[i,l], l, a[i,l], a[j,l]))
+            for j in range(i+1, ub+1):
+                set_max_matches.append((d[i+1,l], l, a[i,l], a[j,l]))
     if args.verbose: print(f"set maximal matches: {set_max_matches}")
     print(f"# set maximal matches: {len(set_max_matches)}")
 
