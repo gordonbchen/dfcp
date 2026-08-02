@@ -68,10 +68,10 @@ if __name__ == "__main__":
     )
     POST_METRICS = ("elbo", "iterations")
     METRICS = (
-        "t_init", "iterations",
         "dfcp_impute_acc", "elbo",
         "clade_iou", "mean_excess_parsimony",
         "mean_iou", "mean_clusters",
+        "t_init", "iterations",
     )
     PLOT_TITLES = {
         "elbo": "final elbo (post-training)",
