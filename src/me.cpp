@@ -65,6 +65,7 @@ int main(int argc, char *argv[]) {
     bool block_init = false;
     bool pbwt_init = false;
     int pbwt_match_len = 5;
+    bool init_only = false;
 
     int i = 2;
     while (i < argc) {
@@ -98,6 +99,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--pbwt_init") { pbwt_init = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
+        else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
 
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
@@ -177,40 +179,43 @@ int main(int argc, char *argv[]) {
     std::cerr << "t_init=" << t_init << '\n';
     json.add("t_init", t_init);
 
-    EarlyStopping early_stop{2, false, 1e-3};
-    double elbo = 0.0;
+    // Train.
+    if (!init_only) {
+        EarlyStopping early_stop{2, false, 1e-3};
+        double elbo = 0.0;
 
-    std::vector<Json> train_log;
-    while (!early_stop.converged()) {
-        auto t0 = std::chrono::steady_clock::now();
-        max_step(clusters, x, HP, params);
-        if (clusters.noisy) {
-            max_cluster_emissions(clusters, HP, params);
+        std::vector<Json> train_log;
+        while (!early_stop.converged()) {
+            auto t0 = std::chrono::steady_clock::now();
+            max_step(clusters, x, HP, params);
+            if (clusters.noisy) {
+                max_cluster_emissions(clusters, HP, params);
+            }
+            auto t1 = std::chrono::steady_clock::now();
+            expect_step(HP, params, clusters);
+            auto t2 = std::chrono::steady_clock::now();
+            elbo = calc_elbo(HP, params, clusters);
+            auto t3 = std::chrono::steady_clock::now();
+            early_stop.update(elbo);
+
+            auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+            auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+            auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
+            auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
+            std::cerr << early_stop.step << ": elbo=" << elbo
+                << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
+                << "ms t_step=" << t_step << "ms\n";
+            train_log.emplace_back();
+            train_log[train_log.size()-1].add("elbo", elbo)
+                .add("t_max", t_max).add("t_expect", t_expect).add("t_elbo", t_elbo).add("t_step", t_step);
         }
-        auto t1 = std::chrono::steady_clock::now();
-        expect_step(HP, params, clusters);
-        auto t2 = std::chrono::steady_clock::now();
-        elbo = calc_elbo(HP, params, clusters);
-        auto t3 = std::chrono::steady_clock::now();
-        early_stop.update(elbo);
+        json.add("train_log", train_log);
 
-        auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-        auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
-        auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
-        auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
-        std::cerr << early_stop.step << ": elbo=" << elbo
-            << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
-            << "ms t_step=" << t_step << "ms\n";
-        train_log.emplace_back();
-        train_log[train_log.size()-1].add("elbo", elbo)
-            .add("t_max", t_max).add("t_expect", t_expect).add("t_elbo", t_elbo).add("t_step", t_step);
+        Json param_log;
+        param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d)
+            .add("alpha_eps", params.alpha_eps).add("beta_eps", params.beta_eps);
+        json.add("params", param_log);
     }
-    json.add("train_log", train_log);
-
-    Json param_log;
-    param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d)
-        .add("alpha_eps", params.alpha_eps).add("beta_eps", params.beta_eps);
-    json.add("params", param_log);
 
     // Impute.
     if (n_val_seqs > 0) {
