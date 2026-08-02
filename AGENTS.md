@@ -367,9 +367,9 @@ Required for the executable:
 The build enables `-Wall -Wextra -Wpedantic -O3`. There is currently no
 install target, library target, automated test target, or CI configuration.
 
-The active plotting scripts require Python and Matplotlib. Historical and
-notebook work may additionally require NumPy, SciPy, Graphviz, Jupyter, and
-line-profiler. There is no tracked Python package or lock manifest.
+The active plotting scripts require Python, Matplotlib, and Plotly. Historical
+and notebook work may additionally require NumPy, SciPy, Graphviz, Jupyter,
+and line-profiler. There is no tracked Python package or lock manifest.
 
 ## Testing And Verification
 
