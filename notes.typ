@@ -1757,6 +1757,10 @@ potential problems: noisy, no perfect matches
 - adaptive match length threshold: choose largest match length to get avg \# clusters < threshold. binary search?
 - option to include current allele in match
 
+== model changes
+- $alpha$ per location
+- $epsilon$ per location for noisy
+
 == ideas
 - methylation (cancer data)
 - arg model: "The Effect of Single Recombination Events on Coalescent Tree Height and Shape"
