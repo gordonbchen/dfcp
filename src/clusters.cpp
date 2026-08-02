@@ -90,7 +90,7 @@ void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len) {
         Cluster *c = nullptr;
         for (int i = 0; i < HP.N; ++i) {
             int ai = a[idx2d(i,l+1,HP.L+1)];  // Match prefix including l.
-            if (d[idx2d(i,l+1,HP.L+1)] > l-match_len) {
+            if (d[idx2d(i,l+1,HP.L+1)] > std::max(l-match_len, 0)) {
                 c = create_empty_cluster(true, l, x[idx2d(ai,l,HP.L)]);
             }
             cluster_add(c, ai, x[idx2d(ai,l,HP.L)]);
