@@ -1,12 +1,47 @@
+import re
+from pathlib import Path
+
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from dfcp import build_dfcp, run_dfcp, get_dfcp_parser
 
 
+ERROR_RE = re.compile(r"\.txt\.gz_([0-9.]+)_([0-9.]+)\.txt\.gz_")
+
+
+def get_seq_label(seq_file: Path) -> str:
+    match = ERROR_RE.search(seq_file.name)
+    if match is None:
+        return "Baseline (no injected errors)"
+    return f"Bit flip {match.group(1)}, switch {match.group(2)}"
+
+
+def get_seq_sort_key(seq_file: Path) -> tuple[bool, float, float]:
+    match = ERROR_RE.search(seq_file.name)
+    if match is None:
+        return False, 0.0, 0.0
+    return True, float(match.group(1)), float(match.group(2))
+
+
 if __name__ == "__main__":
     p = get_dfcp_parser()
+    p.set_defaults(seq_file=None)
+    p.add_argument(
+        "--seq_dir", type=Path,
+        default=Path("data/examples/simulated/SIM1_LEN500_NHAPS100"),
+    )
+    p.add_argument("--seq_files", type=Path, nargs="+")
     args = p.parse_args()
+
+    if args.seq_files is not None:
+        seq_files = args.seq_files
+    elif args.seq_file is not None:
+        seq_files = [Path(args.seq_file)]
+    else:
+        seq_files = sorted(args.seq_dir.glob("haps_*.txt"), key=get_seq_sort_key)
+    if not seq_files:
+        raise RuntimeError("no haplotype sequence files found")
 
     build_dfcp()
 
@@ -49,46 +84,53 @@ if __name__ == "__main__":
         "soft": {"noisy": 0, "soft": 1},
     }
     data = {
-        mode: {
-            phase: {i: {m: [] for m in METRICS} for i in INIT_METHODS}
-            for phase in PHASES
+        seq_idx: {
+            mode: {
+                phase: {i: {m: [] for m in METRICS} for i in INIT_METHODS}
+                for phase in PHASES
+            }
+            for mode in MODES
         }
-        for mode in MODES
+        for seq_idx in range(len(seq_files))
     }
 
-    MASKS = (0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 0.99)
+    MASKS = (0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
 
-    for mode, mode_flags in MODES.items():
-        for init_method in INIT_METHODS:
-            for mask in MASKS:
-                for phase, init_only in PHASES.items():
-                    res = run_dfcp(
-                        args.seq_file,
+    for seq_idx, seq_file in enumerate(seq_files):
+        for mode, mode_flags in MODES.items():
+            for init_method in INIT_METHODS:
+                print(f"{seq_file} {mode} {init_method}")
+                for mask in MASKS:
+                    for phase, init_only in PHASES.items():
+                        res = run_dfcp(
+                            str(seq_file),
 
-                        val=0.2, mask=mask,
+                            val=0.2, mask=mask,
 
-                        tree=args.tree, variant_pos_fname=args.variant_pos_fname,
-                        variant_start_pos=args.variant_start_pos,
-                        clade_beta=args.clade_beta,
+                            tree=args.tree, variant_pos_fname=args.variant_pos_fname,
+                            variant_start_pos=args.variant_start_pos,
+                            clade_beta=args.clade_beta,
 
-                        noisy=mode_flags["noisy"], soft=mode_flags["soft"],
-                        block_init=int(init_method == "block"),
-                        pbwt_init=int(init_method[0] == "pbwt"),
-                        pbwt_match_len=(
-                            init_method[1] if init_method[0] == "pbwt" else None
-                        ),
-                        init_only=init_only,
-                    )
-                    for metric in SHARED_METRICS:
-                        data[mode][phase][init_method][metric].append(res[metric])
-                    if phase == "post":
-                        train_log = res["train_log"]
-                        data[mode][phase][init_method]["elbo"].append(
-                            train_log[-1]["elbo"]
+                            noisy=mode_flags["noisy"], soft=mode_flags["soft"],
+                            block_init=int(init_method == "block"),
+                            pbwt_init=int(init_method[0] == "pbwt"),
+                            pbwt_match_len=(
+                                init_method[1] if init_method[0] == "pbwt" else None
+                            ),
+                            init_only=init_only,
                         )
-                        data[mode][phase][init_method]["iterations"].append(
-                            len(train_log)
-                        )
+                        for metric in SHARED_METRICS:
+                            data[seq_idx][mode][phase][init_method][metric].append(
+                                res[metric]
+                            )
+                        if phase == "post":
+                            train_log = res["train_log"]
+                            data[seq_idx][mode][phase][init_method]["elbo"].append(
+                                train_log[-1]["elbo"]
+                            )
+                            data[seq_idx][mode][phase][init_method]["iterations"].append(
+                                len(train_log)
+                            )
 
     ncols = 2
     nrows = (len(METRICS) + ncols - 1) // ncols
@@ -101,49 +143,63 @@ if __name__ == "__main__":
         row = plot_idx // ncols + 1
         col = plot_idx % ncols + 1
         phases = ("post",) if metric in POST_METRICS else PHASES
-        for mode in MODES:
-            for phase in phases:
-                trace_phase = "post_only" if metric in POST_METRICS else phase
-                for init_method in INIT_METHODS:
-                    is_pbwt = init_method[0] == "pbwt"
-                    method = "pbwt" if is_pbwt else init_method
-                    name = f"PBWT {init_method[1]}" if is_pbwt else init_method
-                    line = (
-                        {"color": PBWT_COLORS[init_method[1]], "width": 2}
-                        if is_pbwt else LINE_STYLES[init_method]
-                    )
-                    fig.add_trace(
-                        go.Scatter(
-                            x=MASKS,
-                            y=data[mode][phase][init_method][metric],
-                            name=name,
-                            legendgroup=name,
-                            showlegend=False,
-                            visible=(
-                                mode == "hard" and
-                                trace_phase in ("pre", "post_only")
+        for seq_idx, seq_file in enumerate(seq_files):
+            for mode in MODES:
+                for phase in phases:
+                    trace_phase = "post_only" if metric in POST_METRICS else phase
+                    for init_method in INIT_METHODS:
+                        is_pbwt = init_method[0] == "pbwt"
+                        method = "pbwt" if is_pbwt else init_method
+                        name = f"PBWT {init_method[1]}" if is_pbwt else init_method
+                        line = (
+                            {"color": PBWT_COLORS[init_method[1]], "width": 2}
+                            if is_pbwt else LINE_STYLES[init_method]
+                        )
+                        fig.add_trace(
+                            go.Scatter(
+                                x=MASKS,
+                                y=data[seq_idx][mode][phase][init_method][metric],
+                                name=name,
+                                legendgroup=name,
+                                showlegend=False,
+                                visible=(
+                                    seq_idx == 0 and mode == "hard" and
+                                    trace_phase in ("pre", "post_only")
+                                ),
+                                line=line,
+                                meta={
+                                    "dataset": seq_idx,
+                                    "dataset_file": seq_file.name,
+                                    "dataset_label": get_seq_label(seq_file),
+                                    "method": method,
+                                    "match_len": init_method[1] if is_pbwt else None,
+                                    "mode": mode,
+                                    "phase": trace_phase,
+                                },
                             ),
-                            line=line,
-                            meta={
-                                "method": method,
-                                "match_len": init_method[1] if is_pbwt else None,
-                                "mode": mode,
-                                "phase": trace_phase,
-                            },
-                        ),
-                        row=row,
-                        col=col,
-                    )
+                            row=row,
+                            col=col,
+                        )
 
     fig.update_xaxes(title_text="mask frac")
     fig.update_layout(
         height=nrows * 450,
-        title=f"DFCP init methods: pre/post-training metrics<br>seq_file: {args.seq_file}",
+        title=(
+            "DFCP init methods: pre/post-training metrics"
+        ),
         margin={"b": 60, "t": 100},
     )
 
     post_script = r"""
 const plot = document.getElementById('{plot_id}');
+const datasets = [...new Map(plot.data.map(trace => [
+    trace.meta.dataset,
+    {
+        id: trace.meta.dataset,
+        label: trace.meta.dataset_label,
+        file: trace.meta.dataset_file,
+    },
+])).values()];
 const pbwtMatchLengths = [...new Set(
     plot.data
         .filter(trace => trace.meta.method === 'pbwt')
@@ -154,9 +210,11 @@ let selectedMatchLength = pbwtMatchLengths[0];
 let showAllPbwt = true;
 let trainingPhase = 'pre';
 let modelMode = 'hard';
+let selectedDataset = datasets[0].id;
 
 function updateVisibleTraces() {
     const visible = plot.data.map(trace =>
+        trace.meta.dataset === selectedDataset &&
         trace.meta.mode === modelMode &&
         (trace.meta.phase === trainingPhase || trace.meta.phase === 'post_only') &&
         (trace.meta.method !== 'pbwt' || showAllPbwt ||
@@ -201,11 +259,19 @@ const legend = [
     ),
 ].join('');
 const sliderTicks = pbwtMatchLengths.map(length => `<span>${length}</span>`).join('');
+const datasetOptions = datasets.map(dataset =>
+    `<option value="${dataset.id}">${dataset.label}</option>`
+).join('');
 
 const sidebar = document.createElement('aside');
 sidebar.id = 'dfcp-sidebar';
 sidebar.innerHTML = `
     <h2>Controls</h2>
+    <section>
+        <h3>Haplotype dataset</h3>
+        <select id="dataset-select">${datasetOptions}</select>
+        <div class="dfcp-dataset-file" id="dataset-file">${datasets[0].file}</div>
+    </section>
     <section>
         <h3>Model</h3>
         <div class="dfcp-buttons" id="model-controls">
@@ -261,6 +327,22 @@ style.textContent = `
     #dfcp-sidebar h2 { margin: 0 0 18px; font-size: 21px; }
     #dfcp-sidebar h3 { margin: 0 0 8px; font-size: 14px; }
     #dfcp-sidebar section { margin-bottom: 20px; }
+    #dataset-select {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 7px 5px;
+        border: 1px solid #aeb5c0;
+        border-radius: 4px;
+        background: white;
+        color: #2a3f5f;
+    }
+    .dfcp-dataset-file {
+        margin-top: 6px;
+        overflow-wrap: anywhere;
+        color: #697386;
+        font-size: 11px;
+        line-height: 1.3;
+    }
     .dfcp-buttons { display: flex; gap: 5px; }
     .dfcp-buttons button {
         flex: 1;
@@ -309,6 +391,15 @@ plot.classList.add('dfcp-plot');
 bindButtons('model-controls', value => { modelMode = value; });
 bindButtons('phase-controls', value => { trainingPhase = value; });
 bindButtons('pbwt-display-controls', value => { showAllPbwt = value === 'all'; });
+
+const datasetSelect = document.getElementById('dataset-select');
+datasetSelect.addEventListener('change', () => {
+    selectedDataset = Number(datasetSelect.value);
+    document.getElementById('dataset-file').textContent = datasets.find(
+        dataset => dataset.id === selectedDataset
+    ).file;
+    updateVisibleTraces();
+});
 
 const slider = document.getElementById('pbwt-match-slider');
 slider.addEventListener('input', () => {
