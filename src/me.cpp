@@ -339,14 +339,11 @@ int main(int argc, char *argv[]) {
         double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
         double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
 
-        if (clade_weight_sum == 0.0) {
-            throw std::runtime_error("clade_iou is undefined: no nontrivial clusters.");
-        }
-        double clade_iou = weighted_clade_iou_sum / clade_weight_sum;
-        if (emission_clade_weight_sum == 0.0) {
-            throw std::runtime_error("emission_clade_iou is undefined: no nontrivial clusters.");
-        }
-        double emission_clade_iou = emission_weighted_clade_iou_sum / emission_clade_weight_sum;
+        double clade_iou = clade_weight_sum == 0.0 ? -1.0 : weighted_clade_iou_sum / clade_weight_sum;
+        if (clade_weight_sum == 0.0) { std::cerr << "clade_iou undefined, no nontrivial clusters.\n"; }
+        double emission_clade_iou = emission_clade_weight_sum == 0.0 ?
+            -1.0 : emission_weighted_clade_iou_sum / emission_clade_weight_sum;
+        if (emission_clade_weight_sum == 0.0) {std::cerr << "emission_clade_iou undefined, no nontrivial clusters.\n";}
 
         auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t_parsimony_duration).count();
         auto t_clade_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t_clade_iou_duration).count();
