@@ -168,6 +168,7 @@ int main(int argc, char *argv[]) {
         clusters.block_init(x);
     }
     else if (pbwt_init) {
+        if (HP.K != 2) { throw std::invalid_argument("pbwt_init only supported for K=2."); }
         clusters.pbwt_init(x, pbwt_match_len);
     }
     else {
