@@ -1733,9 +1733,9 @@ Unidirectional
 - motivation: blocks (partitions) are constructed so that they have similar prefixes.
 - then need a Q cluster for each pair of $({a in R_l}, {a' in R_(l+1)})$ 
 
-adaptive match length threshold: choose largest $K$ to get avg \# clusters $<$ threshold. (binary search?)
-
-bidirectional PBWT to get clusters that match on $[l-K, l]$ and $[l+1, l+1+K)$.
+bidirectional
+- clusters that match on $[l-K, l]$ and $[l, l+K]$
+- clusters must be in the same forward and backward group
 
 potential problems: noisy, no perfect matches
 
@@ -1743,9 +1743,19 @@ potential problems: noisy, no perfect matches
 
 #pagebreak()
 = TODO
-- pbwt init
 - phasing
-- eval: shapeit, beagle, eagle
+- saving dfcp after training, loading for inference
+
+= eval
+- hard vs soft vs noisy
+- block vs pbwt vs viterbi init
+  - pre-train: imputation acc, clade iou, length iou, elbo, time
+  - post-train: pre vs post iou
+- dfcp vs shapeit, beagle, eagle
+
+== pbwt init
+- adaptive match length threshold: choose largest match length to get avg \# clusters < threshold. binary search?
+- option to include current allele in match
 
 == ideas
 - methylation (cancer data)
