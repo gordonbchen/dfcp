@@ -85,20 +85,47 @@ void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len) {
     q_assign.resize(HP.N * (HP.L-1), nullptr);
 
     auto [a, d] = pbwt(x, HP.N, HP.L);
+    auto [a_rev, d_rev] = reverse_pbwt(x, HP.N, HP.L);
+
+    std::vector<int> forward_group(HP.N, 0);
+    std::vector<int> backward_group(HP.N, 0);
+    int forward_group_idx;
+    int backward_group_idx;
 
     for (int l = 0; l < HP.L; ++l) {
-        Cluster *c = nullptr;
+        forward_group_idx = 0;
+        backward_group_idx = 0;
+
         for (int i = 0; i < HP.N; ++i) {
-            int ai = a[idx2d(i,l+1,HP.L+1)];  // Match prefix including l.
-            if (d[idx2d(i,l+1,HP.L+1)] > std::max(l-match_len, 0)) {
-                c = create_empty_cluster(true, l, x[idx2d(ai,l,HP.L)]);
+            if ((i != 0) && (d[idx2d(i,l+1,HP.L+1)] > std::max(l+1-match_len, 0))) {
+                ++forward_group_idx;
             }
-            cluster_add(c, ai, x[idx2d(ai,l,HP.L)]);
+            forward_group[a[idx2d(i,l+1,HP.L+1)]] = forward_group_idx;
+
+            if ((i != 0) && (d_rev[idx2d(i,l,HP.L+1)] < std::min(l+match_len, HP.L))) {
+                ++backward_group_idx;
+            }
+            backward_group[a_rev[idx2d(i,l,HP.L+1)]] = backward_group_idx;
+        }
+
+        std::unordered_map<uint64_t, Cluster*> r_map;
+        for (int i = 0; i < HP.N; ++i) {
+            uint64_t r_key = (static_cast<uint64_t>(forward_group[i]) << 32)
+                | static_cast<uint64_t>(backward_group[i]);
+            Cluster *c;
+            if (r_map.contains(r_key)) {
+                c = r_map.at(r_key);
+            }
+            else {
+                c = create_empty_cluster(true, l, x[idx2d(i,l,HP.L)]);
+                r_map.emplace(r_key, c);
+            }
+            cluster_add(c, i, x[idx2d(i,l,HP.L)]);
         }
     }
 
-    std::unordered_map<std::pair<Cluster*, Cluster*>, Cluster*, PairPointerHash> q_map;
     for (int l = 0; l < HP.L-1; ++l) {
+        std::unordered_map<std::pair<Cluster*, Cluster*>, Cluster*, PairPointerHash> q_map;
         for (int i = 0; i < HP.N; ++i) {
             Cluster* c = r_assign[idx2d(i,l,HP.L)];
             Cluster* c_next = r_assign[idx2d(i,l+1,HP.L)];

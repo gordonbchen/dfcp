@@ -64,6 +64,7 @@ int main(int argc, char *argv[]) {
     bool soft = false;
     bool block_init = false;
     bool pbwt_init = false;
+    int pbwt_match_len = 5;
 
     int i = 2;
     while (i < argc) {
@@ -96,6 +97,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--pbwt_init") { pbwt_init = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
 
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
@@ -164,7 +166,7 @@ int main(int argc, char *argv[]) {
         clusters.block_init(x);
     }
     else if (pbwt_init) {
-        clusters.pbwt_init(x, 10);
+        clusters.pbwt_init(x, pbwt_match_len);
     }
     else {
         HP.N = 0;
