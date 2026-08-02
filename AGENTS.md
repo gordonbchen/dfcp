@@ -222,7 +222,7 @@ indices, and ignores branch lengths.
 Trees are represented as
 
 ```cpp
-std::unordered_map<int, std::tuple<int, int>>
+std::unordered_map<int, std::pair<int, int>>
 ```
 
 Internal node IDs are negative, the root is `-1`, and leaves are nonnegative

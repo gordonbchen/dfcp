@@ -63,6 +63,7 @@ int main(int argc, char *argv[]) {
     bool noisy = false;
     bool soft = false;
     bool block_init = false;
+    bool pbwt_init = false;
 
     int i = 2;
     while (i < argc) {
@@ -94,11 +95,13 @@ int main(int argc, char *argv[]) {
 
         else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--pbwt_init") { pbwt_init = (parse_int(argv[i+1]) == 1); }
 
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
     }
     if (noisy && soft) { throw std::invalid_argument("noisy is only for hard dfcp."); }
+    if (block_init && pbwt_init) { throw std::invalid_argument("cannot do block and pbwt init."); }
     std::cerr << HP << '\n';
 
     // Split val for imputation.
@@ -156,13 +159,21 @@ int main(int argc, char *argv[]) {
     // Init params and clusters.
     Params params{HP};
     Clusters clusters{HP, soft, noisy};
+    auto t0 = std::chrono::steady_clock::now();
     if (block_init) {
         clusters.block_init(x);
+    }
+    else if (pbwt_init) {
+        clusters.pbwt_init(x, 10);
     }
     else {
         HP.N = 0;
         add_seqs(clusters, x.begin(), n_train_seqs, HP, params);
     }
+    auto t1 = std::chrono::steady_clock::now();
+    auto t_init = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cerr << "t_init=" << t_init << '\n';
+    json.add("t_init", t_init);
 
     EarlyStopping early_stop{2, false, 1e-3};
     double elbo = 0.0;
@@ -345,7 +356,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Cluster stability IOU.
-    auto t0 = std::chrono::steady_clock::now();
+    t0 = std::chrono::steady_clock::now();
     double mean_iou = 0.0;
     double mean_emission_iou = 0.0;
     for (int l = 0; l < HP.L-1; ++l) {
@@ -374,7 +385,7 @@ int main(int argc, char *argv[]) {
     }
     mean_iou /= HP.L-1;
     mean_emission_iou /= HP.L-1;
-    auto t1 = std::chrono::steady_clock::now();
+    t1 = std::chrono::steady_clock::now();
     auto t_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cerr << "mean_iou=" << mean_iou << " mean_emission_iou=" << mean_emission_iou
         << " t_iou=" << t_iou << "ms\n";

@@ -18,6 +18,7 @@ add_executable(dfcp
     src/tree.cpp
     src/math.cpp
     src/util.cpp
+    src/pbwt.cpp
 )
 
 target_include_directories(dfcp PRIVATE

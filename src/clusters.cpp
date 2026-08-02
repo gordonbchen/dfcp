@@ -5,9 +5,11 @@
 #include <utility>
 #include <vector>
 #include <unordered_map>
+#include <functional>
 #include <stdexcept>
 #include "clusters.hpp"
 #include "hyperparams.hpp"
+#include "pbwt.hpp"
 #include "util.hpp"
 
 
@@ -66,6 +68,55 @@ void Clusters::block_init(const std::vector<int8_t>& x) {
 
         r = create_cluster(seqs, x, true, l+1, modes[l+1]);
         q->add_child(r);
+    }
+}
+
+struct PairPointerHash {
+    template <typename T, typename U>
+    std::size_t operator()(const std::pair<T*, U*>& p) const {
+        auto hash1 = std::hash<T*>{}(p.first);
+        auto hash2 = std::hash<U*>{}(p.second);
+        return hash1 ^ (hash2 + 0x9e3779b9 + (hash1 << 6) + (hash1 >> 2));
+    }
+};
+
+void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len) {
+    r_assign.resize(HP.N * HP.L, nullptr);
+    q_assign.resize(HP.N * (HP.L-1), nullptr);
+
+    auto [a, d] = pbwt(x, HP.N, HP.L);
+
+    for (int l = 0; l < HP.L; ++l) {
+        Cluster *c = nullptr;
+        for (int i = 0; i < HP.N; ++i) {
+            int ai = a[idx2d(i,l+1,HP.L+1)];  // Match prefix including l.
+            if (d[idx2d(i,l+1,HP.L+1)] > l-match_len) {
+                c = create_empty_cluster(true, l, x[idx2d(ai,l,HP.L)]);
+            }
+            cluster_add(c, ai, x[idx2d(ai,l,HP.L)]);
+        }
+    }
+
+    std::unordered_map<std::pair<Cluster*, Cluster*>, Cluster*, PairPointerHash> q_map;
+    for (int l = 0; l < HP.L-1; ++l) {
+        for (int i = 0; i < HP.N; ++i) {
+            Cluster* c = r_assign[idx2d(i,l,HP.L)];
+            Cluster* c_next = r_assign[idx2d(i,l+1,HP.L)];
+
+            std::pair<Cluster*, Cluster*> cs{c, c_next};
+            Cluster* q;
+            if (q_map.contains(cs)) {
+                q = q_map.at(cs);
+            }
+            else {
+                q = create_empty_cluster(false, l, -1);
+                q_map.emplace(cs, q);
+
+                c->add_child(q);
+                q->add_child(c_next);
+            }
+            cluster_add(q, i, -1);
+        }
     }
 }
 

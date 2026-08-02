@@ -1737,6 +1737,8 @@ adaptive match length threshold: choose largest $K$ to get avg \# clusters $<$ t
 
 bidirectional PBWT to get clusters that match on $[l-K, l]$ and $[l+1, l+1+K)$.
 
+potential problems: noisy, no perfect matches
+
 
 
 #pagebreak()

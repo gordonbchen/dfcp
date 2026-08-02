@@ -7,7 +7,6 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
-#include <tuple>
 #include <cmath>
 #include <utility>
 #include <vector>
@@ -43,7 +42,7 @@ std::vector<int> parse_pos_file_idx(const char *fname, int start_idx, int L) {
     return pos;
 }
 
-const char* parse_coal_subtree(const char *s, std::unordered_map<int, std::tuple<int, int>>& coal_tree, int idx) {
+const char* parse_coal_subtree(const char *s, std::unordered_map<int, std::pair<int, int>>& coal_tree, int idx) {
     while (*s != '(') { ++s; }
     ++s;
 
@@ -68,11 +67,11 @@ const char* parse_coal_subtree(const char *s, std::unordered_map<int, std::tuple
         right_idx = std::strtol(s, nullptr, 10) - 1;
     }
 
-    coal_tree.emplace(idx, std::tuple<int, int>{left_idx, right_idx});
+    coal_tree.emplace(idx, std::pair<int, int>{left_idx, right_idx});
     return s;
 }
 
-int parse_coal_tree(const char *s, std::unordered_map<int, std::tuple<int, int>>& coal_tree) {
+int parse_coal_tree(const char *s, std::unordered_map<int, std::pair<int, int>>& coal_tree) {
     s = std::strstr(s, "pos_");
     if (s == nullptr) { throw std::runtime_error("Failed to parse tree, could not find 'pos_'"); }
     s += 4;
@@ -82,7 +81,7 @@ int parse_coal_tree(const char *s, std::unordered_map<int, std::tuple<int, int>>
     return recomb_pos;
 }
 
-std::tuple<std::vector<std::unordered_map<int, std::tuple<int, int>>>, std::vector<int>> parse_tree_file(
+std::pair<std::vector<std::unordered_map<int, std::pair<int, int>>>, std::vector<int>> parse_tree_file(
     const char *fname
 ) {
     std::ifstream tree_file{fname};
@@ -93,7 +92,7 @@ std::tuple<std::vector<std::unordered_map<int, std::tuple<int, int>>>, std::vect
         std::getline(tree_file, line);
     }
 
-    std::vector<std::unordered_map<int, std::tuple<int, int>>> trees;
+    std::vector<std::unordered_map<int, std::pair<int, int>>> trees;
     std::vector<int> recomb_pos;
     int l = 0;
     while (std::getline(tree_file, line)) {
@@ -174,7 +173,7 @@ struct ParsimonyMsg {
 
 ParsimonyMsg calc_parsimony(
     int idx,
-    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
     const std::vector<int>& cluster_assignments,
     const size_t n_clusters
 ) {
@@ -197,7 +196,7 @@ ParsimonyMsg calc_parsimony(
 }
 
 int calc_excess_parsimony(
-    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
     const std::vector<int>& cluster_assignments,
     int n_clusters
 ) {
@@ -229,7 +228,7 @@ struct CladeIOUMsg {
 
 CladeIOUMsg calc_max_clade_iou_dfs(
     int v,
-    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
     const std::vector<int>& cluster_assign,
     int cluster_idx,
     int cluster_size
@@ -256,7 +255,7 @@ CladeIOUMsg calc_max_clade_iou_dfs(
 }
 
 double calc_max_clade_iou(
-    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
     const std::vector<int>& cluster_assign,
     int cluster_idx,
     int cluster_size
@@ -345,7 +344,7 @@ void label_leaf(
 
 void tree_to_dot(
     const char *file,
-    const std::unordered_map<int, std::tuple<int, int>>& coal_tree,
+    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
     const std::vector<int>& cluster_assignments,
     const std::vector<int>& emissions,
     int l, int L
