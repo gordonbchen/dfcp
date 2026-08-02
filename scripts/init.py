@@ -12,13 +12,13 @@ if __name__ == "__main__":
 
     INIT_METHODS = (
         "block",
-        ("pbwt", 2), ("pbwt", 5), ("pbwt", 10), ("pbwt", 20), ("pbwt", 50),
+        ("pbwt", 2), ("pbwt", 5), ("pbwt", 10), ("pbwt", 20), ("pbwt", 50), ("pbwt", 100),
         "viterbi"
     )
     PBWT_MATCH_LENGTHS = tuple(i[1] for i in INIT_METHODS if i[0] == "pbwt")
     PBWT_COLORS = dict(zip(
         PBWT_MATCH_LENGTHS,
-        ("#F6C945", "#F39C34", "#E7682B", "#C9342C", "#8E1B1B"),
+        ("#F6C945", "#F39C34", "#E7682B", "#C9342C", "#8E1B1B", "#5E0B0B"),
     ))
     LINE_STYLES = {
         "block": {"color": "#3366CC", "width": 3, "dash": "dash"},
