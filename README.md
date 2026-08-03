@@ -1,2 +1,5 @@
 # dfcp
-Discrete Fragmentation Coagulation Processes
+Discrete Fragmentation Coagulation Processes.
+
+https://gordonbchen.github.io/dfcp/
+
