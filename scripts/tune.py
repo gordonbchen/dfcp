@@ -1068,8 +1068,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=40)
     parser.add_argument("--replicates", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--json", type=Path, default=Path("output/tune.json"))
-    parser.add_argument("--output", type=Path, default=Path("output/tune.html"))
+    parser.add_argument("--json", type=Path, default=Path("tune.json"))
+    parser.add_argument("--output", type=Path, default=Path("tune.html"))
     return parser.parse_args()
 
 
