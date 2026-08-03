@@ -65,6 +65,7 @@ int main(int argc, char *argv[]) {
     bool block_init = false;
     bool pbwt_init = false;
     int pbwt_match_len = 5;
+    bool pbwt_match_curr = true;
     bool init_only = false;
 
     int i = 2;
@@ -99,6 +100,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--pbwt_init") { pbwt_init = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
+        else if (arg == "--pbwt_match_curr") { pbwt_match_curr = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
 
         else { throw std::invalid_argument("Arg not recognized."); }
@@ -169,7 +171,7 @@ int main(int argc, char *argv[]) {
     }
     else if (pbwt_init) {
         if (HP.K != 2) { throw std::invalid_argument("pbwt_init only supported for K=2."); }
-        clusters.pbwt_init(x, pbwt_match_len);
+        clusters.pbwt_init(x, pbwt_match_len, pbwt_match_curr);
     }
     else {
         HP.N = 0;

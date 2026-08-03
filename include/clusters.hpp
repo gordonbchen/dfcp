@@ -59,7 +59,7 @@ struct Clusters {
     Clusters(const HyperParams& HP_, bool soft_, bool noisy_);
 
     void block_init(const std::vector<int8_t>& x);
-    void pbwt_init(const std::vector<int8_t>& x, int match_len);
+    void pbwt_init(const std::vector<int8_t>& x, int match_len, bool match_curr);
 
     Cluster* create_cluster(
         const std::vector<int>& seqs, const std::vector<int8_t>& x, bool is_r, int l, int emission

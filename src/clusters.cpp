@@ -80,7 +80,7 @@ struct PairPointerHash {
     }
 };
 
-void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len) {
+void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len, bool match_curr) {
     r_assign.resize(HP.N * HP.L, nullptr);
     q_assign.resize(HP.N * (HP.L-1), nullptr);
 
@@ -97,15 +97,15 @@ void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len) {
         backward_group_idx = 0;
 
         for (int i = 0; i < HP.N; ++i) {
-            if ((i != 0) && (d[idx2d(i,l+1,HP.L+1)] > std::max(l+1-match_len, 0))) {
+            if ((i != 0) && (d[idx2d(i,l+match_curr,HP.L+1)] > std::max(l+match_curr-match_len, 0))) {
                 ++forward_group_idx;
             }
-            forward_group[a[idx2d(i,l+1,HP.L+1)]] = forward_group_idx;
+            forward_group[a[idx2d(i,l+match_curr,HP.L+1)]] = forward_group_idx;
 
-            if ((i != 0) && (d_rev[idx2d(i,l,HP.L+1)] < std::min(l+match_len, HP.L))) {
+            if ((i != 0) && (d_rev[idx2d(i,l+1-match_curr,HP.L+1)] < std::min(l+1-match_curr+match_len, HP.L))) {
                 ++backward_group_idx;
             }
-            backward_group[a_rev[idx2d(i,l,HP.L+1)]] = backward_group_idx;
+            backward_group[a_rev[idx2d(i,l+1-match_curr,HP.L+1)]] = backward_group_idx;
         }
 
         std::unordered_map<uint64_t, Cluster*> r_map;
