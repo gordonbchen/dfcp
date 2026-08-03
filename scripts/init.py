@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from dfcp import build_dfcp, run_dfcp, get_dfcp_parser
+from plotly_html import ensure_plotly_asset
 
 
 ERROR_RE = re.compile(r"\.txt\.gz_([0-9.]+)_([0-9.]+)\.txt\.gz_")
@@ -32,6 +33,7 @@ if __name__ == "__main__":
         default=Path("data/examples/simulated/SIM1_LEN500_NHAPS100"),
     )
     p.add_argument("--seq_files", type=Path, nargs="+")
+    p.add_argument("--output", type=Path, default=Path("docs/init.html"))
     args = p.parse_args()
 
     if args.seq_files is not None:
@@ -415,4 +417,10 @@ slider.addEventListener('input', () => {
 requestAnimationFrame(() => Plotly.Plots.resize(plot));
 window.addEventListener('resize', () => Plotly.Plots.resize(plot));
 """
-    fig.write_html("init.html", config={"responsive": True}, post_script=post_script)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    fig.write_html(
+        args.output,
+        include_plotlyjs=ensure_plotly_asset(args.output),
+        config={"responsive": True},
+        post_script=post_script,
+    )

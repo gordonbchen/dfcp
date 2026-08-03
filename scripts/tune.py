@@ -18,6 +18,8 @@ from botorch.sampling.normal import SobolQMCNormalSampler
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from plotly.subplots import make_subplots
 
+from plotly_html import ensure_plotly_asset
+
 
 DEFAULT_SEQ_DIR = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
 DEFAULT_SEQ_FILE = DEFAULT_SEQ_DIR / "haps_SIMOUT_1.txt.gz_SIMOUT_14572-15071.txt"
@@ -29,7 +31,8 @@ MC_SAMPLES = 128
 ACQ_RESTARTS = 10
 ACQ_RAW_SAMPLES = 256
 FAILURE_RETRIES = 1
-GRID_SIZE = 45
+GRID_SIZE = 30
+VISUAL_SIGNIFICANT_DIGITS = 7
 PAIR_CELL_SIZE = 135
 MODE_COLORS = {"hard": "#3366CC", "noisy": "#C9342C", "soft": "#2A9D8F"}
 
@@ -411,6 +414,17 @@ def predict_in_chunks(
     return torch.cat(means), torch.cat(variances)
 
 
+def round_visual(value: float) -> float:
+    if value == 0.0:
+        return 0.0
+    places = VISUAL_SIGNIFICANT_DIGITS - 1 - math.floor(math.log10(abs(value)))
+    return round(value, places)
+
+
+def round_visual_grid(values: list[list[float]]) -> list[list[float]]:
+    return [[round_visual(value) for value in row] for row in values]
+
+
 def get_surface(
     model: SingleTaskGP,
     anchor: torch.Tensor,
@@ -424,10 +438,16 @@ def get_surface(
     points[:, pair[1]] = y_unit.reshape(-1)
     mean, variance = predict_in_chunks(model, points)
     return {
-        "x": [specs[pair[0]].decode(float(value)) for value in unit_axis],
-        "y": [specs[pair[1]].decode(float(value)) for value in unit_axis],
-        "z": mean.reshape(GRID_SIZE, GRID_SIZE).tolist(),
-        "std": variance.clamp_min(0.0).sqrt().reshape(GRID_SIZE, GRID_SIZE).tolist(),
+        "x": [
+            round_visual(specs[pair[0]].decode(float(value))) for value in unit_axis
+        ],
+        "y": [
+            round_visual(specs[pair[1]].decode(float(value))) for value in unit_axis
+        ],
+        "z": round_visual_grid(mean.reshape(GRID_SIZE, GRID_SIZE).tolist()),
+        "std": round_visual_grid(
+            variance.clamp_min(0.0).sqrt().reshape(GRID_SIZE, GRID_SIZE).tolist()
+        ),
     }
 
 
@@ -445,9 +465,17 @@ def get_mode_report(mode: str, mode_data: dict) -> dict:
             "y_name": specs[pair[1]].name,
             "y_label": specs[pair[1]].label,
             "surface": get_surface(model, anchor, specs, pair),
-            "observed_x": [record["search_params"][specs[pair[0]].name] for record in records],
-            "observed_y": [record["search_params"][specs[pair[1]].name] for record in records],
-            "observed_accuracy": [record["objective_mean"] for record in records],
+            "observed_x": [
+                round_visual(record["search_params"][specs[pair[0]].name])
+                for record in records
+            ],
+            "observed_y": [
+                round_visual(record["search_params"][specs[pair[1]].name])
+                for record in records
+            ],
+            "observed_accuracy": [
+                round_visual(record["objective_mean"]) for record in records
+            ],
         })
     surface_values = [
         value for pair in pair_reports for row in pair["surface"]["z"] for value in row
@@ -485,51 +513,27 @@ def make_overview_figure(report: dict, width: int) -> go.Figure:
         meta={"kind": "sensitivity"},
     ), row=1, col=1)
 
-    optimum = report["summary"]["predicted_optimum"]
-    less_informative = report["summary"]["less_informative"]
-    for pair_index, pair in enumerate(report["pairs"]):
-        visible = pair_index == 0
-        meta = {"kind": "overview_surface", "pair": pair["id"]}
-        fig.add_trace(go.Heatmap(
-            x=pair["surface"]["x"], y=pair["surface"]["y"], z=pair["surface"]["z"],
-            customdata=pair["surface"]["std"], coloraxis="coloraxis",
-            hovertemplate=(
-                f"{pair['x_label']}: %{{x:.4g}}<br>{pair['y_label']}: %{{y:.4g}}<br>"
-                "predicted accuracy: %{z:.5f}<br>posterior SD: %{customdata:.5f}<extra></extra>"
-            ), visible=visible, showlegend=False, meta=meta,
-        ), row=1, col=2)
-        fig.add_trace(go.Contour(
-            x=pair["surface"]["x"], y=pair["surface"]["y"], z=pair["surface"]["z"],
-            contours={"coloring": "none", "showlabels": False},
-            line={"color": "rgba(255,255,255,0.8)", "width": 1},
-            visible=visible, showlegend=False, showscale=False, hoverinfo="skip",
-            meta=meta,
-        ), row=1, col=2)
-        fig.add_trace(go.Scattergl(
-            x=pair["observed_x"], y=pair["observed_y"], mode="markers",
-            marker={"color": pair["observed_accuracy"], "coloraxis": "coloraxis",
-                    "line": {"color": "black", "width": 0.5}, "size": 5,
-                    "opacity": 1.0},
-            text=[f"accuracy={value:.5f}" for value in pair["observed_accuracy"]],
-            hovertemplate="%{text}<extra>evaluated point</extra>",
-            visible=visible, showlegend=False, meta=meta,
-        ), row=1, col=2)
-        fig.add_trace(go.Scatter(
-            x=[optimum["search_params"][pair["x_name"]]],
-            y=[optimum["search_params"][pair["y_name"]]], mode="markers",
-            marker={"symbol": "star", "size": 16, "color": "black",
-                    "line": {"color": "white", "width": 1.5}},
-            hovertemplate="GP optimum candidate<extra></extra>",
-            visible=visible, showlegend=False, meta=meta,
-        ), row=1, col=2)
-        fig.add_trace(go.Scatter(
-            x=[less_informative["search_params"][pair["x_name"]]],
-            y=[less_informative["search_params"][pair["y_name"]]], mode="markers",
-            marker={"symbol": "diamond", "size": 11, "color": "#00B8D9",
-                    "line": {"color": "white", "width": 1.5}},
-            hovertemplate="Less-informative candidate<extra></extra>",
-            visible=visible, showlegend=False, meta=meta,
-        ), row=1, col=2)
+    fig.add_trace(go.Heatmap(
+        x=[], y=[], z=[], coloraxis="coloraxis", showlegend=False,
+        meta={"kind": "overview_surface", "role": "heatmap"},
+    ), row=1, col=2)
+    fig.add_trace(go.Contour(
+        x=[], y=[], z=[], contours={"coloring": "none", "showlabels": True},
+        showlegend=False, showscale=False,
+        meta={"kind": "overview_surface", "role": "contour"},
+    ), row=1, col=2)
+    fig.add_trace(go.Scattergl(
+        x=[], y=[], mode="markers", showlegend=False,
+        meta={"kind": "overview_surface", "role": "observed"},
+    ), row=1, col=2)
+    fig.add_trace(go.Scatter(
+        x=[], y=[], mode="markers", showlegend=False,
+        meta={"kind": "overview_surface", "role": "optimum"},
+    ), row=1, col=2)
+    fig.add_trace(go.Scatter(
+        x=[], y=[], mode="markers", showlegend=False,
+        meta={"kind": "overview_surface", "role": "less_informative"},
+    ), row=1, col=2)
 
     first_pair = report["pairs"][0]
     fig.update_xaxes(title_text="normalized inverse lengthscale", row=1, col=1)
@@ -570,6 +574,9 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
     param_index = {spec.name: index for index, spec in enumerate(specs)}
     optimum = report["summary"]["predicted_optimum"]
     less_informative = report["summary"]["less_informative"]
+    def trace_meta(pair_id: str, role: str) -> dict[str, str]:
+        return {"kind": "grid_surface", "pair": pair_id, "role": role}
+
     for pair in report["pairs"]:
         col = n_params - param_index[pair["y_name"]]
         row = param_index[pair["x_name"]] + 1
@@ -581,13 +588,15 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
             hovertemplate=(
                 f"{pair['y_label']}: %{{x:.4g}}<br>{pair['x_label']}: %{{y:.4g}}<br>"
                 "predicted accuracy: %{z:.5f}<br>posterior SD: %{customdata:.5f}<extra></extra>"
-            ), showlegend=False,
+            ), showlegend=False, meta=trace_meta(pair["id"], "heatmap"),
         ), row=row, col=col)
         fig.add_trace(go.Contour(
             x=pair["surface"]["y"], y=pair["surface"]["x"], z=z,
-            contours={"coloring": "none", "showlabels": False},
+            contours={"coloring": "none", "showlabels": True},
             line={"color": "rgba(255,255,255,0.8)", "width": 1},
+            textfont={"color": "white", "size": 9},
             showlegend=False, showscale=False, hoverinfo="skip",
+            meta=trace_meta(pair["id"], "contour"),
         ), row=row, col=col)
         fig.add_trace(go.Scattergl(
             x=pair["observed_y"], y=pair["observed_x"], mode="markers",
@@ -596,6 +605,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                     "opacity": 1.0},
             text=[f"accuracy={value:.5f}" for value in pair["observed_accuracy"]],
             hovertemplate="%{text}<extra>evaluated point</extra>", showlegend=False,
+            meta=trace_meta(pair["id"], "observed"),
         ), row=row, col=col)
         fig.add_trace(go.Scatter(
             x=[optimum["search_params"][pair["y_name"]]],
@@ -613,6 +623,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                 f"{pair['x_label']}: %{{y:.4g}}<extra></extra>"
             ),
             showlegend=False,
+            meta=trace_meta(pair["id"], "optimum"),
         ), row=row, col=col)
         fig.add_trace(go.Scatter(
             x=[less_informative["search_params"][pair["y_name"]]],
@@ -630,6 +641,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                 f"{pair['x_label']}: %{{y:.4g}}<extra></extra>"
             ),
             showlegend=False,
+            meta=trace_meta(pair["id"], "less_informative"),
         ), row=row, col=col)
         fig.update_xaxes(
             visible=True,
@@ -813,10 +825,41 @@ function updateOverview() {
     const plot = document.getElementById(`tune-overview-${selectedMode}`);
     if (!plot) return;
     const pair = report[selectedMode].pairs.find(candidate => candidate.id === selectedPair);
-    const visible = plot.data.map(trace =>
-        trace.meta.kind !== 'overview_surface' || trace.meta.pair === selectedPair
-    );
-    Plotly.restyle(plot, {visible});
+    const grid = document.getElementById(`tune-grid-${selectedMode}`);
+    const transpose = values => {
+        if (!values || values.length === 0) return values;
+        return values[0].map((_, index) => values.map(row => row[index]));
+    };
+    const traces = grid.data.filter(trace =>
+        trace.meta?.kind === 'grid_surface' && trace.meta.pair === selectedPair
+    ).map(source => {
+        const trace = {
+            ...source,
+            x: source.y,
+            y: source.x,
+            xaxis: 'x2',
+            yaxis: 'y2',
+            meta: {kind: 'overview_surface', role: source.meta.role},
+        };
+        if (source.z) trace.z = transpose(source.z);
+        if (source.customdata) trace.customdata = transpose(source.customdata);
+        if (source.meta.role === 'heatmap') {
+            trace.hovertemplate = `${pair.x_label}: %{x:.4g}<br>` +
+                `${pair.y_label}: %{y:.4g}<br>predicted accuracy: %{z:.5f}<br>` +
+                'posterior SD: %{customdata:.5f}<extra></extra>';
+        } else if (source.meta.role === 'contour') {
+            trace.contours = {...source.contours, showlabels: true};
+            trace.textfont = {...source.textfont, size: 11};
+        } else if (source.meta.role === 'observed') {
+            trace.marker = {...source.marker, size: 5, opacity: 1.0};
+        } else if (source.meta.role === 'optimum') {
+            trace.hovertemplate = 'GP optimum candidate<extra></extra>';
+        } else if (source.meta.role === 'less_informative') {
+            trace.hovertemplate = 'Less-informative candidate<extra></extra>';
+        }
+        return trace;
+    });
+    Plotly.react(plot, [plot.data[0], ...traces], plot.layout, plot._context);
     Plotly.relayout(plot, {
         'xaxis2.title.text': pair.x_label,
         'xaxis2.type': pair.x_scale,
@@ -984,11 +1027,11 @@ window.addEventListener('resize', () => requestAnimationFrame(resizePlots));
 
 
 def write_report(experiment: dict, output: Path) -> None:
+    plotly_asset = ensure_plotly_asset(output)
     reports = [
         get_mode_report(mode, mode_data) for mode, mode_data in experiment["modes"].items()
     ]
     fragments = []
-    include_plotly = True
     for index, report in enumerate(reports):
         width = PAIR_CELL_SIZE * len(report["specs"]) + 250
         figures = (
@@ -1001,12 +1044,11 @@ def write_report(experiment: dict, output: Path) -> None:
             plot = pio.to_html(
                 figure,
                 full_html=False,
-                include_plotlyjs=include_plotly,
+                include_plotlyjs=False,
                 config={"responsive": False},
                 div_id=f"tune-{name}-{report['mode']}",
             )
             plots.append(f'<div class="plot-section plot-section-{name}">{plot}</div>')
-            include_plotly = False
         hidden = "" if index == 0 else " hidden"
         fragments.append(
             f'<section class="mode-report" data-mode="{report["mode"]}"{hidden}>'
@@ -1015,7 +1057,8 @@ def write_report(experiment: dict, output: Path) -> None:
 
     page = (
         '<!doctype html>\n<html><head><meta charset="utf-8">'
-        "<title>DFCP hyperparameter report</title></head><body>\n"
+        "<title>DFCP hyperparameter report</title>"
+        f'<script src="{plotly_asset}"></script></head><body>\n'
         + "\n".join(fragments)
         + "\n<script>\n"
         + get_page_script(get_sidebar_context(reports))
@@ -1068,8 +1111,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=40)
     parser.add_argument("--replicates", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--json", type=Path, default=Path("tune.json"))
-    parser.add_argument("--output", type=Path, default=Path("tune.html"))
+    parser.add_argument("--json", type=Path, default=Path("output/tune.json"))
+    parser.add_argument("--output", type=Path, default=Path("docs/tune.html"))
     return parser.parse_args()
 
 
