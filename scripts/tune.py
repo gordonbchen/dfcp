@@ -2,6 +2,7 @@ import argparse
 import itertools
 import json
 import math
+import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -35,6 +36,14 @@ GRID_SIZE = 30
 VISUAL_SIGNIFICANT_DIGITS = 7
 PAIR_CELL_SIZE = 135
 MODE_COLORS = {"hard": "#3366CC", "noisy": "#C9342C", "soft": "#2A9D8F"}
+ERROR_RE = re.compile(r"\.txt\.gz_([0-9.]+)_([0-9.]+)\.txt\.gz_")
+
+
+def get_seq_label(seq_file: Path) -> str:
+    match = ERROR_RE.search(seq_file.name)
+    if match is None:
+        return "Baseline (no injected errors)"
+    return f"Bit flip {match.group(1)}, switch {match.group(2)}"
 
 
 @dataclass(frozen=True)
@@ -183,7 +192,7 @@ def evaluate_candidate(
     x: list[float],
     specs: tuple[ParameterSpec, ...],
     mode: str,
-    seq_files: list[Path],
+    seq_file: Path,
     mask: float,
     val: float,
     replicates: int,
@@ -193,34 +202,27 @@ def evaluate_candidate(
     search_params = decode_point(x, specs)
     cpp_params = to_cpp_params(search_params, mode)
     replicate_scores = []
-    within_replicate_variances = []
+    binomial_variances = []
     runs = []
     for replicate in range(replicates):
-        dataset_scores = []
-        dataset_variances = []
-        for seq_file in seq_files:
-            output = run_dfcp(get_dfcp_command(seq_file, mode, cpp_params, mask, val))
-            accuracy = float(output["dfcp_impute_acc"])
-            n_masked = int(output["n_masked_alleles"])
-            dataset_scores.append(accuracy)
-            dataset_variances.append(accuracy * (1.0 - accuracy) / n_masked)
-            runs.append({
-                "replicate": replicate,
-                "seq_file": str(seq_file),
-                "accuracy": accuracy,
-                "n_masked_alleles": n_masked,
-            })
-        replicate_scores.append(sum(dataset_scores) / len(dataset_scores))
-        within_replicate_variances.append(
-            sum(dataset_variances) / (len(dataset_variances) ** 2)
-        )
+        output = run_dfcp(get_dfcp_command(seq_file, mode, cpp_params, mask, val))
+        accuracy = float(output["dfcp_impute_acc"])
+        n_masked = int(output["n_masked_alleles"])
+        replicate_scores.append(accuracy)
+        binomial_variances.append(accuracy * (1.0 - accuracy) / n_masked)
+        runs.append({
+            "replicate": replicate,
+            "seq_file": str(seq_file),
+            "accuracy": accuracy,
+            "n_masked_alleles": n_masked,
+        })
 
     objective_mean = sum(replicate_scores) / replicates
     sample_variance = sum(
         (score - objective_mean) ** 2 for score in replicate_scores
     ) / (replicates - 1)
     variance_of_mean = sample_variance / replicates
-    binomial_floor = sum(within_replicate_variances) / (replicates**2)
+    binomial_floor = sum(binomial_variances) / (replicates**2)
     objective_variance = max(variance_of_mean, binomial_floor, 1e-8)
     record = {
         "x": x,
@@ -234,7 +236,7 @@ def evaluate_candidate(
         "iteration": iteration,
     }
     print(
-        f"{mode:5s} {source:28s} {iteration:3d} "
+        f"{seq_file.name} {mode:5s} {source:28s} {iteration:3d} "
         f"accuracy={objective_mean:.6f} se={math.sqrt(objective_variance):.6f}",
         flush=True,
     )
@@ -335,40 +337,42 @@ def get_ard_summary(model: SingleTaskGP, specs: tuple[ParameterSpec, ...]) -> tu
 
 
 def tune_mode(
-    mode: str, seq_files: list[Path], args: argparse.Namespace
+    mode: str, seq_file: Path, dataset_index: int, args: argparse.Namespace
 ) -> dict:
     specs = get_specs(mode)
+    mode_index = args.modes.index(mode)
+    mode_seed = args.seed + 100_000 * dataset_index + 1_000 * mode_index
     default_record = evaluate_candidate(
-        current_default_x(mode, specs), specs, mode, seq_files, args.mask, args.val,
+        current_default_x(mode, specs), specs, mode, seq_file, args.mask, args.val,
         CONFIRM_REPLICATES, "current_default", -1,
     )
     records = []
     sobol = torch.quasirandom.SobolEngine(
-        len(specs), scramble=True, seed=args.seed + 1000 * args.modes.index(mode)
+        len(specs), scramble=True, seed=mode_seed
     )
     for iteration, point in enumerate(sobol.draw(args.initial_points).double()):
         records.append(evaluate_candidate(
-            point.tolist(), specs, mode, seq_files, args.mask, args.val,
+            point.tolist(), specs, mode, seq_file, args.mask, args.val,
             args.replicates, "sobol", iteration,
         ))
     for iteration in range(args.iterations):
         point = next_bo_point(records)
         records.append(evaluate_candidate(
-            point, specs, mode, seq_files, args.mask, args.val,
+            point, specs, mode, seq_file, args.mask, args.val,
             args.replicates, "bo", iteration,
         ))
 
     selection_model = fit_surrogate(records)
     predicted_optimum, less_informative = select_candidates(
-        selection_model, specs, mode, args.seed + 10000 + args.modes.index(mode)
+        selection_model, specs, mode, mode_seed + 10_000
     )
 
     predicted_confirmation = evaluate_candidate(
-        predicted_optimum["x"], specs, mode, seq_files, args.mask, args.val,
+        predicted_optimum["x"], specs, mode, seq_file, args.mask, args.val,
         CONFIRM_REPLICATES, "confirm_predicted_optimum", len(records),
     )
     less_informative_confirmation = evaluate_candidate(
-        less_informative["x"], specs, mode, seq_files, args.mask, args.val,
+        less_informative["x"], specs, mode, seq_file, args.mask, args.val,
         CONFIRM_REPLICATES, "confirm_less_informative", len(records) + 1,
     )
     predicted_optimum["confirmation"] = predicted_confirmation
@@ -451,7 +455,9 @@ def get_surface(
     }
 
 
-def get_mode_report(mode: str, mode_data: dict) -> dict:
+def get_mode_report(
+    dataset_index: int, dataset: dict, mode: str, mode_data: dict
+) -> dict:
     specs = tuple(ParameterSpec(**spec) for spec in mode_data["parameter_specs"])
     records = mode_data["records"]
     model = fit_surrogate(records)
@@ -482,6 +488,9 @@ def get_mode_report(mode: str, mode_data: dict) -> dict:
     ]
     accuracies = [record["objective_mean"] for record in records]
     return {
+        "dataset_id": f"d{dataset_index}",
+        "dataset_label": dataset["label"],
+        "seq_file": dataset["seq_file"],
         "mode": mode,
         "specs": specs,
         "records": records,
@@ -776,11 +785,67 @@ def make_accuracy_figure(report: dict, width: int) -> go.Figure:
     return fig
 
 
+def make_dataset_comparison_figure(experiment: dict) -> go.Figure:
+    datasets = experiment["datasets"]
+    modes = list(datasets[0]["modes"])
+    fig = go.Figure()
+    for mode in modes:
+        means = []
+        errors = []
+        hover = []
+        for dataset in datasets:
+            confirmation = dataset["modes"][mode]["summary"][
+                "predicted_optimum"
+            ]["confirmation"]
+            means.append(confirmation["objective_mean"])
+            errors.append(math.sqrt(confirmation["objective_variance"]))
+            hover.append(dataset["seq_file"])
+        fig.add_trace(go.Bar(
+            name=mode,
+            x=[dataset["label"] for dataset in datasets],
+            y=means,
+            error_y={"type": "data", "array": errors, "visible": True},
+            marker_color=MODE_COLORS[mode],
+            customdata=hover,
+            hovertemplate=(
+                "%{customdata}<br>mode=" + mode
+                + "<br>actual optimum mean=%{y:.5f}<extra></extra>"
+            ),
+        ))
+    fig.update_layout(
+        title="Actual optimum imputation accuracy by sequence file",
+        barmode="group",
+        width=max(900, min(1500, 150 * len(datasets) + 350)),
+        height=520,
+        margin={"t": 90, "b": 150, "l": 85, "r": 40},
+        xaxis={"title": "sequence file", "tickangle": -25},
+        yaxis={"title": "DFCP imputation accuracy"},
+        legend={"title": "DFCP mode", "orientation": "h", "y": 1.08},
+    )
+    return fig
+
+
 def get_sidebar_context(reports: list[dict]) -> dict:
-    context = {}
+    context = {"datasets": [], "modes": [], "reports": {}}
     for report in reports:
+        dataset = next(
+            (
+                candidate for candidate in context["datasets"]
+                if candidate["id"] == report["dataset_id"]
+            ),
+            None,
+        )
+        if dataset is None:
+            dataset = {
+                "id": report["dataset_id"],
+                "label": report["dataset_label"],
+                "file": report["seq_file"],
+            }
+            context["datasets"].append(dataset)
+        if report["mode"] not in context["modes"]:
+            context["modes"].append(report["mode"])
         summary = report["summary"]
-        context[report["mode"]] = {
+        context["reports"][f'{report["dataset_id"]}|{report["mode"]}'] = {
             "pairs": [{
                 "id": pair["id"],
                 "label": f"{pair['x_label']} × {pair['y_label']}",
@@ -807,25 +872,35 @@ def get_sidebar_context(reports: list[dict]) -> dict:
 
 def get_page_script(context: dict) -> str:
     template = r"""
-const report = __REPORT_CONTEXT__;
-let selectedMode = Object.keys(report)[0];
-let selectedPair = report[selectedMode].pairs[0].id;
+const context = __REPORT_CONTEXT__;
+const report = context.reports;
+let selectedDataset = context.datasets[0].id;
+let selectedMode = context.modes[0];
+let selectedPair = report[`${selectedDataset}|${selectedMode}`].pairs[0].id;
 let reportWidth;
+
+function selectedReport() {
+    return report[`${selectedDataset}|${selectedMode}`];
+}
+
+function selectedSuffix() {
+    return `${selectedDataset}-${selectedMode}`;
+}
 
 function updatePairOptions() {
     const select = document.getElementById('pair-select');
-    select.innerHTML = report[selectedMode].pairs.map(pair =>
+    select.innerHTML = selectedReport().pairs.map(pair =>
         `<option value="${pair.id}">${pair.label}</option>`
     ).join('');
-    selectedPair = report[selectedMode].pairs[0].id;
+    selectedPair = selectedReport().pairs[0].id;
     select.value = selectedPair;
 }
 
 function updateOverview() {
-    const plot = document.getElementById(`tune-overview-${selectedMode}`);
+    const plot = document.getElementById(`tune-overview-${selectedSuffix()}`);
     if (!plot) return;
-    const pair = report[selectedMode].pairs.find(candidate => candidate.id === selectedPair);
-    const grid = document.getElementById(`tune-grid-${selectedMode}`);
+    const pair = selectedReport().pairs.find(candidate => candidate.id === selectedPair);
+    const grid = document.getElementById(`tune-grid-${selectedSuffix()}`);
     const transpose = values => {
         if (!values || values.length === 0) return values;
         return values[0].map((_, index) => values.map(row => row[index]));
@@ -871,7 +946,7 @@ function updateOverview() {
 }
 
 function updateSummary() {
-    const mode = report[selectedMode];
+    const mode = selectedReport();
     document.getElementById('current-default-label').textContent =
         `Current defaults: actual mean (${mode.current_default_runs} runs)`;
     document.getElementById('current-default-accuracy').textContent =
@@ -904,8 +979,11 @@ function updateSummary() {
 }
 
 function updatePlot() {
-    document.querySelectorAll('.mode-report').forEach(section => {
-        section.hidden = section.dataset.mode !== selectedMode;
+    document.querySelectorAll('.dataset-mode-report').forEach(section => {
+        section.hidden = (
+            section.dataset.dataset !== selectedDataset ||
+            section.dataset.mode !== selectedMode
+        );
     });
     updateSummary();
     requestAnimationFrame(() => {
@@ -915,12 +993,14 @@ function updatePlot() {
 }
 
 function resizePlots() {
-    const section = document.querySelector(`.mode-report[data-mode="${selectedMode}"]`);
+    const section = document.querySelector(
+        `.dataset-mode-report[data-dataset="${selectedDataset}"][data-mode="${selectedMode}"]`
+    );
     if (!section || section.hidden) return;
     const plots = {
-        overview: document.getElementById(`tune-overview-${selectedMode}`),
-        grid: document.getElementById(`tune-grid-${selectedMode}`),
-        accuracy: document.getElementById(`tune-accuracy-${selectedMode}`),
+        overview: document.getElementById(`tune-overview-${selectedSuffix()}`),
+        grid: document.getElementById(`tune-grid-${selectedSuffix()}`),
+        accuracy: document.getElementById(`tune-accuracy-${selectedSuffix()}`),
     };
     const availableWidth = Math.max(760, Math.min(section.clientWidth * 0.94, 1360));
     reportWidth = reportWidth === undefined
@@ -934,14 +1014,25 @@ function resizePlots() {
     Plotly.relayout(plots.overview, {width: targetWidth});
     Plotly.relayout(plots.grid, {width: targetWidth, height: targetWidth});
     Plotly.relayout(plots.accuracy, {width: targetWidth});
+    const comparison = document.getElementById('tune-dataset-comparison');
+    if (comparison) {
+        comparison.parentElement.style.width = `${targetWidth}px`;
+        Plotly.relayout(comparison, {width: targetWidth});
+    }
 }
 
 const sidebar = document.createElement('aside');
 sidebar.id = 'tune-sidebar';
 sidebar.innerHTML = `
     <h2>Hyperparameter report</h2>
+    <section><h3>Haplotype dataset</h3>
+        <select id="dataset-select">${context.datasets.map(dataset =>
+            `<option value="${dataset.id}">${dataset.label}</option>`
+        ).join('')}</select>
+        <div class="tune-dataset-file" id="dataset-file">${context.datasets[0].file}</div>
+    </section>
     <section><h3>DFCP mode</h3><div class="tune-buttons" id="mode-controls">
-        ${Object.keys(report).map((mode, index) =>
+        ${context.modes.map((mode, index) =>
             `<button class="${index === 0 ? 'active' : ''}" data-mode="${mode}">${mode}</button>`
         ).join('')}
     </div></section>
@@ -979,9 +1070,11 @@ style.textContent = `
     #tune-sidebar h2 { margin: 0 0 18px; font-size: 20px; }
     #tune-sidebar h3 { margin: 0 0 8px; font-size: 14px; }
     #tune-sidebar section { margin-bottom: 20px; }
-    #pair-select { box-sizing: border-box; width: 100%; padding: 7px 5px;
+    #pair-select, #dataset-select { box-sizing: border-box; width: 100%; padding: 7px 5px;
         border: 1px solid #aeb5c0; border-radius: 4px; background: white;
         color: #2a3f5f; }
+    .tune-dataset-file { margin-top: 6px; overflow-wrap: anywhere;
+        color: #697386; font-size: 11px; line-height: 1.3; }
     .tune-buttons { display: flex; gap: 5px; }
     .tune-buttons button { flex: 1; padding: 7px 5px; border: 1px solid #aeb5c0;
         border-radius: 4px; background: #f4f5f7; color: #2a3f5f; cursor: pointer;
@@ -993,14 +1086,29 @@ style.textContent = `
     #tune-sidebar td { padding: 4px 2px; border-bottom: 1px solid #e5e7eb; }
     #tune-sidebar td:last-child { text-align: right; font-family: monospace; }
     .tune-note { color: #5d6778; font-size: 12px; line-height: 1.4; }
-    .mode-report { width: calc(100% - 350px); margin-left: 350px; overflow-x: auto; }
-    .mode-report[hidden] { display: none; }
+    .dataset-mode-report, .comparison-report { width: calc(100% - 350px);
+        margin-left: 350px; overflow-x: auto; }
+    .dataset-mode-report[hidden] { display: none; }
     .plot-stack { width: 100%; margin: 0 auto; }
     .plot-section { margin-bottom: 44px; }
     .plot-section-grid { margin-bottom: 44px; }
     @media (max-width: 850px) { #tune-sidebar { width: 280px; padding: 12px; }
-        .mode-report { width: calc(100% - 280px); margin-left: 280px; } }`;
+        .dataset-mode-report, .comparison-report {
+            width: calc(100% - 280px); margin-left: 280px;
+        } }`;
 document.head.appendChild(style);
+
+const datasetSelect = document.getElementById('dataset-select');
+function applySelectedDataset() {
+    selectedDataset = datasetSelect.value;
+    document.getElementById('dataset-file').textContent = context.datasets.find(
+        dataset => dataset.id === selectedDataset
+    ).file;
+    updatePairOptions();
+    updatePlot();
+}
+datasetSelect.addEventListener('input', applySelectedDataset);
+datasetSelect.addEventListener('change', applySelectedDataset);
 
 document.querySelectorAll('#mode-controls button').forEach(button => {
     button.addEventListener('click', () => {
@@ -1029,7 +1137,9 @@ window.addEventListener('resize', () => requestAnimationFrame(resizePlots));
 def write_report(experiment: dict, output: Path) -> None:
     plotly_asset = ensure_plotly_asset(output)
     reports = [
-        get_mode_report(mode, mode_data) for mode, mode_data in experiment["modes"].items()
+        get_mode_report(dataset_index, dataset, mode, mode_data)
+        for dataset_index, dataset in enumerate(experiment["datasets"])
+        for mode, mode_data in dataset["modes"].items()
     ]
     fragments = []
     for index, report in enumerate(reports):
@@ -1040,19 +1150,37 @@ def write_report(experiment: dict, output: Path) -> None:
             ("accuracy", make_accuracy_figure(report, width)),
         )
         plots = []
+        suffix = f'{report["dataset_id"]}-{report["mode"]}'
         for name, figure in figures:
             plot = pio.to_html(
                 figure,
                 full_html=False,
                 include_plotlyjs=False,
                 config={"responsive": False},
-                div_id=f"tune-{name}-{report['mode']}",
+                div_id=f"tune-{name}-{suffix}",
             )
             plots.append(f'<div class="plot-section plot-section-{name}">{plot}</div>')
         hidden = "" if index == 0 else " hidden"
         fragments.append(
-            f'<section class="mode-report" data-mode="{report["mode"]}"{hidden}>'
+            f'<section class="dataset-mode-report" '
+            f'data-dataset="{report["dataset_id"]}" '
+            f'data-mode="{report["mode"]}"{hidden}>'
             f'<div class="plot-stack">{"".join(plots)}</div></section>'
+        )
+
+    comparison = ""
+    if len(experiment["datasets"]) > 1:
+        comparison_plot = pio.to_html(
+            make_dataset_comparison_figure(experiment),
+            full_html=False,
+            include_plotlyjs=False,
+            config={"responsive": False},
+            div_id="tune-dataset-comparison",
+        )
+        comparison = (
+            '<section class="comparison-report"><div class="plot-stack">'
+            f'<div class="plot-section plot-section-comparison">{comparison_plot}</div>'
+            "</div></section>"
         )
 
     page = (
@@ -1060,6 +1188,7 @@ def write_report(experiment: dict, output: Path) -> None:
         "<title>DFCP hyperparameter report</title>"
         f'<script src="{plotly_asset}"></script></head><body>\n'
         + "\n".join(fragments)
+        + comparison
         + "\n<script>\n"
         + get_page_script(get_sidebar_context(reports))
         + "\n</script>\n</body></html>\n"
@@ -1075,17 +1204,44 @@ def save_experiment(experiment: dict, output: Path) -> None:
 
 def load_experiment(path: Path) -> dict:
     experiment = json.loads(path.read_text())
-    if not isinstance(experiment, dict) or not isinstance(experiment.get("modes"), dict):
+    if not isinstance(experiment, dict):
         raise ValueError(f"{path} is not a DFCP tuning result")
-    if not experiment["modes"]:
-        raise ValueError(f"{path} contains no tuned modes")
-    return experiment
+    if isinstance(experiment.get("datasets"), list):
+        if not experiment["datasets"]:
+            raise ValueError(f"{path} contains no tuned datasets")
+        for dataset in experiment["datasets"]:
+            if not isinstance(dataset.get("modes"), dict) or not dataset["modes"]:
+                raise ValueError(f"{path} contains a dataset with no tuned modes")
+        return experiment
+
+    # Version 2 averaged all configured files into one objective. A single-file
+    # result is losslessly representable in the per-dataset version 3 schema.
+    if isinstance(experiment.get("modes"), dict) and experiment["modes"]:
+        seq_files = experiment.get("config", {}).get("seq_files", [])
+        if len(seq_files) != 1:
+            raise ValueError(
+                f"{path} averages {len(seq_files)} sequence files and cannot be "
+                "visualized as independent tuning results; rerun tuning"
+            )
+        experiment = {
+            **experiment,
+            "version": 3,
+            "datasets": [{
+                "seq_file": seq_files[0],
+                "label": get_seq_label(Path(seq_files[0])),
+                "modes": experiment["modes"],
+            }],
+        }
+        experiment.pop("modes")
+        return experiment
+    raise ValueError(f"{path} is not a DFCP tuning result")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Tune DFCP priors with BoTorch, save JSON results, and write a Plotly report."
+            "Tune DFCP priors independently per sequence file with BoTorch, save "
+            "JSON results, and write a Plotly report."
         )
     )
     inputs = parser.add_mutually_exclusive_group()
@@ -1093,8 +1249,8 @@ def parse_args() -> argparse.Namespace:
     inputs.add_argument(
         "--seq_dir", type=Path,
         help=(
-            "use every haps*.txt* file in this directory; by default, use only "
-            f"the clean file {DEFAULT_SEQ_FILE}"
+            "independently tune every haps*.txt* file in this directory; by "
+            f"default, use only the clean file {DEFAULT_SEQ_FILE}"
         ),
     )
     inputs.add_argument(
@@ -1148,7 +1304,7 @@ def main() -> None:
     seq_files = resolve_seq_files(args)
     build_dfcp()
     experiment = {
-        "version": 2,
+        "version": 3,
         "config": {
             "seq_files": [str(path) for path in seq_files],
             "modes": args.modes,
@@ -1161,14 +1317,24 @@ def main() -> None:
             "confirmation_replicates": CONFIRM_REPLICATES,
             "seed": args.seed,
             "objective": "dfcp_impute_acc",
+            "dataset_handling": "independent optimization per sequence file",
             "parameterization": (
                 "Gamma mean/shape, discount Beta v1/v2, mismatch Beta mean/concentration"
             ),
         },
-        "modes": {},
+        "datasets": [],
     }
-    for mode in args.modes:
-        experiment["modes"][mode] = tune_mode(mode, seq_files, args)
+    for dataset_index, seq_file in enumerate(seq_files):
+        dataset = {
+            "seq_file": str(seq_file),
+            "label": get_seq_label(seq_file),
+            "modes": {},
+        }
+        for mode in args.modes:
+            dataset["modes"][mode] = tune_mode(
+                mode, seq_file, dataset_index, args
+            )
+        experiment["datasets"].append(dataset)
 
     save_experiment(experiment, args.json)
     write_report(load_experiment(args.json), args.output)

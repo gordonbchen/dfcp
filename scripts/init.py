@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -33,19 +34,13 @@ if __name__ == "__main__":
         default=Path("data/examples/simulated/SIM1_LEN500_NHAPS100"),
     )
     p.add_argument("--seq_files", type=Path, nargs="+")
+    p.add_argument(
+        "--load", type=Path, metavar="JSON",
+        help="skip DFCP runs and rebuild the Plotly report from saved results",
+    )
+    p.add_argument("--json", type=Path, default=Path("output/init.json"))
     p.add_argument("--output", type=Path, default=Path("docs/init.html"))
     args = p.parse_args()
-
-    if args.seq_files is not None:
-        seq_files = args.seq_files
-    elif args.seq_file is not None:
-        seq_files = [Path(args.seq_file)]
-    else:
-        seq_files = sorted(args.seq_dir.glob("haps_*.txt"), key=get_seq_sort_key)
-    if not seq_files:
-        raise RuntimeError("no haplotype sequence files found")
-
-    build_dfcp()
 
     INIT_METHODS = (
         "block",
@@ -85,54 +80,126 @@ if __name__ == "__main__":
         "noisy": {"noisy": 1, "soft": 0},
         "soft": {"noisy": 0, "soft": 1},
     }
-    data = {
-        seq_idx: {
-            mode: {
-                phase: {i: {m: [] for m in METRICS} for i in INIT_METHODS}
-                for phase in PHASES
-            }
-            for mode in MODES
-        }
-        for seq_idx in range(len(seq_files))
-    }
-
     MASKS = (0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
 
-    for seq_idx, seq_file in enumerate(seq_files):
-        for mode, mode_flags in MODES.items():
-            for init_method in INIT_METHODS:
-                print(f"{seq_file} {mode} {init_method}")
-                for mask in MASKS:
-                    for phase, init_only in PHASES.items():
-                        res = run_dfcp(
-                            str(seq_file),
+    def empty_data() -> dict:
+        return {
+            seq_idx: {
+                mode: {
+                    phase: {i: {m: [] for m in METRICS} for i in INIT_METHODS}
+                    for phase in PHASES
+                }
+                for mode in MODES
+            }
+            for seq_idx in range(len(seq_files))
+        }
 
-                            val=0.2, mask=mask,
+    def method_id(init_method: str | tuple[str, int]) -> str:
+        return (
+            f"pbwt:{init_method[1]}"
+            if isinstance(init_method, tuple) else init_method
+        )
 
-                            tree=args.tree, variant_pos_fname=args.variant_pos_fname,
-                            variant_start_pos=args.variant_start_pos,
-                            clade_beta=args.clade_beta,
+    def method_from_id(identifier: str) -> str | tuple[str, int]:
+        if identifier.startswith("pbwt:"):
+            return "pbwt", int(identifier.split(":", 1)[1])
+        if identifier not in ("block", "viterbi"):
+            raise ValueError(f"unknown initialization method in JSON: {identifier}")
+        return identifier
 
-                            noisy=mode_flags["noisy"], soft=mode_flags["soft"],
-                            block_init=int(init_method == "block"),
-                            pbwt_init=int(init_method[0] == "pbwt"),
-                            pbwt_match_len=(
-                                init_method[1] if init_method[0] == "pbwt" else None
-                            ),
-                            init_only=init_only,
-                        )
-                        for metric in SHARED_METRICS:
-                            data[seq_idx][mode][phase][init_method][metric].append(
-                                res[metric]
+    if args.load is not None:
+        payload = json.loads(args.load.read_text())
+        if payload.get("version") != 1 or not isinstance(payload.get("series"), list):
+            raise ValueError(f"{args.load} is not a DFCP initialization result")
+        seq_files = [Path(path) for path in payload["config"]["seq_files"]]
+        if not seq_files:
+            raise ValueError(f"{args.load} contains no sequence files")
+        MASKS = tuple(float(mask) for mask in payload["config"]["masks"])
+        if not MASKS:
+            raise ValueError(f"{args.load} contains no mask values")
+        data = empty_data()
+        for series in payload["series"]:
+            init_method = method_from_id(series["method"])
+            data[series["dataset"]][series["mode"]][series["phase"]][init_method] = (
+                series["metrics"]
+            )
+        print(f"loaded {args.load}")
+    else:
+        if args.seq_files is not None:
+            seq_files = args.seq_files
+        elif args.seq_file is not None:
+            seq_files = [Path(args.seq_file)]
+        else:
+            seq_files = sorted(args.seq_dir.glob("haps_*.txt"), key=get_seq_sort_key)
+        if not seq_files:
+            raise RuntimeError("no haplotype sequence files found")
+
+        data = empty_data()
+        build_dfcp()
+        for seq_idx, seq_file in enumerate(seq_files):
+            for mode, mode_flags in MODES.items():
+                for init_method in INIT_METHODS:
+                    print(f"{seq_file} {mode} {init_method}")
+                    for mask in MASKS:
+                        for phase, init_only in PHASES.items():
+                            res = run_dfcp(
+                                str(seq_file),
+
+                                val=0.2, mask=mask,
+
+                                tree=args.tree, variant_pos_fname=args.variant_pos_fname,
+                                variant_start_pos=args.variant_start_pos,
+                                clade_beta=args.clade_beta,
+
+                                noisy=mode_flags["noisy"], soft=mode_flags["soft"],
+                                block_init=int(init_method == "block"),
+                                pbwt_init=int(init_method[0] == "pbwt"),
+                                pbwt_match_len=(
+                                    init_method[1] if init_method[0] == "pbwt" else None
+                                ),
+                                init_only=init_only,
                             )
-                        if phase == "post":
-                            train_log = res["train_log"]
-                            data[seq_idx][mode][phase][init_method]["elbo"].append(
-                                train_log[-1]["elbo"]
-                            )
-                            data[seq_idx][mode][phase][init_method]["iterations"].append(
-                                len(train_log)
-                            )
+                            for metric in SHARED_METRICS:
+                                data[seq_idx][mode][phase][init_method][metric].append(
+                                    res[metric]
+                                )
+                            if phase == "post":
+                                train_log = res["train_log"]
+                                data[seq_idx][mode][phase][init_method]["elbo"].append(
+                                    train_log[-1]["elbo"]
+                                )
+                                data[seq_idx][mode][phase][init_method]["iterations"].append(
+                                    len(train_log)
+                                )
+
+        payload = {
+            "version": 1,
+            "config": {
+                "seq_files": [str(path) for path in seq_files],
+                "masks": list(MASKS),
+                "val": 0.2,
+                "tree": args.tree,
+                "variant_pos_fname": args.variant_pos_fname,
+                "variant_start_pos": args.variant_start_pos,
+                "clade_beta": args.clade_beta,
+            },
+            "series": [
+                {
+                    "dataset": seq_idx,
+                    "mode": mode,
+                    "phase": phase,
+                    "method": method_id(init_method),
+                    "metrics": data[seq_idx][mode][phase][init_method],
+                }
+                for seq_idx in range(len(seq_files))
+                for mode in MODES
+                for phase in PHASES
+                for init_method in INIT_METHODS
+            ],
+        }
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n")
+        print(f"wrote {args.json}")
 
     ncols = 2
     nrows = (len(METRICS) + ncols - 1) // ncols
@@ -424,3 +491,4 @@ window.addEventListener('resize', () => Plotly.Plots.resize(plot));
         config={"responsive": True},
         post_script=post_script,
     )
+    print(f"wrote {args.output}")
