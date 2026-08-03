@@ -61,7 +61,7 @@ class ParameterSpec:
 COMMON_PARAMETERS = (
     ParameterSpec("alpha_mean", "alpha prior mean", 0.05, 20.0, "log", "alpha"),
     ParameterSpec("alpha_strength", "alpha prior shape", 1.0, 8.0, "log", "alpha"),
-    ParameterSpec("discount_mean", "discount prior mean", 0.01, 0.99, "linear", "discount"),
+    ParameterSpec("discount_mean", "discount prior mean", 0.1, 0.9, "linear", "discount"),
     ParameterSpec("discount_strength", "discount prior strength", 2.0, 20.0, "log", "discount"),
     ParameterSpec("gamma_mean", "gamma prior mean", 0.01, 10.0, "log", "gamma"),
     ParameterSpec("gamma_strength", "gamma prior shape", 1.0, 8.0, "log", "gamma"),
