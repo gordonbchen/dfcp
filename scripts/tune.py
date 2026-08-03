@@ -20,6 +20,7 @@ from plotly.subplots import make_subplots
 
 
 DEFAULT_SEQ_DIR = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
+DEFAULT_SEQ_FILE = DEFAULT_SEQ_DIR / "haps_SIMOUT_1.txt.gz_SIMOUT_14572-15071.txt"
 PBWT_MATCH_LEN = 20
 CONFIRM_REPLICATES = 5
 NEAR_BEST_TOLERANCE = 0.0025
@@ -29,6 +30,7 @@ ACQ_RESTARTS = 10
 ACQ_RAW_SAMPLES = 256
 FAILURE_RETRIES = 1
 GRID_SIZE = 45
+PAIR_CELL_SIZE = 135
 MODE_COLORS = {"hard": "#3366CC", "noisy": "#C9342C", "soft": "#2A9D8F"}
 
 
@@ -123,7 +125,7 @@ def resolve_seq_files(args: argparse.Namespace) -> list[Path]:
     elif args.seq_dir:
         files = sorted(args.seq_dir.glob("haps*.txt*"))
     else:
-        files = sorted(DEFAULT_SEQ_DIR.glob("haps*.txt*"))
+        files = [DEFAULT_SEQ_FILE]
     if not files:
         raise ValueError("no haplotype files were found")
     missing = [path for path in files if not path.is_file()]
@@ -462,11 +464,20 @@ def get_mode_report(mode: str, mode_data: dict) -> dict:
     }
 
 
-def add_mode_traces(fig: go.Figure, report: dict) -> None:
+def make_overview_figure(report: dict, width: int) -> go.Figure:
     mode = report["mode"]
     sensitivity = report["summary"]["normalized_inverse_lengthscales"]
     ordered = sorted(sensitivity, key=sensitivity.get)
     labels = {spec.name: spec.label for spec in report["specs"]}
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            "ARD sensitivity (normalized inverse lengthscale)",
+            "Selected pairwise GP posterior trend",
+        ),
+        horizontal_spacing=0.16,
+    )
     fig.add_trace(go.Bar(
         x=[sensitivity[name] for name in ordered], y=[labels[name] for name in ordered],
         orientation="h", marker_color=MODE_COLORS[mode], showlegend=False,
@@ -474,37 +485,121 @@ def add_mode_traces(fig: go.Figure, report: dict) -> None:
         meta={"kind": "sensitivity"},
     ), row=1, col=1)
 
-    first_pair = report["pairs"][0]["id"]
-    for pair in report["pairs"]:
-        visible = pair["id"] == first_pair
-        meta = {"kind": "surface", "pair": pair["id"]}
+    optimum = report["summary"]["predicted_optimum"]
+    less_informative = report["summary"]["less_informative"]
+    for pair_index, pair in enumerate(report["pairs"]):
+        visible = pair_index == 0
+        meta = {"kind": "overview_surface", "pair": pair["id"]}
         fig.add_trace(go.Heatmap(
             x=pair["surface"]["x"], y=pair["surface"]["y"], z=pair["surface"]["z"],
             customdata=pair["surface"]["std"], coloraxis="coloraxis",
             hovertemplate=(
                 f"{pair['x_label']}: %{{x:.4g}}<br>{pair['y_label']}: %{{y:.4g}}<br>"
                 "predicted accuracy: %{z:.5f}<br>posterior SD: %{customdata:.5f}<extra></extra>"
-            ), showlegend=False, meta=meta, visible=visible,
+            ), visible=visible, showlegend=False, meta=meta,
         ), row=1, col=2)
         fig.add_trace(go.Contour(
             x=pair["surface"]["x"], y=pair["surface"]["y"], z=pair["surface"]["z"],
-            contours={"coloring": "none", "showlabels": True},
+            contours={"coloring": "none", "showlabels": False},
             line={"color": "rgba(255,255,255,0.8)", "width": 1},
-            showlegend=False, showscale=False, hoverinfo="skip", meta=meta,
-            visible=visible,
+            visible=visible, showlegend=False, showscale=False, hoverinfo="skip",
+            meta=meta,
         ), row=1, col=2)
         fig.add_trace(go.Scattergl(
             x=pair["observed_x"], y=pair["observed_y"], mode="markers",
             marker={"color": pair["observed_accuracy"], "coloraxis": "coloraxis",
-                    "line": {"color": "white", "width": 1}, "size": 7},
+                    "line": {"color": "black", "width": 0.5}, "size": 5,
+                    "opacity": 1.0},
             text=[f"accuracy={value:.5f}" for value in pair["observed_accuracy"]],
-            hovertemplate="%{text}<extra>evaluated point</extra>", showlegend=False,
-            meta=meta, visible=visible,
+            hovertemplate="%{text}<extra>evaluated point</extra>",
+            visible=visible, showlegend=False, meta=meta,
         ), row=1, col=2)
-        optimum = report["summary"]["predicted_optimum"]
         fig.add_trace(go.Scatter(
             x=[optimum["search_params"][pair["x_name"]]],
-            y=[optimum["search_params"][pair["y_name"]]],
+            y=[optimum["search_params"][pair["y_name"]]], mode="markers",
+            marker={"symbol": "star", "size": 16, "color": "black",
+                    "line": {"color": "white", "width": 1.5}},
+            hovertemplate="GP optimum candidate<extra></extra>",
+            visible=visible, showlegend=False, meta=meta,
+        ), row=1, col=2)
+        fig.add_trace(go.Scatter(
+            x=[less_informative["search_params"][pair["x_name"]]],
+            y=[less_informative["search_params"][pair["y_name"]]], mode="markers",
+            marker={"symbol": "diamond", "size": 11, "color": "#00B8D9",
+                    "line": {"color": "white", "width": 1.5}},
+            hovertemplate="Less-informative candidate<extra></extra>",
+            visible=visible, showlegend=False, meta=meta,
+        ), row=1, col=2)
+
+    first_pair = report["pairs"][0]
+    fig.update_xaxes(title_text="normalized inverse lengthscale", row=1, col=1)
+    fig.update_xaxes(title_text=first_pair["x_label"], type="log", row=1, col=2)
+    fig.update_yaxes(title_text=first_pair["y_label"], type="log", row=1, col=2)
+    fig.update_layout(
+        width=width,
+        height=520,
+        margin={"t": 115, "b": 70, "l": 180, "r": 105},
+        showlegend=False,
+        coloraxis={
+            "colorscale": "Viridis",
+            "cmin": report["zmin"],
+            "cmax": report["zmax"],
+            "colorbar": {"title": "predicted accuracy", "x": 1.02, "len": 0.7},
+        },
+    )
+    return fig
+
+
+def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.Figure:
+    specs = report["specs"]
+    n_params = len(specs)
+    grid_size = n_params - 1
+    plot_size = cell_size * grid_size
+    figure_size = plot_size + 250
+    fig = make_subplots(
+        rows=grid_size,
+        cols=grid_size,
+        horizontal_spacing=0.012,
+        vertical_spacing=0.012,
+    )
+    for row in range(1, grid_size + 1):
+        for col in range(1, grid_size + 1):
+            fig.update_xaxes(visible=False, row=row, col=col)
+            fig.update_yaxes(visible=False, row=row, col=col)
+
+    param_index = {spec.name: index for index, spec in enumerate(specs)}
+    optimum = report["summary"]["predicted_optimum"]
+    less_informative = report["summary"]["less_informative"]
+    for pair in report["pairs"]:
+        col = n_params - param_index[pair["y_name"]]
+        row = param_index[pair["x_name"]] + 1
+        z = [list(values) for values in zip(*pair["surface"]["z"])]
+        std = [list(values) for values in zip(*pair["surface"]["std"])]
+        fig.add_trace(go.Heatmap(
+            x=pair["surface"]["y"], y=pair["surface"]["x"], z=z,
+            customdata=std, coloraxis="coloraxis",
+            hovertemplate=(
+                f"{pair['y_label']}: %{{x:.4g}}<br>{pair['x_label']}: %{{y:.4g}}<br>"
+                "predicted accuracy: %{z:.5f}<br>posterior SD: %{customdata:.5f}<extra></extra>"
+            ), showlegend=False,
+        ), row=row, col=col)
+        fig.add_trace(go.Contour(
+            x=pair["surface"]["y"], y=pair["surface"]["x"], z=z,
+            contours={"coloring": "none", "showlabels": False},
+            line={"color": "rgba(255,255,255,0.8)", "width": 1},
+            showlegend=False, showscale=False, hoverinfo="skip",
+        ), row=row, col=col)
+        fig.add_trace(go.Scattergl(
+            x=pair["observed_y"], y=pair["observed_x"], mode="markers",
+            marker={"color": pair["observed_accuracy"], "coloraxis": "coloraxis",
+                    "line": {"color": "black", "width": 0.5}, "size": 4,
+                    "opacity": 1.0},
+            text=[f"accuracy={value:.5f}" for value in pair["observed_accuracy"]],
+            hovertemplate="%{text}<extra>evaluated point</extra>", showlegend=False,
+        ), row=row, col=col)
+        fig.add_trace(go.Scatter(
+            x=[optimum["search_params"][pair["y_name"]]],
+            y=[optimum["search_params"][pair["x_name"]]],
             mode="markers",
             marker={
                 "symbol": "star",
@@ -514,13 +609,126 @@ def add_mode_traces(fig: go.Figure, report: dict) -> None:
             },
             hovertemplate=(
                 "GP optimum candidate<br>"
-                f"{pair['x_label']}: %{{x:.4g}}<br>"
-                f"{pair['y_label']}: %{{y:.4g}}<extra></extra>"
+                f"{pair['y_label']}: %{{x:.4g}}<br>"
+                f"{pair['x_label']}: %{{y:.4g}}<extra></extra>"
             ),
             showlegend=False,
-            meta=meta,
-            visible=visible,
-        ), row=1, col=2)
+        ), row=row, col=col)
+        fig.add_trace(go.Scatter(
+            x=[less_informative["search_params"][pair["y_name"]]],
+            y=[less_informative["search_params"][pair["x_name"]]],
+            mode="markers",
+            marker={
+                "symbol": "diamond",
+                "size": 11,
+                "color": "#00B8D9",
+                "line": {"color": "white", "width": 1.5},
+            },
+            hovertemplate=(
+                "Less-informative candidate<br>"
+                f"{pair['y_label']}: %{{x:.4g}}<br>"
+                f"{pair['x_label']}: %{{y:.4g}}<extra></extra>"
+            ),
+            showlegend=False,
+        ), row=row, col=col)
+        fig.update_xaxes(
+            visible=True,
+            type=specs[n_params - col].scale,
+            showticklabels=row + col == n_params,
+            ticks="outside" if row + col == n_params else "",
+            showgrid=False,
+            zeroline=False,
+            showline=True,
+            mirror=True,
+            row=row,
+            col=col,
+        )
+        fig.update_yaxes(
+            visible=True,
+            type=specs[row - 1].scale,
+            showticklabels=col == 1,
+            ticks="outside" if col == 1 else "",
+            showgrid=False,
+            zeroline=False,
+            showline=True,
+            mirror=True,
+            row=row,
+            col=col,
+        )
+
+    for index in range(grid_size):
+        col_subplot = fig.get_subplot(1, index + 1)
+        row_subplot = fig.get_subplot(index + 1, 1)
+        fig.add_annotation(
+            x=sum(col_subplot.xaxis.domain) / 2,
+            y=1.012,
+            xref="paper",
+            yref="paper",
+            text=specs[n_params - index - 1].label,
+            textangle=0,
+            showarrow=False,
+            xanchor="center",
+            yanchor="bottom",
+            font={"size": 11},
+        )
+        fig.add_annotation(
+            x=-0.018,
+            y=sum(row_subplot.yaxis.domain) / 2,
+            xref="paper",
+            yref="paper",
+            text=specs[index].label,
+            showarrow=False,
+            xanchor="right",
+            font={"size": 12},
+        )
+
+    fig.add_annotation(
+        x=0.5,
+        y=1.095,
+        xref="paper",
+        yref="paper",
+        text="★ GP optimum &nbsp;&nbsp; ◆ less-informative candidate",
+        showarrow=False,
+        font={"size": 13},
+    )
+    fig.add_annotation(
+        x=0.5,
+        y=1.14,
+        xref="paper",
+        yref="paper",
+        text="Pairwise GP posterior trends",
+        showarrow=False,
+        font={"size": 20},
+    )
+    fig.update_layout(
+        width=figure_size,
+        height=figure_size,
+        margin={"t": 150, "b": 100, "l": 150, "r": 100},
+        showlegend=False,
+        coloraxis={
+            "colorscale": "Viridis",
+            "cmin": report["zmin"],
+            "cmax": report["zmax"],
+            "colorbar": {
+                "title": "predicted accuracy",
+                "x": 1.02,
+                "xanchor": "left",
+                "y": 0.5,
+                "len": 0.55,
+            },
+        },
+    )
+    return fig
+
+
+def make_accuracy_figure(report: dict, width: int) -> go.Figure:
+    mode = report["mode"]
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("Best observed accuracy", "Observed accuracy and estimated noise"),
+        horizontal_spacing=0.13,
+    )
 
     core = [record for record in report["records"] if record["source"] in ("sobol", "bo")]
     running_best = -math.inf
@@ -531,9 +739,8 @@ def add_mode_traces(fig: go.Figure, report: dict) -> None:
     fig.add_trace(go.Scatter(
         x=list(range(1, len(core) + 1)), y=best, mode="lines+markers",
         line={"color": MODE_COLORS[mode]}, showlegend=False,
-        meta={"kind": "convergence"},
         hovertemplate="evaluation %{x}<br>best accuracy=%{y:.5f}<extra></extra>",
-    ), row=2, col=1)
+    ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=list(range(1, len(report["records"]) + 1)),
         y=[record["objective_mean"] for record in report["records"]],
@@ -542,9 +749,19 @@ def add_mode_traces(fig: go.Figure, report: dict) -> None:
         ], "visible": True},
         text=[record["source"] for record in report["records"]], mode="markers",
         marker={"color": MODE_COLORS[mode], "size": 7}, showlegend=False,
-        meta={"kind": "observations"},
         hovertemplate="evaluation %{x}<br>accuracy=%{y:.5f}<br>%{text}<extra></extra>",
-    ), row=2, col=2)
+    ), row=1, col=2)
+    fig.update_xaxes(title_text="BO evaluation", row=1, col=1)
+    fig.update_xaxes(title_text="evaluation", row=1, col=2)
+    fig.update_yaxes(title_text="accuracy", row=1, col=1)
+    fig.update_yaxes(title_text="accuracy", row=1, col=2)
+    fig.update_layout(
+        width=width,
+        height=460,
+        margin={"t": 75, "b": 70, "l": 80, "r": 45},
+        showlegend=False,
+    )
+    return fig
 
 
 def get_sidebar_context(reports: list[dict]) -> dict:
@@ -558,10 +775,12 @@ def get_sidebar_context(reports: list[dict]) -> dict:
                 "x_label": pair["x_label"],
                 "y_label": pair["y_label"],
                 "x_scale": next(
-                    spec.scale for spec in report["specs"] if spec.name == pair["x_name"]
+                    spec.scale for spec in report["specs"]
+                    if spec.name == pair["x_name"]
                 ),
                 "y_scale": next(
-                    spec.scale for spec in report["specs"] if spec.name == pair["y_name"]
+                    spec.scale for spec in report["specs"]
+                    if spec.name == pair["y_name"]
                 ),
             } for pair in report["pairs"]],
             "best_accuracy": summary["best_observed"]["objective_mean"],
@@ -579,6 +798,34 @@ def get_page_script(context: dict) -> str:
 const report = __REPORT_CONTEXT__;
 let selectedMode = Object.keys(report)[0];
 let selectedPair = report[selectedMode].pairs[0].id;
+let reportWidth;
+
+function updatePairOptions() {
+    const select = document.getElementById('pair-select');
+    select.innerHTML = report[selectedMode].pairs.map(pair =>
+        `<option value="${pair.id}">${pair.label}</option>`
+    ).join('');
+    selectedPair = report[selectedMode].pairs[0].id;
+    select.value = selectedPair;
+}
+
+function updateOverview() {
+    const plot = document.getElementById(`tune-overview-${selectedMode}`);
+    if (!plot) return;
+    const pair = report[selectedMode].pairs.find(candidate => candidate.id === selectedPair);
+    const visible = plot.data.map(trace =>
+        trace.meta.kind !== 'overview_surface' || trace.meta.pair === selectedPair
+    );
+    Plotly.restyle(plot, {visible});
+    Plotly.relayout(plot, {
+        'xaxis2.title.text': pair.x_label,
+        'xaxis2.type': pair.x_scale,
+        'xaxis2.autorange': true,
+        'yaxis2.title.text': pair.y_label,
+        'yaxis2.type': pair.y_scale,
+        'yaxis2.autorange': true,
+    });
+}
 
 function updateSummary() {
     const mode = report[selectedMode];
@@ -613,35 +860,37 @@ function updateSummary() {
     ).join('');
 }
 
-function updatePairOptions() {
-    const select = document.getElementById('pair-select');
-    select.innerHTML = report[selectedMode].pairs.map(pair =>
-        `<option value="${pair.id}">${pair.label}</option>`
-    ).join('');
-    selectedPair = report[selectedMode].pairs[0].id;
-    select.value = selectedPair;
-}
-
 function updatePlot() {
     document.querySelectorAll('.mode-report').forEach(section => {
         section.hidden = section.dataset.mode !== selectedMode;
     });
-    const plot = document.getElementById(`tune-plot-${selectedMode}`);
-    const visible = plot.data.map(trace =>
-        trace.meta.kind !== 'surface' || trace.meta.pair === selectedPair
-    );
-    const pair = report[selectedMode].pairs.find(candidate => candidate.id === selectedPair);
-    Plotly.restyle(plot, {visible: visible});
-    Plotly.relayout(plot, {
-        'xaxis2.title.text': pair.x_label,
-        'yaxis2.title.text': pair.y_label,
-        'xaxis2.type': pair.x_scale,
-        'yaxis2.type': pair.y_scale,
-        'xaxis2.autorange': true,
-        'yaxis2.autorange': true,
-    });
     updateSummary();
-    requestAnimationFrame(() => Plotly.Plots.resize(plot));
+    requestAnimationFrame(() => {
+        resizePlots();
+        updateOverview();
+    });
+}
+
+function resizePlots() {
+    const section = document.querySelector(`.mode-report[data-mode="${selectedMode}"]`);
+    if (!section || section.hidden) return;
+    const plots = {
+        overview: document.getElementById(`tune-overview-${selectedMode}`),
+        grid: document.getElementById(`tune-grid-${selectedMode}`),
+        accuracy: document.getElementById(`tune-accuracy-${selectedMode}`),
+    };
+    const availableWidth = Math.max(760, Math.min(section.clientWidth * 0.94, 1360));
+    reportWidth = reportWidth === undefined
+        ? availableWidth
+        : Math.min(reportWidth, availableWidth);
+    const targetWidth = reportWidth;
+    plots.overview.parentElement.style.width = `${targetWidth}px`;
+    plots.grid.parentElement.style.width = `${targetWidth}px`;
+    plots.grid.parentElement.style.height = `${targetWidth}px`;
+    plots.accuracy.parentElement.style.width = `${targetWidth}px`;
+    Plotly.relayout(plots.overview, {width: targetWidth});
+    Plotly.relayout(plots.grid, {width: targetWidth, height: targetWidth});
+    Plotly.relayout(plots.accuracy, {width: targetWidth});
 }
 
 const sidebar = document.createElement('aside');
@@ -653,7 +902,7 @@ sidebar.innerHTML = `
             `<button class="${index === 0 ? 'active' : ''}" data-mode="${mode}">${mode}</button>`
         ).join('')}
     </div></section>
-    <section><h3>Parameter pair</h3><select id="pair-select"></select></section>
+    <section><h3>Large contour pair</h3><select id="pair-select"></select></section>
     <section class="tune-summary"><h3>Accuracy summary</h3>
         <div><span id="current-default-label"></span><strong id="current-default-accuracy"></strong></div>
         <div><span id="best-label"></span><strong id="best-accuracy"></strong></div>
@@ -667,10 +916,10 @@ sidebar.innerHTML = `
     <section><h3>Less-informative C++ candidate</h3>
         <table><tbody id="candidate-params"></tbody></table></section>
     <section class="tune-note"><h3>Interpretation</h3>
-        <p>The heatmap is the GP posterior mean with other parameters fixed at the
-        less-informative candidate. White contours show equal predicted accuracy.</p>
-        <p>The black star is the GP optimum. Dots are evaluated configurations
-        projected onto the selected pair; their other parameters varied.</p>
+        <p>Each heatmap is the GP posterior mean with unshown parameters fixed at the
+        less-informative candidate. White lines show equal predicted accuracy.</p>
+        <p>The black star is the GP optimum, the cyan diamond is the less-informative
+        candidate, and dots are evaluated configurations projected into each cell.</p>
         <p>Shorter ARD lengthscales indicate faster surrogate variation, but are not
         causal importance scores.</p>
     </section>`;
@@ -688,7 +937,8 @@ style.textContent = `
     #tune-sidebar h3 { margin: 0 0 8px; font-size: 14px; }
     #tune-sidebar section { margin-bottom: 20px; }
     #pair-select { box-sizing: border-box; width: 100%; padding: 7px 5px;
-        border: 1px solid #aeb5c0; border-radius: 4px; background: white; color: #2a3f5f; }
+        border: 1px solid #aeb5c0; border-radius: 4px; background: white;
+        color: #2a3f5f; }
     .tune-buttons { display: flex; gap: 5px; }
     .tune-buttons button { flex: 1; padding: 7px 5px; border: 1px solid #aeb5c0;
         border-radius: 4px; background: #f4f5f7; color: #2a3f5f; cursor: pointer;
@@ -700,8 +950,11 @@ style.textContent = `
     #tune-sidebar td { padding: 4px 2px; border-bottom: 1px solid #e5e7eb; }
     #tune-sidebar td:last-child { text-align: right; font-family: monospace; }
     .tune-note { color: #5d6778; font-size: 12px; line-height: 1.4; }
-    .mode-report { width: calc(100% - 350px); margin-left: 350px; }
+    .mode-report { width: calc(100% - 350px); margin-left: 350px; overflow-x: auto; }
     .mode-report[hidden] { display: none; }
+    .plot-stack { width: 100%; margin: 0 auto; }
+    .plot-section { margin-bottom: 44px; }
+    .plot-section-grid { margin-bottom: 44px; }
     @media (max-width: 850px) { #tune-sidebar { width: 280px; padding: 12px; }
         .mode-report { width: calc(100% - 280px); margin-left: 280px; } }`;
 document.head.appendChild(style);
@@ -716,64 +969,18 @@ document.querySelectorAll('#mode-controls button').forEach(button => {
         updatePlot();
     });
 });
-document.getElementById('pair-select').addEventListener('change', event => {
-    selectedPair = event.target.value;
-    updatePlot();
-});
+const pairSelect = document.getElementById('pair-select');
+function applySelectedPair() {
+    selectedPair = pairSelect.value;
+    updateOverview();
+}
+pairSelect.addEventListener('input', applySelectedPair);
+pairSelect.addEventListener('change', applySelectedPair);
 updatePairOptions();
 updatePlot();
-window.addEventListener('resize', () => {
-    Plotly.Plots.resize(document.getElementById(`tune-plot-${selectedMode}`));
-});
+window.addEventListener('resize', () => requestAnimationFrame(resizePlots));
 """
     return template.replace("__REPORT_CONTEXT__", json.dumps(context))
-
-
-def make_mode_figure(report: dict) -> go.Figure:
-    fig = make_subplots(
-        rows=2,
-        cols=2,
-        subplot_titles=(
-            "ARD sensitivity (normalized inverse lengthscale)",
-            "Pairwise GP posterior accuracy",
-            "Best observed accuracy",
-            "Observed accuracy and estimated noise",
-        ),
-        vertical_spacing=0.16,
-        horizontal_spacing=0.15,
-    )
-    add_mode_traces(fig, report)
-    first_pair = report["pairs"][0]
-    fig.update_xaxes(title_text=first_pair["x_label"], type="log", row=1, col=2)
-    fig.update_yaxes(title_text=first_pair["y_label"], type="log", row=1, col=2)
-    fig.update_xaxes(title_text="BO evaluation", row=2, col=1)
-    fig.update_xaxes(title_text="evaluation", row=2, col=2)
-    fig.update_yaxes(title_text="accuracy", row=2, col=1)
-    fig.update_yaxes(title_text="accuracy", row=2, col=2)
-    fig.update_layout(
-        height=980,
-        margin={"t": 115, "b": 70, "l": 95, "r": 90},
-        title=(
-            "DFCP hyperparameter optimization and sensitivity"
-            f" — {report['mode']} mode"
-            f"<br>PBWT initialization, match length {PBWT_MATCH_LEN}"
-        ),
-        showlegend=False,
-        coloraxis={
-            "colorscale": "Viridis",
-            "cmin": report["zmin"],
-            "cmax": report["zmax"],
-            "colorbar": {
-                "title": "predicted accuracy",
-                "x": 1.015,
-                "xanchor": "left",
-                "y": 0.79,
-                "yanchor": "middle",
-                "len": 0.42,
-            },
-        },
-    )
-    return fig
 
 
 def write_report(experiment: dict, output: Path) -> None:
@@ -781,19 +988,29 @@ def write_report(experiment: dict, output: Path) -> None:
         get_mode_report(mode, mode_data) for mode, mode_data in experiment["modes"].items()
     ]
     fragments = []
+    include_plotly = True
     for index, report in enumerate(reports):
-        figure = make_mode_figure(report)
-        plot = pio.to_html(
-            figure,
-            full_html=False,
-            include_plotlyjs=True if index == 0 else False,
-            config={"responsive": True},
-            div_id=f"tune-plot-{report['mode']}",
+        width = PAIR_CELL_SIZE * len(report["specs"]) + 250
+        figures = (
+            ("overview", make_overview_figure(report, width)),
+            ("grid", make_pair_grid_figure(report)),
+            ("accuracy", make_accuracy_figure(report, width)),
         )
+        plots = []
+        for name, figure in figures:
+            plot = pio.to_html(
+                figure,
+                full_html=False,
+                include_plotlyjs=include_plotly,
+                config={"responsive": False},
+                div_id=f"tune-{name}-{report['mode']}",
+            )
+            plots.append(f'<div class="plot-section plot-section-{name}">{plot}</div>')
+            include_plotly = False
         hidden = "" if index == 0 else " hidden"
         fragments.append(
             f'<section class="mode-report" data-mode="{report["mode"]}"{hidden}>'
-            f"{plot}</section>"
+            f'<div class="plot-stack">{"".join(plots)}</div></section>'
         )
 
     page = (
@@ -808,10 +1025,24 @@ def write_report(experiment: dict, output: Path) -> None:
     output.write_text(page)
 
 
+def save_experiment(experiment: dict, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(experiment, indent=2, allow_nan=False) + "\n")
+
+
+def load_experiment(path: Path) -> dict:
+    experiment = json.loads(path.read_text())
+    if not isinstance(experiment, dict) or not isinstance(experiment.get("modes"), dict):
+        raise ValueError(f"{path} is not a DFCP tuning result")
+    if not experiment["modes"]:
+        raise ValueError(f"{path} contains no tuned modes")
+    return experiment
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Tune hard, noisy, and soft DFCP priors with BoTorch and write a Plotly report."
+            "Tune DFCP priors with BoTorch, save JSON results, and write a Plotly report."
         )
     )
     inputs = parser.add_mutually_exclusive_group()
@@ -819,9 +1050,13 @@ def parse_args() -> argparse.Namespace:
     inputs.add_argument(
         "--seq_dir", type=Path,
         help=(
-            "use every haps*.txt* file in this directory; by default, use all such "
-            f"files in {DEFAULT_SEQ_DIR}"
+            "use every haps*.txt* file in this directory; by default, use only "
+            f"the clean file {DEFAULT_SEQ_FILE}"
         ),
+    )
+    inputs.add_argument(
+        "--load", type=Path, metavar="JSON",
+        help="skip tuning and build the Plotly report from saved JSON results",
     )
     parser.add_argument(
         "--modes", nargs="+", choices=("hard", "noisy", "soft"),
@@ -833,11 +1068,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=40)
     parser.add_argument("--replicates", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--output", type=Path, default=Path("output/tune2.html"))
+    parser.add_argument("--json", type=Path, default=Path("output/tune.json"))
+    parser.add_argument("--output", type=Path, default=Path("output/tune.html"))
     return parser.parse_args()
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    if args.load is not None:
+        if not args.load.is_file():
+            raise ValueError(f"tuning result does not exist: {args.load}")
+        return
     if len(set(args.modes)) != len(args.modes):
         raise ValueError("modes must not contain duplicates")
     if not 0.0 < args.mask <= 1.0 or not 0.0 < args.val < 1.0:
@@ -853,6 +1093,14 @@ def validate_args(args: argparse.Namespace) -> None:
 def main() -> None:
     args = parse_args()
     validate_args(args)
+    if args.load is not None:
+        experiment = load_experiment(args.load)
+        torch.manual_seed(experiment.get("config", {}).get("seed", 0))
+        write_report(experiment, args.output)
+        print(f"loaded {args.load}")
+        print(f"wrote {args.output}")
+        return
+
     torch.manual_seed(args.seed)
     seq_files = resolve_seq_files(args)
     build_dfcp()
@@ -879,7 +1127,9 @@ def main() -> None:
     for mode in args.modes:
         experiment["modes"][mode] = tune_mode(mode, seq_files, args)
 
-    write_report(experiment, args.output)
+    save_experiment(experiment, args.json)
+    write_report(load_experiment(args.json), args.output)
+    print(f"wrote {args.json}")
     print(f"wrote {args.output}")
 
 

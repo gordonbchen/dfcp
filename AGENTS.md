@@ -67,10 +67,10 @@ current executable.
 
 ### Scripts
 
-- `scripts/tune.py`: random hyperparameter search using soft-mode imputation.
-- `scripts/tune2.py`: BoTorch optimization of interpretable prior parameters
-  for hard, noisy, and soft PBWT-initialized DFCP, followed by an interactive
-  Plotly hyperparameter-sensitivity report.
+- `scripts/tune.py`: BoTorch optimization of interpretable prior parameters for
+  hard, noisy, and soft PBWT-initialized DFCP. It defaults to the clean simulated
+  haplotype file, saves reusable JSON results, and can regenerate the interactive
+  Plotly hyperparameter-sensitivity report without rerunning DFCP.
 - `scripts/parsimony.py`: evaluates simulated error files against true trees
   and plots excess parsimony.
 - `scripts/viz.py`: reads one result JSON document from stdin and plots the
