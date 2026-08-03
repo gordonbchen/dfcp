@@ -68,6 +68,9 @@ current executable.
 ### Scripts
 
 - `scripts/tune.py`: random hyperparameter search using soft-mode imputation.
+- `scripts/tune2.py`: BoTorch optimization of interpretable prior parameters
+  for hard, noisy, and soft PBWT-initialized DFCP, followed by an interactive
+  Plotly hyperparameter-sensitivity report.
 - `scripts/parsimony.py`: evaluates simulated error files against true trees
   and plots excess parsimony.
 - `scripts/viz.py`: reads one result JSON document from stdin and plots the
@@ -367,9 +370,10 @@ Required for the executable:
 The build enables `-Wall -Wextra -Wpedantic -O3`. There is currently no
 install target, library target, automated test target, or CI configuration.
 
-The active plotting scripts require Python, Matplotlib, and Plotly. Historical
-and notebook work may additionally require NumPy, SciPy, Graphviz, Jupyter,
-and line-profiler. There is no tracked Python package or lock manifest.
+The active analysis scripts require Python, Matplotlib, Plotly, PyTorch,
+BoTorch, and GPyTorch. Historical and notebook work may additionally require
+NumPy, SciPy, Graphviz, Jupyter, and line-profiler. There is no tracked Python
+package or lock manifest.
 
 ## Testing And Verification
 
