@@ -16,7 +16,7 @@ from plotly_html import ensure_plotly_asset
 
 DEFAULT_SEQ_DIR = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
 ERROR_RE = re.compile(r"\\.txt\\.gz_([0-9.]+)_([0-9.]+)\\.txt\\.gz_")
-MASKS = (0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
+MASKS = (0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
 MODES = {
     "hard": {"noisy": 0, "soft": 0},
     "noisy": {"noisy": 1, "soft": 0},
@@ -164,6 +164,7 @@ def collect_experiment(args: argparse.Namespace, seq_files: list[Path]) -> dict:
                     for phase, init_only in PHASES.items():
                         result = run_dfcp(
                             seq_file,
+                            retries=1,
                             val=args.val,
                             mask=mask,
                             tree=args.tree,
@@ -258,7 +259,7 @@ def make_figure(experiment: dict) -> go.Figure:
                         y=series["metrics"][metric],
                         name=(
                             f"PBWT {series['match_len']}"
-                            + ("" if match_curr else " (allow current mismatch)")
+                            + ("" if match_curr else " (allow curr mismatch)")
                             if is_pbwt else series["method"]
                         ),
                         showlegend=False,
