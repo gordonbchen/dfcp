@@ -1,28 +1,36 @@
-import subprocess
+"""Shared subprocess interface to the C++ DFCP executable."""
+
 import json
+import subprocess
 from argparse import ArgumentParser
+from pathlib import Path
 
 
-def build_dfcp():
+def build_dfcp() -> None:
     subprocess.run(["./build.sh"], check=True)
 
 
-def get_dfcp_cmd(seq_file: str, **kwargs) -> list[str]:
-    cmd = ["./build/dfcp", seq_file]
-    for k, v in kwargs.items():
-        if not v is None:
-            cmd.append(f"--{k}")
-            cmd.append(str(v))
-    return cmd
+def get_dfcp_cmd(seq_file: str | Path, **options: object) -> list[str]:
+    command = ["./build/dfcp", str(seq_file)]
+    for name, value in options.items():
+        if value is not None:
+            command.extend((f"--{name}", str(value)))
+    return command
 
 
-def run_dfcp(seq_file: str, **kwargs) -> dict:
-    cmd = get_dfcp_cmd(seq_file, **kwargs)
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode:
-        raise RuntimeError(res.stderr)
-    out = json.loads(res.stdout)
-    return out
+def run_dfcp(seq_file: str | Path, retries: int = 0, **options: object) -> dict:
+    command = get_dfcp_cmd(seq_file, **options)
+    last_error = ""
+    for _ in range(retries + 1):
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode == 0:
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError as error:
+                last_error = f"DFCP emitted invalid JSON: {error}"
+        else:
+            last_error = result.stderr.strip()[-1000:]
+    raise RuntimeError(last_error or "DFCP failed without an error message")
 
 
 def get_dfcp_parser() -> ArgumentParser:
@@ -91,4 +99,3 @@ if __name__ == "__main__":
     build_dfcp()
     res = run_dfcp(args.seq_file, **dfcp_kwargs)
     print(res)
-

@@ -1,15 +1,82 @@
+"""Run and visualize the DFCP initialization-method comparison."""
+
+import argparse
 import json
+import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from dfcp import build_dfcp, run_dfcp, get_dfcp_parser
+from dfcp import build_dfcp, run_dfcp
 from plotly_html import ensure_plotly_asset
 
 
-ERROR_RE = re.compile(r"\.txt\.gz_([0-9.]+)_([0-9.]+)\.txt\.gz_")
+DEFAULT_SEQ_DIR = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
+ERROR_RE = re.compile(r"\\.txt\\.gz_([0-9.]+)_([0-9.]+)\\.txt\\.gz_")
+MASKS = (0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
+MODES = {
+    "hard": {"noisy": 0, "soft": 0},
+    "noisy": {"noisy": 1, "soft": 0},
+    "soft": {"noisy": 0, "soft": 1},
+}
+PHASES = {"pre": 1, "post": 0}
+SHARED_METRICS = (
+    "t_init",
+    "dfcp_impute_acc",
+    "clade_iou",
+    "mean_excess_parsimony",
+    "mean_iou",
+    "mean_clusters",
+)
+POST_METRICS = ("elbo", "iterations")
+METRICS = (
+    "dfcp_impute_acc",
+    "elbo",
+    "clade_iou",
+    "mean_excess_parsimony",
+    "mean_iou",
+    "mean_clusters",
+    "t_init",
+    "iterations",
+)
+PLOT_TITLES = {
+    "elbo": "final elbo (post-training)",
+    "iterations": "# iterations to convergence (post-training)",
+}
+PBWT_COLORS = {
+    2: "#F6C945",
+    5: "#F39C34",
+    10: "#E7682B",
+    20: "#C9342C",
+    50: "#8E1B1B",
+    100: "#5E0B0B",
+}
+LINE_STYLES = {
+    "block": {"color": "#3366CC", "width": 3, "dash": "dash"},
+    "viterbi": {"color": "#2A9D8F", "width": 3, "dash": "dot"},
+}
+
+
+@dataclass(frozen=True)
+class InitMethod:
+    name: str
+    match_length: int | None = None
+
+    @property
+    def label(self) -> str:
+        if self.name == "pbwt":
+            return f"PBWT {self.match_length}"
+        return self.name
+
+
+INIT_METHODS = (
+    InitMethod("block"),
+    *(InitMethod("pbwt", length) for length in PBWT_COLORS),
+    InitMethod("viterbi"),
+)
 
 
 def get_seq_label(seq_file: Path) -> str:
@@ -26,240 +93,186 @@ def get_seq_sort_key(seq_file: Path) -> tuple[bool, float, float]:
     return True, float(match.group(1)), float(match.group(2))
 
 
-if __name__ == "__main__":
-    p = get_dfcp_parser()
-    p.set_defaults(seq_file=None)
-    p.add_argument(
-        "--seq_dir", type=Path,
-        default=Path("data/examples/simulated/SIM1_LEN500_NHAPS100"),
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Compare DFCP initialization methods and save reusable results."
     )
-    p.add_argument("--seq_files", type=Path, nargs="+")
-    p.add_argument(
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument("--seq_file", type=Path)
+    inputs.add_argument("--seq_files", type=Path, nargs="+")
+    inputs.add_argument("--seq_dir", type=Path)
+    inputs.add_argument(
         "--load", type=Path, metavar="JSON",
-        help="skip DFCP runs and rebuild the Plotly report from saved results",
+        help="skip DFCP and rebuild the Plotly report from saved results",
     )
-    p.add_argument("--json", type=Path, default=Path("output/init.json"))
-    p.add_argument("--output", type=Path, default=Path("docs/init.html"))
-    args = p.parse_args()
+    parser.add_argument("--val", type=float, default=0.2)
+    parser.add_argument("--tree", type=Path)
+    parser.add_argument("--variant_pos_fname", type=Path)
+    parser.add_argument("--variant_start_pos", type=int)
+    parser.add_argument("--clade_beta", type=float)
+    parser.add_argument("--json", type=Path, default=Path("output/init.json"))
+    parser.add_argument("--output", type=Path, default=Path("docs/init.html"))
+    return parser.parse_args()
 
-    INIT_METHODS = (
-        "block",
-        ("pbwt", 2), ("pbwt", 5), ("pbwt", 10), ("pbwt", 20), ("pbwt", 50), ("pbwt", 100),
-        "viterbi"
-    )
-    PBWT_MATCH_LENGTHS = tuple(i[1] for i in INIT_METHODS if i[0] == "pbwt")
-    PBWT_COLORS = dict(zip(
-        PBWT_MATCH_LENGTHS,
-        ("#F6C945", "#F39C34", "#E7682B", "#C9342C", "#8E1B1B", "#5E0B0B"),
-    ))
-    LINE_STYLES = {
-        "block": {"color": "#3366CC", "width": 3, "dash": "dash"},
-        "viterbi": {"color": "#2A9D8F", "width": 3, "dash": "dot"},
-    }
-    SHARED_METRICS = (
-        "t_init",
-        "dfcp_impute_acc",
-        "clade_iou", "mean_excess_parsimony",
-        "mean_iou",
-        "mean_clusters",
-    )
-    POST_METRICS = ("elbo", "iterations")
-    METRICS = (
-        "dfcp_impute_acc", "elbo",
-        "clade_iou", "mean_excess_parsimony",
-        "mean_iou", "mean_clusters",
-        "t_init", "iterations",
-    )
-    PLOT_TITLES = {
-        "elbo": "final elbo (post-training)",
-        "iterations": "# iterations to convergence (post-training)",
-    }
-    PHASES = {"pre": 1, "post": 0}
-    MODES = {
-        "hard": {"noisy": 0, "soft": 0},
-        "noisy": {"noisy": 1, "soft": 0},
-        "soft": {"noisy": 0, "soft": 1},
-    }
-    MASKS = (0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
 
-    def empty_data() -> dict:
-        return {
-            seq_idx: {
-                mode: {
-                    phase: {i: {m: [] for m in METRICS} for i in INIT_METHODS}
+def resolve_seq_files(args: argparse.Namespace) -> list[Path]:
+    if args.seq_files:
+        files = args.seq_files
+    elif args.seq_file:
+        files = [args.seq_file]
+    else:
+        seq_dir = args.seq_dir or DEFAULT_SEQ_DIR
+        files = sorted(seq_dir.glob("haps_*.txt*"), key=get_seq_sort_key)
+    if not files:
+        raise ValueError("no haplotype sequence files were found")
+    for path in files:
+        if not path.is_file():
+            raise FileNotFoundError(f"missing sequence file: {path}")
+    return files
+
+
+def collect_experiment(args: argparse.Namespace, seq_files: list[Path]) -> dict:
+    datasets = []
+    for seq_file in seq_files:
+        dataset = {
+            "seq_file": str(seq_file),
+            "series": [],
+        }
+        for mode, mode_flags in MODES.items():
+            for method in INIT_METHODS:
+                print(f"{seq_file} {mode} {method.label}", flush=True)
+                phase_series = {
+                    phase: {
+                        "mode": mode,
+                        "phase": phase,
+                        "method": method.name,
+                        "match_length": method.match_length,
+                        "metrics": {metric: [] for metric in METRICS},
+                    }
                     for phase in PHASES
                 }
-                for mode in MODES
-            }
-            for seq_idx in range(len(seq_files))
-        }
+                for mask in MASKS:
+                    for phase, init_only in PHASES.items():
+                        result = run_dfcp(
+                            seq_file,
+                            val=args.val,
+                            mask=mask,
+                            tree=args.tree,
+                            variant_pos_fname=args.variant_pos_fname,
+                            variant_start_pos=args.variant_start_pos,
+                            clade_beta=args.clade_beta,
+                            noisy=mode_flags["noisy"],
+                            soft=mode_flags["soft"],
+                            block_init=int(method.name == "block"),
+                            pbwt_init=int(method.name == "pbwt"),
+                            pbwt_match_len=method.match_length,
+                            init_only=init_only,
+                        )
+                        metrics = phase_series[phase]["metrics"]
+                        for metric in SHARED_METRICS:
+                            metrics[metric].append(result[metric])
+                        if phase == "post":
+                            train_log = result["train_log"]
+                            metrics["elbo"].append(train_log[-1]["elbo"])
+                            metrics["iterations"].append(len(train_log))
+                dataset["series"].extend(phase_series.values())
+        datasets.append(dataset)
 
-    def method_id(init_method: str | tuple[str, int]) -> str:
-        return (
-            f"pbwt:{init_method[1]}"
-            if isinstance(init_method, tuple) else init_method
-        )
+    return {
+        "config": {
+            "masks": list(MASKS),
+            "val": args.val,
+            "tree": str(args.tree) if args.tree else None,
+            "variant_pos_fname": (
+                str(args.variant_pos_fname) if args.variant_pos_fname else None
+            ),
+            "variant_start_pos": args.variant_start_pos,
+            "clade_beta": args.clade_beta,
+        },
+        "datasets": datasets,
+    }
 
-    def method_from_id(identifier: str) -> str | tuple[str, int]:
-        if identifier.startswith("pbwt:"):
-            return "pbwt", int(identifier.split(":", 1)[1])
-        if identifier not in ("block", "viterbi"):
-            raise ValueError(f"unknown initialization method in JSON: {identifier}")
-        return identifier
 
-    if args.load is not None:
-        payload = json.loads(args.load.read_text())
-        if payload.get("version") != 1 or not isinstance(payload.get("series"), list):
-            raise ValueError(f"{args.load} is not a DFCP initialization result")
-        seq_files = [Path(path) for path in payload["config"]["seq_files"]]
-        if not seq_files:
-            raise ValueError(f"{args.load} contains no sequence files")
-        MASKS = tuple(float(mask) for mask in payload["config"]["masks"])
-        if not MASKS:
-            raise ValueError(f"{args.load} contains no mask values")
-        data = empty_data()
-        for series in payload["series"]:
-            init_method = method_from_id(series["method"])
-            data[series["dataset"]][series["mode"]][series["phase"]][init_method] = (
-                series["metrics"]
-            )
-        print(f"loaded {args.load}")
-    else:
-        if args.seq_files is not None:
-            seq_files = args.seq_files
-        elif args.seq_file is not None:
-            seq_files = [Path(args.seq_file)]
-        else:
-            seq_files = sorted(args.seq_dir.glob("haps_*.txt"), key=get_seq_sort_key)
-        if not seq_files:
-            raise RuntimeError("no haplotype sequence files found")
+def load_experiment(path: Path) -> dict:
+    experiment = json.loads(path.read_text())
+    datasets = experiment.get("datasets")
+    masks = experiment.get("config", {}).get("masks")
+    if not isinstance(datasets, list) or not datasets or not isinstance(masks, list):
+        raise ValueError(f"{path} is not a DFCP initialization result")
+    return experiment
 
-        data = empty_data()
-        build_dfcp()
-        for seq_idx, seq_file in enumerate(seq_files):
-            for mode, mode_flags in MODES.items():
-                for init_method in INIT_METHODS:
-                    print(f"{seq_file} {mode} {init_method}")
-                    for mask in MASKS:
-                        for phase, init_only in PHASES.items():
-                            res = run_dfcp(
-                                str(seq_file),
 
-                                val=0.2, mask=mask,
+def write_json(experiment: dict, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(experiment, indent=2, allow_nan=False) + "\n")
 
-                                tree=args.tree, variant_pos_fname=args.variant_pos_fname,
-                                variant_start_pos=args.variant_start_pos,
-                                clade_beta=args.clade_beta,
 
-                                noisy=mode_flags["noisy"], soft=mode_flags["soft"],
-                                block_init=int(init_method == "block"),
-                                pbwt_init=int(init_method[0] == "pbwt"),
-                                pbwt_match_len=(
-                                    init_method[1] if init_method[0] == "pbwt" else None
-                                ),
-                                init_only=init_only,
-                            )
-                            for metric in SHARED_METRICS:
-                                data[seq_idx][mode][phase][init_method][metric].append(
-                                    res[metric]
-                                )
-                            if phase == "post":
-                                train_log = res["train_log"]
-                                data[seq_idx][mode][phase][init_method]["elbo"].append(
-                                    train_log[-1]["elbo"]
-                                )
-                                data[seq_idx][mode][phase][init_method]["iterations"].append(
-                                    len(train_log)
-                                )
-
-        payload = {
-            "version": 1,
-            "config": {
-                "seq_files": [str(path) for path in seq_files],
-                "masks": list(MASKS),
-                "val": 0.2,
-                "tree": args.tree,
-                "variant_pos_fname": args.variant_pos_fname,
-                "variant_start_pos": args.variant_start_pos,
-                "clade_beta": args.clade_beta,
-            },
-            "series": [
-                {
-                    "dataset": seq_idx,
-                    "mode": mode,
-                    "phase": phase,
-                    "method": method_id(init_method),
-                    "metrics": data[seq_idx][mode][phase][init_method],
-                }
-                for seq_idx in range(len(seq_files))
-                for mode in MODES
-                for phase in PHASES
-                for init_method in INIT_METHODS
-            ],
-        }
-        args.json.parent.mkdir(parents=True, exist_ok=True)
-        args.json.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n")
-        print(f"wrote {args.json}")
-
+def make_figure(experiment: dict) -> go.Figure:
+    masks = experiment["config"]["masks"]
+    datasets = experiment["datasets"]
     ncols = 2
-    nrows = (len(METRICS) + ncols - 1) // ncols
+    nrows = math.ceil(len(METRICS) / ncols)
     fig = make_subplots(
-        rows=nrows, cols=ncols,
+        rows=nrows,
+        cols=ncols,
         subplot_titles=tuple(PLOT_TITLES.get(metric, metric) for metric in METRICS),
-        vertical_spacing=0.10, horizontal_spacing=0.08,
+        vertical_spacing=0.10,
+        horizontal_spacing=0.08,
     )
-    for plot_idx, metric in enumerate(METRICS):
-        row = plot_idx // ncols + 1
-        col = plot_idx % ncols + 1
-        phases = ("post",) if metric in POST_METRICS else PHASES
-        for seq_idx, seq_file in enumerate(seq_files):
-            for mode in MODES:
-                for phase in phases:
-                    trace_phase = "post_only" if metric in POST_METRICS else phase
-                    for init_method in INIT_METHODS:
-                        is_pbwt = init_method[0] == "pbwt"
-                        method = "pbwt" if is_pbwt else init_method
-                        name = f"PBWT {init_method[1]}" if is_pbwt else init_method
-                        line = (
-                            {"color": PBWT_COLORS[init_method[1]], "width": 2}
-                            if is_pbwt else LINE_STYLES[init_method]
-                        )
-                        fig.add_trace(
-                            go.Scatter(
-                                x=MASKS,
-                                y=data[seq_idx][mode][phase][init_method][metric],
-                                name=name,
-                                legendgroup=name,
-                                showlegend=False,
-                                visible=(
-                                    seq_idx == 0 and mode == "hard" and
-                                    trace_phase in ("pre", "post_only")
-                                ),
-                                line=line,
-                                meta={
-                                    "dataset": seq_idx,
-                                    "dataset_file": seq_file.name,
-                                    "dataset_label": get_seq_label(seq_file),
-                                    "method": method,
-                                    "match_len": init_method[1] if is_pbwt else None,
-                                    "mode": mode,
-                                    "phase": trace_phase,
-                                },
-                            ),
-                            row=row,
-                            col=col,
-                        )
-
+    for plot_index, metric in enumerate(METRICS):
+        row = plot_index // ncols + 1
+        col = plot_index % ncols + 1
+        for dataset_index, dataset in enumerate(datasets):
+            seq_file = Path(dataset["seq_file"])
+            for series in dataset["series"]:
+                if metric in POST_METRICS and series["phase"] != "post":
+                    continue
+                trace_phase = (
+                    "post_only" if metric in POST_METRICS else series["phase"]
+                )
+                is_pbwt = series["method"] == "pbwt"
+                line = (
+                    {"color": PBWT_COLORS[series["match_length"]], "width": 2}
+                    if is_pbwt else LINE_STYLES[series["method"]]
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=masks,
+                        y=series["metrics"][metric],
+                        name=(
+                            f"PBWT {series['match_length']}"
+                            if is_pbwt else series["method"]
+                        ),
+                        showlegend=False,
+                        visible=(
+                            dataset_index == 0
+                            and series["mode"] == "hard"
+                            and trace_phase in ("pre", "post_only")
+                        ),
+                        line=line,
+                        meta={
+                            "dataset": dataset_index,
+                            "dataset_file": seq_file.name,
+                            "dataset_label": get_seq_label(seq_file),
+                            "method": series["method"],
+                            "match_len": series["match_length"],
+                            "mode": series["mode"],
+                            "phase": trace_phase,
+                        },
+                    ),
+                    row=row,
+                    col=col,
+                )
     fig.update_xaxes(title_text="mask frac")
     fig.update_layout(
         height=nrows * 450,
-        title=(
-            "DFCP init methods: pre/post-training metrics"
-        ),
+        title="DFCP init methods: pre/post-training metrics",
         margin={"b": 60, "t": 100},
     )
+    return fig
 
-    post_script = r"""
+
+POST_SCRIPT = r"""
 const plot = document.getElementById('{plot_id}');
 const datasets = [...new Map(plot.data.map(trace => [
     trace.meta.dataset,
@@ -482,13 +495,36 @@ slider.addEventListener('input', () => {
 });
 
 requestAnimationFrame(() => Plotly.Plots.resize(plot));
-window.addEventListener('resize', () => Plotly.Plots.resize(plot));
-"""
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    fig.write_html(
-        args.output,
-        include_plotlyjs=ensure_plotly_asset(args.output),
+window.addEventListener('resize', () => Plotly.Plots.resize(plot));"""
+
+
+def write_report(experiment: dict, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    make_figure(experiment).write_html(
+        output,
+        include_plotlyjs=ensure_plotly_asset(output),
         config={"responsive": True},
-        post_script=post_script,
+        post_script=POST_SCRIPT,
     )
+
+
+def main() -> None:
+    args = parse_args()
+    if args.load:
+        experiment = load_experiment(args.load)
+        print(f"loaded {args.load}")
+    else:
+        if not 0.0 < args.val < 1.0:
+            raise ValueError("val must be in (0,1)")
+        seq_files = resolve_seq_files(args)
+        build_dfcp()
+        experiment = collect_experiment(args, seq_files)
+        write_json(experiment, args.json)
+        print(f"wrote {args.json}")
+
+    write_report(experiment, args.output)
     print(f"wrote {args.output}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1166,6 +1166,10 @@ $
 #pagebreak()
 = Hyperparams
 
+Gamma dist: https://www.desmos.com/calculator/f13gmduj8x
+
+Beta dist: https://www.desmos.com/calculator/mnvwjlvnyj
+
 == $gamma_l$ 
 Cluster has $n$ observed alleles, all A.
 
@@ -1747,10 +1751,16 @@ potential problems: noisy, no perfect matches
 - saving dfcp after training, loading for inference
 
 = eval
-- hard vs soft vs noisy
 - block vs pbwt vs viterbi init
-  - pre-train: imputation acc, clade iou, length iou, elbo, time
-  - post-train: pre vs post iou
+   - imputation acc: pbwt > block, viterbi, pbwt match len 20 is a good default
+   - tree matching (clade iou and excess parsiomony): higher pbwt match len is worse
+   - loc iou: higher pbwt match len is better
+   - time: block < pbwt < viterbi
+
+- hard vs soft vs noisy
+   - seq files: imputation acc drops to %80 at 0.1 bit flip, 0.05 switch
+   - need to tune HP across datasets and dfcp modes
+
 - dfcp vs shapeit, beagle, eagle
 
 == pbwt init

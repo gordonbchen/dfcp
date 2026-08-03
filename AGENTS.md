@@ -70,11 +70,13 @@ current executable.
 - `scripts/init.py`: compares initialization methods across DFCP modes, training
   phases, masks, and simulated datasets, saves reusable JSON results, and can
   rebuild its interactive Plotly report without rerunning DFCP.
-- `scripts/tune.py`: BoTorch optimization of interpretable prior parameters for
-  hard, noisy, and soft PBWT-initialized DFCP independently for each sequence
-  file. It defaults to the clean simulated haplotype file, saves reusable JSON
-  results, and can regenerate the interactive Plotly hyperparameter-sensitivity
-  report without rerunning DFCP.
+- `scripts/dfcp.py`: shared Python interface for building and running the C++
+  executable and parsing its JSON output.
+- `scripts/tune.py`: JSON-only BoTorch optimization of interpretable prior
+  means and strengths for hard, noisy, and soft PBWT-initialized DFCP,
+  independently for each sequence file.
+- `scripts/tune_viz.py`: reads tuning JSON and builds the interactive Plotly
+  hyperparameter-sensitivity report without rerunning DFCP.
 - `scripts/plotly_html.py`: writes one shared `docs/assets/plotly.min.js` for generated
   reports and can externalize the Plotly bundle from an existing report.
 - `scripts/parsimony.py`: evaluates simulated error files against true trees
