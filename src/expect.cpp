@@ -212,7 +212,10 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
             + 0.5*params.sigma2_logit_d[l] * (4.0*dl_mode - 6.0*dl_mode*dl_mode) * dl_mode * (1.0 - dl_mode)
             - params.mu_d[l]*params.mu_d[l]
         );
-        if (params.sigma2_d[l] <= 0.0) { throw std::runtime_error("sigma2_d < 0."); };
+        if (params.sigma2_d[l] <= 0.0) {
+            // Fallback to 1st order delta approx.
+            params.sigma2_d[l] = std::pow(dl_mode * (1.0-dl_mode), 2.0) * params.sigma2_logit_d[l];
+        };
         params.mu_log_d[l] = delta_Elogx(params.mu_d[l], params.sigma2_d[l], 1.0, 0.0);
     }
 
