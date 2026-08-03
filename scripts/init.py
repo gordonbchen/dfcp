@@ -64,17 +64,25 @@ LINE_STYLES = {
 class InitMethod:
     name: str
     match_len: int | None = None
+    match_curr: bool | None = None
 
     @property
     def label(self) -> str:
         if self.name == "pbwt":
-            return f"PBWT {self.match_len}"
+            suffix = " (allow curr mismatch)" if not self.match_curr else ""
+            return f"PBWT {self.match_len}{suffix}"
         return self.name
 
 
 INIT_METHODS = (
     InitMethod("block"),
-    *(InitMethod("pbwt", length) for length in PBWT_COLORS),
+    InitMethod("pbwt", 2, True),
+    InitMethod("pbwt", 5, True),
+    InitMethod("pbwt", 10, True),
+    InitMethod("pbwt", 20, True),
+    InitMethod("pbwt", 20, False),
+    InitMethod("pbwt", 50, True),
+    InitMethod("pbwt", 100, True),
     InitMethod("viterbi"),
 )
 
@@ -147,6 +155,7 @@ def collect_experiment(args: argparse.Namespace, seq_files: list[Path]) -> dict:
                         "phase": phase,
                         "method": method.name,
                         "match_len": method.match_len,
+                        "match_curr": method.match_curr,
                         "metrics": {metric: [] for metric in METRICS},
                     }
                     for phase in PHASES
@@ -166,6 +175,9 @@ def collect_experiment(args: argparse.Namespace, seq_files: list[Path]) -> dict:
                             block_init=int(method.name == "block"),
                             pbwt_init=int(method.name == "pbwt"),
                             pbwt_match_len=method.match_len,
+                            pbwt_match_curr=(
+                                int(method.match_curr) if method.name == "pbwt" else None
+                            ),
                             init_only=init_only,
                         )
                         metrics = phase_series[phase]["metrics"]
@@ -231,8 +243,13 @@ def make_figure(experiment: dict) -> go.Figure:
                     "post_only" if metric in POST_METRICS else series["phase"]
                 )
                 is_pbwt = series["method"] == "pbwt"
+                match_curr = series.get("match_curr", True)
                 line = (
-                    {"color": PBWT_COLORS[series["match_len"]], "width": 2}
+                    {
+                        "color": PBWT_COLORS[series["match_len"]],
+                        "width": 2,
+                        "dash": "solid" if match_curr else "dash",
+                    }
                     if is_pbwt else LINE_STYLES[series["method"]]
                 )
                 fig.add_trace(
@@ -241,6 +258,7 @@ def make_figure(experiment: dict) -> go.Figure:
                         y=series["metrics"][metric],
                         name=(
                             f"PBWT {series['match_len']}"
+                            + ("" if match_curr else " (allow current mismatch)")
                             if is_pbwt else series["method"]
                         ),
                         showlegend=False,
@@ -256,6 +274,7 @@ def make_figure(experiment: dict) -> go.Figure:
                             "dataset_label": get_seq_label(seq_file),
                             "method": series["method"],
                             "match_len": series["match_len"],
+                            "match_curr": match_curr if is_pbwt else None,
                             "mode": series["mode"],
                             "phase": trace_phase,
                         },
@@ -327,12 +346,14 @@ function legendEntry(label, color, dash = 'solid', width = 2) {
 
 const blockTrace = plot.data.find(trace => trace.meta.method === 'block');
 const viterbiTrace = plot.data.find(trace => trace.meta.method === 'viterbi');
-const pbwtLegend = pbwtMatchLengths.map(matchLength => {
-    const trace = plot.data.find(candidate =>
-        candidate.meta.method === 'pbwt' && candidate.meta.match_len === matchLength
-    );
-    return legendEntry(`PBWT ${matchLength}`, trace.line.color);
-}).join('');
+const pbwtTraces = [...new Map(
+    plot.data
+        .filter(trace => trace.meta.method === 'pbwt')
+        .map(trace => [`${trace.meta.match_len}:${trace.meta.match_curr}`, trace])
+).values()];
+const pbwtLegend = pbwtTraces.map(trace => legendEntry(
+    trace.name, trace.line.color, trace.line.dash, trace.line.width
+)).join('');
 const legend = [
     legendEntry('block', blockTrace.line.color, blockTrace.line.dash, blockTrace.line.width),
     pbwtLegend,
