@@ -93,9 +93,7 @@ def get_mode_report(dataset_index: int, dataset: dict, mode: str, mode_data: dic
             {
                 "id": f"{specs[pair[0]].name}|{specs[pair[1]].name}",
                 "x_name": specs[pair[0]].name,
-                "x_label": specs[pair[0]].label,
                 "y_name": specs[pair[1]].name,
-                "y_label": specs[pair[1]].label,
                 "surface": get_surface(model, anchor, specs, pair),
                 "observed_x": [
                     round_visual(record["search_params"][specs[pair[0]].name]) for record in records
@@ -128,7 +126,6 @@ def make_overview_figure(report: dict, width: int) -> go.Figure:
     mode = report["mode"]
     sensitivity = report["summary"]["normalized_inverse_lengthscales"]
     ordered = sorted(sensitivity, key=sensitivity.get)
-    labels = {spec.name: spec.label for spec in report["specs"]}
     fig = make_subplots(
         rows=1,
         cols=2,
@@ -141,7 +138,7 @@ def make_overview_figure(report: dict, width: int) -> go.Figure:
     fig.add_trace(
         go.Bar(
             x=[sensitivity[name] for name in ordered],
-            y=[labels[name] for name in ordered],
+            y=ordered,
             orientation="h",
             marker_color=MODE_COLORS[mode],
             showlegend=False,
@@ -213,8 +210,8 @@ def make_overview_figure(report: dict, width: int) -> go.Figure:
 
     first_pair = report["pairs"][0]
     fig.update_xaxes(title_text="normalized inverse lengthscale", row=1, col=1)
-    fig.update_xaxes(title_text=first_pair["x_label"], type="log", row=1, col=2)
-    fig.update_yaxes(title_text=first_pair["y_label"], type="log", row=1, col=2)
+    fig.update_xaxes(title_text=first_pair["x_name"], type="log", row=1, col=2)
+    fig.update_yaxes(title_text=first_pair["y_name"], type="log", row=1, col=2)
     fig.update_layout(
         width=width,
         height=520,
@@ -267,7 +264,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                 customdata=std,
                 coloraxis="coloraxis",
                 hovertemplate=(
-                    f"{pair['y_label']}: %{{x:.4g}}<br>{pair['x_label']}: %{{y:.4g}}<br>"
+                    f"{pair['y_name']}: %{{x:.4g}}<br>{pair['x_name']}: %{{y:.4g}}<br>"
                     "predicted accuracy: %{z:.5f}<br>posterior SD: %{customdata:.5f}<extra></extra>"
                 ),
                 showlegend=False,
@@ -325,8 +322,8 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                 },
                 hovertemplate=(
                     "GP optimum candidate<br>"
-                    f"{pair['y_label']}: %{{x:.4g}}<br>"
-                    f"{pair['x_label']}: %{{y:.4g}}<extra></extra>"
+                    f"{pair['y_name']}: %{{x:.4g}}<br>"
+                    f"{pair['x_name']}: %{{y:.4g}}<extra></extra>"
                 ),
                 showlegend=False,
                 meta=trace_meta(pair["id"], "optimum"),
@@ -347,8 +344,8 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                 },
                 hovertemplate=(
                     "Less-informative candidate<br>"
-                    f"{pair['y_label']}: %{{x:.4g}}<br>"
-                    f"{pair['x_label']}: %{{y:.4g}}<extra></extra>"
+                    f"{pair['y_name']}: %{{x:.4g}}<br>"
+                    f"{pair['x_name']}: %{{y:.4g}}<extra></extra>"
                 ),
                 showlegend=False,
                 meta=trace_meta(pair["id"], "less_informative"),
@@ -389,7 +386,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
             y=1.012,
             xref="paper",
             yref="paper",
-            text=specs[n_params - index - 1].label,
+            text=specs[n_params - index - 1].name,
             textangle=0,
             showarrow=False,
             xanchor="center",
@@ -401,7 +398,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
             y=sum(row_subplot.yaxis.domain) / 2,
             xref="paper",
             yref="paper",
-            text=specs[index].label,
+            text=specs[index].name,
             showarrow=False,
             xanchor="right",
             font={"size": 12},
@@ -574,9 +571,8 @@ def get_sidebar_context(reports: list[dict]) -> dict:
             "pairs": [
                 {
                     "id": pair["id"],
-                    "label": f"{pair['x_label']} × {pair['y_label']}",
-                    "x_label": pair["x_label"],
-                    "y_label": pair["y_label"],
+                    "x_name": pair["x_name"],
+                    "y_name": pair["y_name"],
                     "x_scale": next(
                         spec.scale for spec in report["specs"] if spec.name == pair["x_name"]
                     ),
@@ -616,7 +612,7 @@ function selectedSuffix() {
 function updatePairOptions() {
     const select = document.getElementById('pair-select');
     select.innerHTML = selectedReport().pairs.map(pair =>
-        `<option value="${pair.id}">${pair.label}</option>`
+        `<option value="${pair.id}">${pair.x_name} × ${pair.y_name}</option>`
     ).join('');
     selectedPair = selectedReport().pairs[0].id;
     select.value = selectedPair;
@@ -645,8 +641,8 @@ function updateOverview() {
         if (source.z) trace.z = transpose(source.z);
         if (source.customdata) trace.customdata = transpose(source.customdata);
         if (source.meta.role === 'heatmap') {
-            trace.hovertemplate = `${pair.x_label}: %{x:.4g}<br>` +
-                `${pair.y_label}: %{y:.4g}<br>predicted accuracy: %{z:.5f}<br>` +
+            trace.hovertemplate = `${pair.x_name}: %{x:.4g}<br>` +
+                `${pair.y_name}: %{y:.4g}<br>predicted accuracy: %{z:.5f}<br>` +
                 'posterior SD: %{customdata:.5f}<extra></extra>';
         } else if (source.meta.role === 'contour') {
             trace.contours = {...source.contours, showlabels: true};
@@ -662,10 +658,10 @@ function updateOverview() {
     });
     Plotly.react(plot, [plot.data[0], ...traces], plot.layout, plot._context);
     Plotly.relayout(plot, {
-        'xaxis2.title.text': pair.x_label,
+        'xaxis2.title.text': pair.x_name,
         'xaxis2.type': pair.x_scale,
         'xaxis2.autorange': true,
-        'yaxis2.title.text': pair.y_label,
+        'yaxis2.title.text': pair.y_name,
         'yaxis2.type': pair.y_scale,
         'yaxis2.autorange': true,
     });

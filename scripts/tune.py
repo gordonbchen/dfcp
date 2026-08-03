@@ -37,7 +37,6 @@ ACQUISITION_RAW_SAMPLES = 256
 @dataclass(frozen=True)
 class ParameterSpec:
     name: str
-    label: str
     lower: float
     upper: float
     scale: str
@@ -59,16 +58,18 @@ class ParameterSpec:
 
 
 COMMON_PARAMETERS = (
-    ParameterSpec("alpha_mean", "alpha prior mean", 0.05, 20.0, "log", "alpha"),
-    ParameterSpec("alpha_strength", "alpha prior shape", 1.0, 8.0, "log", "alpha"),
-    ParameterSpec("discount_mean", "discount prior mean", 0.1, 0.9, "linear", "discount"),
-    ParameterSpec("discount_strength", "discount prior strength", 2.0, 20.0, "log", "discount"),
-    ParameterSpec("gamma_mean", "gamma prior mean", 0.01, 10.0, "log", "gamma"),
-    ParameterSpec("gamma_strength", "gamma prior shape", 1.0, 8.0, "log", "gamma"),
+    ParameterSpec("alpha_shape", 0.5, 10.0, "log", "alpha"),
+    ParameterSpec("alpha_mean", 0.001, 10.0, "log", "alpha"),
+
+    ParameterSpec("d_mean", 0.1, 0.9, "linear", "d"),
+    ParameterSpec("d_conc", 1.0, 20.0, "log", "d"),
+
+    ParameterSpec("gamma_shape", 1.0, 10.0, "log", "gamma"),
+    ParameterSpec("gamma_mean", 0.001, 10.0, "log", "gamma"),
 )
 NOISY_PARAMETERS = (
-    ParameterSpec("error_mean", "mismatch prior mean", 0.001, 0.3, "log", "error"),
-    ParameterSpec("error_strength", "mismatch prior strength", 1.0, 10.0, "log", "error"),
+    ParameterSpec("eps_mean", 0.001, 0.2, "log", "eps"),
+    ParameterSpec("eps_conc", 1.0, 10.0, "log", "eps"),
 )
 
 
@@ -83,35 +84,35 @@ def search_params_from_unit(
 
 
 def cpp_params(search_params: dict[str, float], mode: str) -> dict[str, float]:
-    """Convert interpretable means/strengths to the C++ shape/rate parameters."""
-    discount_mean = search_params["discount_mean"]
-    discount_strength = search_params["discount_strength"]
+    """Convert Gamma shape/mean and Beta mean/concentration to C++ parameters."""
+    d_mean = search_params["d_mean"]
+    d_conc = search_params["d_conc"]
     result = {
-        "tau_1": search_params["alpha_strength"],
-        "tau_2": search_params["alpha_strength"] / search_params["alpha_mean"],
-        "v_1": discount_mean * discount_strength,
-        "v_2": (1.0 - discount_mean) * discount_strength,
-        "phi_1": search_params["gamma_strength"],
-        "phi_2": search_params["gamma_strength"] / search_params["gamma_mean"],
+        "tau_1": search_params["alpha_shape"],
+        "tau_2": search_params["alpha_shape"] / search_params["alpha_mean"],
+        "v_1": d_mean * d_conc,
+        "v_2": (1.0 - d_mean) * d_conc,
+        "phi_1": search_params["gamma_shape"],
+        "phi_2": search_params["gamma_shape"] / search_params["gamma_mean"],
     }
     if mode == "noisy":
-        error_mean = search_params["error_mean"]
-        error_strength = search_params["error_strength"]
-        result["lambda_1"] = error_mean * error_strength
-        result["lambda_2"] = (1.0 - error_mean) * error_strength
+        eps_mean = search_params["eps_mean"]
+        eps_conc = search_params["eps_conc"]
+        result["lambda_1"] = eps_mean * eps_conc
+        result["lambda_2"] = (1.0 - eps_mean) * eps_conc
     return result
 
 
 def default_unit_point(specs: tuple[ParameterSpec, ...]) -> list[float]:
     defaults = {
+        "alpha_shape": 1.0,
         "alpha_mean": 1.0,
-        "alpha_strength": 1.0,
-        "discount_mean": 0.5,
-        "discount_strength": 2.0,
+        "d_mean": 0.5,
+        "d_conc": 2.0,
+        "gamma_shape": 2.0,
         "gamma_mean": 1.0,
-        "gamma_strength": 2.0,
-        "error_mean": 0.1 / 1.1,
-        "error_strength": 1.1,
+        "eps_mean": 0.1 / 1.1,
+        "eps_conc": 1.1,
     }
     return [spec.to_unit(defaults[spec.name]) for spec in specs]
 
@@ -228,14 +229,14 @@ def prior_information_penalty(point: torch.Tensor, specs: tuple[ParameterSpec, .
     """Rank near-optimal candidates by distance from broad reference priors."""
     params = search_params_from_unit(point.tolist(), specs)
 
-    def beta_penalty(mean: float, strength: float) -> float:
-        # Beta(1,1), with mean 0.5 and strength 2, is the broad reference.
-        return abs(math.log(mean / (1.0 - mean))) + abs(math.log(strength / 2.0))
+    def beta_penalty(mean: float, conc: float) -> float:
+        # Beta(1,1), with mean 0.5 and concentration 2, is the broad reference.
+        return abs(math.log(mean / (1.0 - mean))) + abs(math.log(conc / 2.0))
 
-    penalty = math.log(params["alpha_strength"]) + math.log(params["gamma_strength"])
-    penalty += beta_penalty(params["discount_mean"], params["discount_strength"])
-    if "error_mean" in params:
-        penalty += beta_penalty(params["error_mean"], params["error_strength"])
+    penalty = math.log(params["alpha_shape"]) + math.log(params["gamma_shape"])
+    penalty += beta_penalty(params["d_mean"], params["d_conc"])
+    if "eps_mean" in params:
+        penalty += beta_penalty(params["eps_mean"], params["eps_conc"])
     return penalty
 
 
@@ -453,7 +454,7 @@ def main() -> None:
         "config": {
             "mask": args.mask,
             "val": args.val,
-            "pbwt_match_length": PBWT_MATCH_LEN,
+            "pbwt_match_len": PBWT_MATCH_LEN,
             "initial_points": args.initial_points,
             "iterations": args.iterations,
             "replicates": args.replicates,

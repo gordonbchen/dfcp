@@ -63,12 +63,12 @@ LINE_STYLES = {
 @dataclass(frozen=True)
 class InitMethod:
     name: str
-    match_length: int | None = None
+    match_len: int | None = None
 
     @property
     def label(self) -> str:
         if self.name == "pbwt":
-            return f"PBWT {self.match_length}"
+            return f"PBWT {self.match_len}"
         return self.name
 
 
@@ -146,7 +146,7 @@ def collect_experiment(args: argparse.Namespace, seq_files: list[Path]) -> dict:
                         "mode": mode,
                         "phase": phase,
                         "method": method.name,
-                        "match_length": method.match_length,
+                        "match_len": method.match_len,
                         "metrics": {metric: [] for metric in METRICS},
                     }
                     for phase in PHASES
@@ -165,7 +165,7 @@ def collect_experiment(args: argparse.Namespace, seq_files: list[Path]) -> dict:
                             soft=mode_flags["soft"],
                             block_init=int(method.name == "block"),
                             pbwt_init=int(method.name == "pbwt"),
-                            pbwt_match_len=method.match_length,
+                            pbwt_match_len=method.match_len,
                             init_only=init_only,
                         )
                         metrics = phase_series[phase]["metrics"]
@@ -232,7 +232,7 @@ def make_figure(experiment: dict) -> go.Figure:
                 )
                 is_pbwt = series["method"] == "pbwt"
                 line = (
-                    {"color": PBWT_COLORS[series["match_length"]], "width": 2}
+                    {"color": PBWT_COLORS[series["match_len"]], "width": 2}
                     if is_pbwt else LINE_STYLES[series["method"]]
                 )
                 fig.add_trace(
@@ -240,7 +240,7 @@ def make_figure(experiment: dict) -> go.Figure:
                         x=masks,
                         y=series["metrics"][metric],
                         name=(
-                            f"PBWT {series['match_length']}"
+                            f"PBWT {series['match_len']}"
                             if is_pbwt else series["method"]
                         ),
                         showlegend=False,
@@ -255,7 +255,7 @@ def make_figure(experiment: dict) -> go.Figure:
                             "dataset_file": seq_file.name,
                             "dataset_label": get_seq_label(seq_file),
                             "method": series["method"],
-                            "match_len": series["match_length"],
+                            "match_len": series["match_len"],
                             "mode": series["mode"],
                             "phase": trace_phase,
                         },
