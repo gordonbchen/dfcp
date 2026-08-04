@@ -46,7 +46,6 @@ PLOT_TITLES = {
     "iterations": "# iterations to convergence (post-training)",
 }
 PBWT_COLORS = {
-    2: "#F6C945",
     5: "#F39C34",
     10: "#E7682B",
     20: "#C9342C",
@@ -75,7 +74,6 @@ class InitMethod:
 
 INIT_METHODS = (
     InitMethod("block"),
-    InitMethod("pbwt", 2, True),
     InitMethod("pbwt", 5, True),
     InitMethod("pbwt", 10, True),
     InitMethod("pbwt", 20, True),
