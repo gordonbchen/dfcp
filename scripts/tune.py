@@ -1,9 +1,17 @@
-"""Independent noisy Bayesian optimization of DFCP priors.
+"""Tune DFCP priors independently for each sequence file and mode.
 
-Each sequence file and DFCP mode gets its own optimization. A run evaluates the
-current defaults, a scrambled Sobol design, sequential qLogNEI suggestions, and
-then replicated confirmations of the GP optimum and a near-optimal broad-prior
-candidate. Results are JSON only; scripts/tune_viz.py owns all visualization.
+The tuner evaluates the current defaults once, builds broad coverage with a
+scrambled Sobol design, and then performs sequential Bayesian optimization with
+qLogNoisyExpectedImprovement. Every hyperparameter location gets one DFCP run.
+A homoskedastic observation-noise variance is inferred with the other GP
+hyperparameters instead of being estimated from fixed replications.
+
+After the main search, adaptive recommendation rounds repeatedly optimize the
+GP posterior mean and a constrained less-informative objective, evaluate both
+recommendations once, and refit. The final recommendations are recomputed from
+all observations and selected from locations DFCP actually evaluated. This
+spends repeated evaluations only where the updated GP continues to recommend
+them. Results are JSON only; scripts/tune_viz.py owns the interactive report.
 """
 
 import argparse
@@ -13,12 +21,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import torch
+from botorch.acquisition import PosteriorMean
+from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.acquisition.logei import qLogNoisyExpectedImprovement
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
 from botorch.models.transforms.outcome import Standardize
 from botorch.optim import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.utils.transforms import t_batch_mode_transform
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
 from dfcp import build_dfcp, run_dfcp
@@ -29,10 +40,16 @@ DEFAULT_SEQ_DIR = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
 DEFAULT_SEQ_FILE = DEFAULT_SEQ_DIR / "haps_SIMOUT_1.txt.gz_SIMOUT_14572-15071.txt"
 PBWT_MATCH_LEN = 20
 NEAR_BEST_TOLERANCE = 0.0025
-RECOMMENDATION_POINTS = 8192
-MC_SAMPLES = 128
-ACQUISITION_RESTARTS = 10
-ACQUISITION_RAW_SAMPLES = 256
+
+# These control inexpensive numerical optimization of GP-based objectives, not
+# the number of DFCP evaluations.
+ACQUISITION_MC_SAMPLES = 256
+ACQUISITION_RESTARTS = 20
+ACQUISITION_RAW_SAMPLES = 1024
+
+RECOMMENDATION_RESTARTS = 20
+RECOMMENDATION_RAW_SAMPLES = 2048
+CONSTRAINED_RAW_SAMPLES = 16384
 
 
 @dataclass(frozen=True)
@@ -45,9 +62,8 @@ class ParameterSpec:
 
     def from_unit(self, value: float) -> float:
         if self.scale == "log":
-            return math.exp(
-                math.log(self.lower) + value * (math.log(self.upper) - math.log(self.lower))
-            )
+            log_lower = math.log(self.lower)
+            return math.exp(log_lower + value * (math.log(self.upper) - log_lower))
         return self.lower + value * (self.upper - self.lower)
 
     def to_unit(self, value: float) -> float:
@@ -56,6 +72,12 @@ class ParameterSpec:
                 math.log(self.upper) - math.log(self.lower)
             )
         return (value - self.lower) / (self.upper - self.lower)
+
+    def from_unit_tensor(self, value: torch.Tensor) -> torch.Tensor:
+        if self.scale == "log":
+            log_lower = math.log(self.lower)
+            return torch.exp(log_lower + value * (math.log(self.upper) - log_lower))
+        return self.lower + value * (self.upper - self.lower)
 
 
 COMMON_PARAMETERS = (
@@ -78,23 +100,39 @@ def parameter_specs(mode: str) -> tuple[ParameterSpec, ...]:
     return COMMON_PARAMETERS + (NOISY_PARAMETERS if mode == "noisy" else ())
 
 
+def unit_bounds(dimension: int) -> torch.Tensor:
+    lower = torch.zeros(dimension, dtype=torch.double)
+    upper = torch.ones(dimension, dtype=torch.double)
+    return torch.stack((lower, upper))
+
+
 def search_params_from_unit(
     point: list[float], specs: tuple[ParameterSpec, ...]
 ) -> dict[str, float]:
     return {spec.name: spec.from_unit(value) for spec, value in zip(specs, point)}
 
 
+def tensor_params_from_unit(
+    points: torch.Tensor, specs: tuple[ParameterSpec, ...]
+) -> dict[str, torch.Tensor]:
+    return {
+        spec.name: spec.from_unit_tensor(points[..., index])
+        for index, spec in enumerate(specs)
+    }
+
+
 def cpp_params(search_params: dict[str, float], mode: str) -> dict[str, float]:
     """Convert Gamma shape/mean and Beta mean/concentration to C++ parameters."""
+    alpha_shape = search_params["alpha_shape"]
+    alpha_mean = search_params["alpha_mean"]
     d_mean = search_params["d_mean"]
     d_conc = search_params["d_conc"]
+    gamma_shape = search_params["gamma_shape"]
+    gamma_mean = search_params["gamma_mean"]
     result = {
-        "tau_1": search_params["alpha_shape"],
-        "tau_2": search_params["alpha_shape"] / search_params["alpha_mean"],
-        "v_1": d_mean * d_conc,
-        "v_2": (1.0 - d_mean) * d_conc,
-        "phi_1": search_params["gamma_shape"],
-        "phi_2": search_params["gamma_shape"] / search_params["gamma_mean"],
+        "tau_1": alpha_shape, "tau_2": alpha_shape / alpha_mean,
+        "v_1": d_mean * d_conc, "v_2": (1.0 - d_mean) * d_conc,
+        "phi_1": gamma_shape, "phi_2": gamma_shape / gamma_mean,
     }
     if mode == "noisy":
         eps_mean = search_params["eps_mean"]
@@ -106,174 +144,205 @@ def cpp_params(search_params: dict[str, float], mode: str) -> dict[str, float]:
 
 def default_unit_point(specs: tuple[ParameterSpec, ...]) -> list[float]:
     defaults = {
-        "alpha_shape": 1.0,
-        "alpha_mean": 1.0,
-        "d_mean": 0.5,
-        "d_conc": 2.0,
-        "gamma_shape": 2.0,
-        "gamma_mean": 1.0,
-        "eps_mean": 0.1 / 1.1,
-        "eps_conc": 1.1,
+        "alpha_shape": 1.0, "alpha_mean": 1.0,
+        "d_mean": 0.5, "d_conc": 2.0,
+        "gamma_shape": 2.0, "gamma_mean": 1.0,
+        "eps_mean": 0.1 / 1.1, "eps_conc": 1.1,
     }
     return [spec.to_unit(defaults[spec.name]) for spec in specs]
 
 
 def evaluate_point(
-    point: list[float],
-    specs: tuple[ParameterSpec, ...],
-    mode: str,
-    seq_file: Path,
-    mask: float,
-    val: float,
-    replicates: int,
-    source: str,
-    iteration: int,
+    point: list[float], specs: tuple[ParameterSpec, ...], mode: str, seq_file: Path,
+    mask: float, val: float, source: str, iteration: int,
 ) -> dict:
-    """Estimate one candidate's mean accuracy and the noise variance of that mean.
-
-    Every replicate reruns DFCP on the same sequence file. DFCP independently
-    samples validation sequences and masked alleles, so replicate accuracy varies.
-    The GP observation variance is the larger of the empirical variance of the
-    replicate mean and the average binomial sampling variance of that mean.
-    """
+    """Run one independently randomized DFCP evaluation."""
     search_params = search_params_from_unit(point, specs)
     dfcp_params = cpp_params(search_params, mode)
-    runs = []
-    for replicate in range(replicates):
-        output = run_dfcp(
-            seq_file,
-            retries=1,
-            pbwt_init=1,
-            pbwt_match_len=PBWT_MATCH_LEN,
-            mask=mask,
-            val=val,
-            soft=int(mode == "soft"),
-            noisy=int(mode == "noisy"),
-            **dfcp_params,
-        )
-        runs.append(
-            {
-                "replicate": replicate,
-                "accuracy": float(output["dfcp_impute_acc"]),
-                "n_masked_alleles": int(output["n_masked_alleles"]),
-            }
-        )
-
-    scores = [run["accuracy"] for run in runs]
-    objective_mean = sum(scores) / replicates
-    sample_variance = sum((score - objective_mean) ** 2 for score in scores) / (replicates - 1)
-    variance_of_mean = sample_variance / replicates
-    binomial_variance_of_mean = sum(
-        run["accuracy"] * (1.0 - run["accuracy"]) / run["n_masked_alleles"] for run in runs
-    ) / (replicates**2)
-    objective_variance = max(variance_of_mean, binomial_variance_of_mean, 1e-8)
-
+    output = run_dfcp(
+        seq_file, retries=1,
+        pbwt_init=1, pbwt_match_len=PBWT_MATCH_LEN,
+        mask=mask, val=val,
+        soft=int(mode == "soft"), noisy=int(mode == "noisy"),
+        **dfcp_params,
+    )
     record = {
         "x": point,
         "search_params": search_params,
         "cpp_params": dfcp_params,
-        "objective_mean": objective_mean,
-        "objective_variance": objective_variance,
-        "runs": runs,
+        "accuracy": float(output["dfcp_impute_acc"]),
+        "n_masked_alleles": int(output["n_masked_alleles"]),
         "source": source,
         "iteration": iteration,
     }
     print(
         f"{seq_file.name} {mode:5s} {source:28s} {iteration:3d} "
-        f"accuracy={objective_mean:.6f} se={math.sqrt(objective_variance):.6f}",
+        f"accuracy={record['accuracy']:.6f}",
         flush=True,
     )
     return record
 
 
 def fit_surrogate(records: list[dict]) -> SingleTaskGP:
+    """Fit an exact GP with one learned, shared observation-noise variance."""
     train_x = torch.tensor([record["x"] for record in records], dtype=torch.double)
-    train_y = torch.tensor([[record["objective_mean"]] for record in records], dtype=torch.double)
-    train_yvar = torch.tensor(
-        [[record["objective_variance"]] for record in records], dtype=torch.double
-    )
-    model = SingleTaskGP(
-        train_x,
-        train_y,
-        train_Yvar=train_yvar,
-        outcome_transform=Standardize(m=1),
-    )
+    train_y = torch.tensor([[record["accuracy"]] for record in records], dtype=torch.double)
+    model = SingleTaskGP(train_x, train_y, outcome_transform=Standardize(m=1))
     fit_gpytorch_mll(ExactMarginalLogLikelihood(model.likelihood, model))
     return model
+
+
+def observation_noise_variance(model: SingleTaskGP) -> float:
+    """Return learned observation noise in the original accuracy scale."""
+    standardized_noise = model.likelihood.noise.detach().reshape(-1)[0]
+    outcome_std = model.outcome_transform.stdvs.detach().reshape(-1)[0]
+    return float(standardized_noise * outcome_std.square())
 
 
 def propose_next_point(records: list[dict]) -> list[float]:
     model = fit_surrogate(records)
     train_x = torch.tensor([record["x"] for record in records], dtype=torch.double)
     acquisition = qLogNoisyExpectedImprovement(
-        model=model,
-        X_baseline=train_x,
-        sampler=SobolQMCNormalSampler(sample_shape=torch.Size([MC_SAMPLES])),
-    )
-    bounds = torch.stack(
-        (
-            torch.zeros(train_x.shape[1], dtype=torch.double),
-            torch.ones(train_x.shape[1], dtype=torch.double),
-        )
+        model=model, X_baseline=train_x,
+        sampler=SobolQMCNormalSampler(torch.Size([ACQUISITION_MC_SAMPLES])),
     )
     candidate, _ = optimize_acqf(
-        acquisition,
-        bounds=bounds,
-        q=1,
-        num_restarts=ACQUISITION_RESTARTS,
-        raw_samples=ACQUISITION_RAW_SAMPLES,
+        acquisition, bounds=unit_bounds(train_x.shape[1]), q=1,
+        num_restarts=ACQUISITION_RESTARTS, raw_samples=ACQUISITION_RAW_SAMPLES,
     )
     return candidate.squeeze(0).tolist()
 
 
-def prior_information_penalty(point: torch.Tensor, specs: tuple[ParameterSpec, ...]) -> float:
-    """Rank near-optimal candidates by distance from broad reference priors."""
-    params = search_params_from_unit(point.tolist(), specs)
+def prior_information_penalty(
+    points: torch.Tensor, specs: tuple[ParameterSpec, ...]
+) -> torch.Tensor:
+    """Score distance from broad Gamma-shape and uniform-Beta references."""
+    params = tensor_params_from_unit(points, specs)
 
-    def beta_penalty(mean: float, conc: float) -> float:
-        # Beta(1,1), with mean 0.5 and concentration 2, is the broad reference.
-        return abs(math.log(mean / (1.0 - mean))) + abs(math.log(conc / 2.0))
+    def beta_penalty(mean: torch.Tensor, conc: torch.Tensor) -> torch.Tensor:
+        return torch.abs(torch.logit(mean)) + torch.abs(torch.log(conc / 2.0))
 
-    penalty = math.log(params["alpha_shape"]) + math.log(params["gamma_shape"])
-    penalty += beta_penalty(params["d_mean"], params["d_conc"])
+    penalty = torch.log(params["alpha_shape"]) + torch.log(params["gamma_shape"])
+    penalty = penalty + beta_penalty(params["d_mean"], params["d_conc"])
     if "eps_mean" in params:
-        penalty += beta_penalty(params["eps_mean"], params["eps_conc"])
+        penalty = penalty + beta_penalty(params["eps_mean"], params["eps_conc"])
     return penalty
 
 
-def select_candidates(
-    model: SingleTaskGP,
-    specs: tuple[ParameterSpec, ...],
-    mode: str,
-    seed: int,
-) -> tuple[dict, dict]:
-    candidates = (
-        torch.quasirandom.SobolEngine(len(specs), scramble=True, seed=seed)
-        .draw(RECOMMENDATION_POINTS)
-        .double()
-    )
-    with torch.no_grad():
-        posterior_means = model.posterior(candidates).mean.squeeze(-1)
+class NegativePriorInformation(AcquisitionFunction):
+    """A differentiable objective for constrained recommendation optimization."""
 
-    optimum_index = int(torch.argmax(posterior_means))
-    best_prediction = float(posterior_means[optimum_index])
-    near_best = torch.nonzero(posterior_means >= best_prediction - NEAR_BEST_TOLERANCE).squeeze(-1)
-    less_informative_index = min(
-        near_best.tolist(),
-        key=lambda index: prior_information_penalty(candidates[index], specs),
-    )
+    def __init__(self, model: SingleTaskGP, specs: tuple[ParameterSpec, ...]):
+        super().__init__(model)
+        self.specs = specs
+
+    @t_batch_mode_transform(expected_q=1)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return -prior_information_penalty(x.squeeze(-2), self.specs)
+
+
+def describe_candidate(
+    model: SingleTaskGP, point: torch.Tensor,
+    specs: tuple[ParameterSpec, ...], mode: str,
+) -> dict:
+    with torch.no_grad():
+        posterior = model.posterior(point.unsqueeze(0))
+        posterior_mean = float(posterior.mean.squeeze())
+        posterior_sd = float(posterior.variance.clamp_min(0.0).sqrt().squeeze())
+        penalty = float(prior_information_penalty(point.unsqueeze(0), specs).squeeze())
+    point_list = point.tolist()
+    search_params = search_params_from_unit(point_list, specs)
+    return {
+        "x": point_list,
+        "posterior_mean": posterior_mean,
+        "posterior_sd": posterior_sd,
+        "information_penalty": penalty,
+        "search_params": search_params,
+        "cpp_params": cpp_params(search_params, mode),
+    }
+
+
+def select_evaluated_candidates(
+    model: SingleTaskGP, records: list[dict],
+    specs: tuple[ParameterSpec, ...], mode: str,
+) -> tuple[dict, dict]:
+    """Select final recommendations from locations that DFCP evaluated."""
+    points = torch.tensor([record["x"] for record in records], dtype=torch.double)
+    with torch.no_grad():
+        means = model.posterior(points).mean.squeeze(-1)
+        optimum_index = int(torch.argmax(means))
+        threshold = means[optimum_index] - NEAR_BEST_TOLERANCE
+        feasible = torch.nonzero(means >= threshold).squeeze(-1)
+        penalties = prior_information_penalty(points[feasible], specs)
+        less_informative_index = int(feasible[torch.argmin(penalties)])
 
     def describe(index: int) -> dict:
-        point = candidates[index].tolist()
-        search_params = search_params_from_unit(point, specs)
-        return {
-            "x": point,
-            "posterior_mean": float(posterior_means[index]),
-            "search_params": search_params,
-            "cpp_params": cpp_params(search_params, mode),
-        }
+        candidate = describe_candidate(model, points[index], specs, mode)
+        candidate["evaluation_index"] = index
+        return candidate
 
     return describe(optimum_index), describe(less_informative_index)
+
+
+def optimize_posterior_mean(model: SingleTaskGP, dimension: int) -> torch.Tensor:
+    candidate, _ = optimize_acqf(
+        PosteriorMean(model), bounds=unit_bounds(dimension), q=1,
+        num_restarts=RECOMMENDATION_RESTARTS, raw_samples=RECOMMENDATION_RAW_SAMPLES,
+    )
+    return candidate.squeeze(0)
+
+
+def optimize_less_informative(
+    model: SingleTaskGP, specs: tuple[ParameterSpec, ...],
+    optimum: torch.Tensor, seed: int,
+) -> torch.Tensor:
+    """Minimize prior information subject to near-optimal posterior accuracy."""
+    with torch.no_grad():
+        optimum_mean = model.posterior(optimum.unsqueeze(0)).mean.squeeze()
+    threshold = optimum_mean - NEAR_BEST_TOLERANCE
+
+    raw_points = (
+        torch.quasirandom.SobolEngine(len(specs), scramble=True, seed=seed)
+        .draw(CONSTRAINED_RAW_SAMPLES)
+        .double()
+    )
+    raw_points = torch.cat((optimum.unsqueeze(0), raw_points))
+    with torch.no_grad():
+        raw_means = torch.cat(
+            [model.posterior(chunk).mean.squeeze(-1) for chunk in raw_points.split(4096)]
+        )
+        feasible = raw_points[raw_means >= threshold]
+        penalties = prior_information_penalty(feasible, specs)
+        restart_count = min(RECOMMENDATION_RESTARTS, len(feasible))
+        starts = feasible[torch.topk(-penalties, restart_count).indices].unsqueeze(1)
+
+    def accuracy_constraint(point: torch.Tensor) -> torch.Tensor:
+        return model.posterior(point.unsqueeze(0)).mean.squeeze() - threshold
+
+    candidate, _ = optimize_acqf(
+        NegativePriorInformation(model, specs), bounds=unit_bounds(len(specs)), q=1,
+        num_restarts=restart_count, raw_samples=None,
+        batch_initial_conditions=starts,
+        nonlinear_inequality_constraints=[(accuracy_constraint, True)],
+        options={"batch_limit": 1, "maxiter": 200},
+    )
+    candidate = candidate.squeeze(0)
+    with torch.no_grad():
+        is_feasible = model.posterior(candidate.unsqueeze(0)).mean.squeeze() >= threshold - 1e-7
+    if not bool(is_feasible):
+        candidate = feasible[torch.argmin(penalties)]
+    return candidate
+
+
+def select_candidates(
+    model: SingleTaskGP, specs: tuple[ParameterSpec, ...], mode: str, seed: int,
+) -> tuple[dict, dict]:
+    optimum = optimize_posterior_mean(model, len(specs))
+    less_informative = optimize_less_informative(model, specs, optimum, seed)
+    return (
+        describe_candidate(model, optimum, specs, mode),
+        describe_candidate(model, less_informative, specs, mode),
+    )
 
 
 def ard_summary(
@@ -287,104 +356,88 @@ def ard_summary(
     return lengthscales, normalized_inverse
 
 
-def tune_mode(
-    mode: str,
-    seq_file: Path,
-    dataset_index: int,
-    args: argparse.Namespace,
+def summarize_records(
+    records: list[dict], specs: tuple[ParameterSpec, ...], mode: str,
 ) -> dict:
-    """Run Sobol initialization, noisy BO, and candidate confirmation for one mode."""
+    model = fit_surrogate(records)
+    optimum, less_informative = select_evaluated_candidates(model, records, specs, mode)
+    current_default = describe_candidate(
+        model, torch.tensor(records[0]["x"], dtype=torch.double), specs, mode
+    )
+    current_default["evaluation_index"] = 0
+    lengthscales, normalized_inverse = ard_summary(model, specs)
+    noise_variance = observation_noise_variance(model)
+    return {
+        "current_default": current_default,
+        "optimum": optimum,
+        "less_informative": less_informative,
+        "observation_noise_variance": noise_variance,
+        "observation_noise_sd": math.sqrt(noise_variance),
+        "ard_lengthscales": lengthscales,
+        "normalized_inverse_lengthscales": normalized_inverse,
+    }
+
+
+def tune_mode(
+    mode: str, seq_file: Path, dataset_index: int, args: argparse.Namespace,
+) -> dict:
+    """Run coverage, noisy BO, and adaptive recommendation for one mode."""
     specs = parameter_specs(mode)
     mode_index = args.modes.index(mode)
     seed = args.seed + 100_000 * dataset_index + 1_000 * mode_index
 
     current_default = evaluate_point(
-        default_unit_point(specs),
-        specs,
-        mode,
-        seq_file,
-        args.mask,
-        args.val,
-        args.confirmation_replicates,
-        "current_default",
-        -1,
+        default_unit_point(specs), specs, mode, seq_file,
+        args.mask, args.val, "current_default", 0,
     )
-
     records = [current_default]
+
     sobol = torch.quasirandom.SobolEngine(len(specs), scramble=True, seed=seed)
     for iteration, point in enumerate(sobol.draw(args.initial_points).double()):
         records.append(
             evaluate_point(
-                point.tolist(),
-                specs,
-                mode,
-                seq_file,
-                args.mask,
-                args.val,
-                args.replicates,
-                "sobol",
-                iteration,
+                point.tolist(), specs, mode, seq_file,
+                args.mask, args.val, "sobol", iteration,
             )
         )
 
     for iteration in range(args.iterations):
-        point = propose_next_point(records)
         records.append(
             evaluate_point(
-                point,
-                specs,
-                mode,
-                seq_file,
-                args.mask,
-                args.val,
-                args.replicates,
-                "bo",
-                iteration,
+                propose_next_point(records), specs, mode, seq_file,
+                args.mask, args.val, "bo", iteration,
             )
         )
 
-    selection_model = fit_surrogate(records)
-    predicted_optimum, less_informative = select_candidates(
-        selection_model, specs, mode, seed + 10_000
-    )
-    search_records = list(records)
-    predicted_optimum["confirmation"] = evaluate_point(
-        predicted_optimum["x"],
-        specs,
-        mode,
-        seq_file,
-        args.mask,
-        args.val,
-        args.confirmation_replicates,
-        "confirm_predicted_optimum",
-        len(records),
-    )
-    less_informative["confirmation"] = evaluate_point(
-        less_informative["x"],
-        specs,
-        mode,
-        seq_file,
-        args.mask,
-        args.val,
-        args.confirmation_replicates,
-        "confirm_less_informative",
-        len(records) + 1,
-    )
-    records.extend((predicted_optimum["confirmation"], less_informative["confirmation"]))
+    recommendation_history = []
+    for iteration in range(args.recommendation_rounds):
+        model = fit_surrogate(records)
+        optimum, less_informative = select_candidates(
+            model, specs, mode, seed + 10_000 + iteration
+        )
+        optimum_record = evaluate_point(
+            optimum["x"], specs, mode, seq_file,
+            args.mask, args.val, "recommend_optimum", iteration,
+        )
+        records.append(optimum_record)
+        optimum["evaluation_index"] = len(records) - 1
 
-    final_model = fit_surrogate(records)
-    lengthscales, normalized_inverse = ard_summary(final_model, specs)
+        less_informative_record = evaluate_point(
+            less_informative["x"], specs, mode, seq_file,
+            args.mask, args.val, "recommend_less_informative", iteration,
+        )
+        records.append(less_informative_record)
+        less_informative["evaluation_index"] = len(records) - 1
+        recommendation_history.append(
+            {"round": iteration, "optimum": optimum,
+             "less_informative": less_informative}
+        )
+
     return {
         "parameter_specs": [asdict(spec) for spec in specs],
         "records": records,
-        "summary": {
-            "current_default": current_default,
-            "best_observed": max(search_records, key=lambda record: record["objective_mean"]),
-            "predicted_optimum": predicted_optimum,
-            "less_informative": less_informative,
-            "ard_lengthscales": lengthscales,
-            "normalized_inverse_lengthscales": normalized_inverse,
-        },
+        "recommendation_history": recommendation_history,
+        "summary": summarize_records(records, specs, mode),
     }
 
 
@@ -422,10 +475,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--mask", type=float, default=0.2)
     parser.add_argument("--val", type=float, default=0.2)
-    parser.add_argument("--initial_points", type=int, default=16)
-    parser.add_argument("--iterations", type=int, default=40)
-    parser.add_argument("--replicates", type=int, default=3)
-    parser.add_argument("--confirmation_replicates", type=int, default=5)
+    parser.add_argument(
+        "--initial_points",
+        type=int,
+        default=32,
+        help="number of distinct initial Sobol evaluations (default: 32)",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=80,
+        help="number of sequential qLogNEI evaluations (default: 80)",
+    )
+    parser.add_argument(
+        "--recommendation_rounds",
+        type=int,
+        default=5,
+        help="adaptive optimum/less-informative evaluation rounds (default: 5)",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", type=Path, default=Path("output/tune.json"))
     return parser.parse_args()
@@ -438,10 +505,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("mask must be in (0,1] and val must be in (0,1)")
     if args.initial_points < 2:
         raise ValueError("initial_points must be at least 2")
-    if args.iterations < 0:
-        raise ValueError("iterations must be nonnegative")
-    if args.replicates < 2 or args.confirmation_replicates < 2:
-        raise ValueError("replicate counts must be at least 2")
+    if args.iterations < 0 or args.recommendation_rounds < 0:
+        raise ValueError("iterations and recommendation_rounds must be nonnegative")
 
 
 def main() -> None:
@@ -458,9 +523,14 @@ def main() -> None:
             "pbwt_match_len": PBWT_MATCH_LEN,
             "initial_points": args.initial_points,
             "iterations": args.iterations,
-            "replicates": args.replicates,
-            "confirmation_replicates": args.confirmation_replicates,
+            "recommendation_rounds": args.recommendation_rounds,
             "seed": args.seed,
+            "acquisition": {
+                "name": "qLogNoisyExpectedImprovement",
+                "mc_samples": ACQUISITION_MC_SAMPLES,
+                "restarts": ACQUISITION_RESTARTS,
+                "raw_samples": ACQUISITION_RAW_SAMPLES,
+            },
         },
         "datasets": [],
     }

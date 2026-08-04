@@ -72,9 +72,9 @@ current executable.
   rebuild its interactive Plotly report without rerunning DFCP.
 - `scripts/dfcp.py`: shared Python interface for building and running the C++
   executable and parsing its JSON output.
-- `scripts/tune.py`: JSON-only BoTorch optimization of interpretable Gamma
-  shapes/means and Beta means/concentrations for hard, noisy, and soft
-  PBWT-initialized DFCP, independently for each sequence file.
+- `scripts/tune.py`: JSON-only noisy BoTorch optimization of interpretable prior
+  parameters for hard, noisy, and soft PBWT-initialized DFCP, independently for
+  each sequence file, with learned observation noise and adaptive recommendations.
 - `scripts/tune_viz.py`: reads tuning JSON and builds the interactive Plotly
   hyperparameter-sensitivity report without rerunning DFCP.
 - `scripts/seq_file_name.py`: parses injected bit-flip and switch-error rates from

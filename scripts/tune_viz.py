@@ -21,6 +21,8 @@ GRID_SIZE = 30
 VISUAL_SIGNIFICANT_DIGITS = 7
 PAIR_CELL_SIZE = 135
 MODE_COLORS = {"hard": "#3366CC", "noisy": "#C9342C", "soft": "#2A9D8F"}
+
+
 def get_pairs(specs: tuple[ParameterSpec, ...]) -> list[tuple[int, int]]:
     pairs = list(itertools.combinations(range(len(specs)), 2))
     return sorted(pairs, key=lambda pair: (specs[pair[0]].group != specs[pair[1]].group, pair))
@@ -77,6 +79,9 @@ def get_mode_report(dataset_index: int, dataset: dict, mode: str, mode_data: dic
     records = mode_data["records"]
     model = fit_surrogate(records)
     anchor = torch.tensor(mode_data["summary"]["less_informative"]["x"], dtype=torch.double)
+    record_points = torch.tensor([record["x"] for record in records], dtype=torch.double)
+    record_means, record_variances = predict_in_chunks(model, record_points)
+    record_two_sd = 2.0 * record_variances.clamp_min(0.0).sqrt()
     pair_reports = []
     for pair in get_pairs(specs):
         pair_reports.append(
@@ -91,13 +96,15 @@ def get_mode_report(dataset_index: int, dataset: dict, mode: str, mode_data: dic
                 "observed_y": [
                     round_visual(record["search_params"][specs[pair[1]].name]) for record in records
                 ],
-                "observed_accuracy": [round_visual(record["objective_mean"]) for record in records],
+                "observed_accuracy": [round_visual(record["accuracy"]) for record in records],
+                "observed_mean": [round_visual(value) for value in record_means.tolist()],
+                "observed_two_sd": [round_visual(value) for value in record_two_sd.tolist()],
             }
         )
     surface_values = [
         value for pair in pair_reports for row in pair["surface"]["z"] for value in row
     ]
-    accuracies = [record["objective_mean"] for record in records]
+    accuracies = [record["accuracy"] for record in records]
     return {
         "dataset_id": f"d{dataset_index}",
         "dataset_label": dataset["label"],
@@ -105,6 +112,8 @@ def get_mode_report(dataset_index: int, dataset: dict, mode: str, mode_data: dic
         "mode": mode,
         "specs": specs,
         "records": records,
+        "record_means": record_means.tolist(),
+        "record_two_sd": record_two_sd.tolist(),
         "pairs": pair_reports,
         "zmin": min(surface_values + accuracies),
         "zmax": max(surface_values + accuracies),
@@ -211,7 +220,7 @@ def make_overview_figure(report: dict, width: int) -> go.Figure:
             "colorscale": "Viridis",
             "cmin": report["zmin"],
             "cmax": report["zmax"],
-            "colorbar": {"title": "predicted accuracy", "x": 1.02, "len": 0.7},
+            "colorbar": {"title": "GP mean accuracy", "x": 1.02, "len": 0.7},
         },
     )
     return fig
@@ -235,7 +244,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
             fig.update_yaxes(visible=False, row=row, col=col)
 
     param_index = {spec.name: index for index, spec in enumerate(specs)}
-    optimum = report["summary"]["predicted_optimum"]
+    optimum = report["summary"]["optimum"]
     less_informative = report["summary"]["less_informative"]
 
     def trace_meta(pair_id: str, role: str) -> dict[str, str]:
@@ -245,17 +254,20 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
         col = n_params - param_index[pair["y_name"]]
         row = param_index[pair["x_name"]] + 1
         z = [list(values) for values in zip(*pair["surface"]["z"])]
-        std = [list(values) for values in zip(*pair["surface"]["std"])]
+        two_sd = [
+            [2.0 * value for value in values]
+            for values in zip(*pair["surface"]["std"])
+        ]
         fig.add_trace(
             go.Heatmap(
                 x=pair["surface"]["y"],
                 y=pair["surface"]["x"],
                 z=z,
-                customdata=std,
+                customdata=two_sd,
                 coloraxis="coloraxis",
                 hovertemplate=(
                     f"{pair['y_name']}: %{{x:.4g}}<br>{pair['x_name']}: %{{y:.4g}}<br>"
-                    "predicted accuracy: %{z:.5f}<br>posterior SD: %{customdata:.5f}<extra></extra>"
+                    "GP mean ± 2 SD: %{z:.5f} ± %{customdata:.5f}<extra></extra>"
                 ),
                 showlegend=False,
                 meta=trace_meta(pair["id"], "heatmap"),
@@ -291,8 +303,20 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                     "size": 4,
                     "opacity": 1.0,
                 },
-                text=[f"accuracy={value:.5f}" for value in pair["observed_accuracy"]],
-                hovertemplate="%{text}<extra>evaluated point</extra>",
+                customdata=list(
+                    zip(
+                        pair["observed_accuracy"],
+                        pair["observed_mean"],
+                        pair["observed_two_sd"],
+                    )
+                ),
+                hovertemplate=(
+                    f"{pair['y_name']}: %{{x:.4g}}<br>"
+                    f"{pair['x_name']}: %{{y:.4g}}<br>"
+                    "observed accuracy: %{customdata[0]:.5f}<br>"
+                    "GP mean ± 2 SD: %{customdata[1]:.5f} ± %{customdata[2]:.5f}"
+                    "<extra>evaluated point</extra>"
+                ),
                 showlegend=False,
                 meta=trace_meta(pair["id"], "observed"),
             ),
@@ -310,10 +334,13 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                     "color": "black",
                     "line": {"color": "white", "width": 1.5},
                 },
+                customdata=[[optimum["posterior_mean"], 2.0 * optimum["posterior_sd"]]],
                 hovertemplate=(
-                    "GP optimum candidate<br>"
+                    "GP optimum (evaluated)<br>"
                     f"{pair['y_name']}: %{{x:.4g}}<br>"
-                    f"{pair['x_name']}: %{{y:.4g}}<extra></extra>"
+                    f"{pair['x_name']}: %{{y:.4g}}<br>"
+                    "GP mean ± 2 SD: %{customdata[0]:.5f} ± %{customdata[1]:.5f}"
+                    "<extra></extra>"
                 ),
                 showlegend=False,
                 meta=trace_meta(pair["id"], "optimum"),
@@ -332,10 +359,16 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
                     "color": "#00B8D9",
                     "line": {"color": "white", "width": 1.5},
                 },
+                customdata=[[
+                    less_informative["posterior_mean"],
+                    2.0 * less_informative["posterior_sd"],
+                ]],
                 hovertemplate=(
-                    "Less-informative candidate<br>"
+                    "Less-informative candidate (evaluated)<br>"
                     f"{pair['y_name']}: %{{x:.4g}}<br>"
-                    f"{pair['x_name']}: %{{y:.4g}}<extra></extra>"
+                    f"{pair['x_name']}: %{{y:.4g}}<br>"
+                    "GP mean ± 2 SD: %{customdata[0]:.5f} ± %{customdata[1]:.5f}"
+                    "<extra></extra>"
                 ),
                 showlegend=False,
                 meta=trace_meta(pair["id"], "less_informative"),
@@ -399,7 +432,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
         y=1.095,
         xref="paper",
         yref="paper",
-        text="★ GP optimum &nbsp;&nbsp; ◆ less-informative candidate",
+        text="★ evaluated GP optimum &nbsp;&nbsp; ◆ evaluated less-informative candidate",
         showarrow=False,
         font={"size": 13},
     )
@@ -422,7 +455,7 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
             "cmin": report["zmin"],
             "cmax": report["zmax"],
             "colorbar": {
-                "title": "predicted accuracy",
+                "title": "GP mean accuracy",
                 "x": 1.02,
                 "xanchor": "left",
                 "y": 0.5,
@@ -435,62 +468,45 @@ def make_pair_grid_figure(report: dict, cell_size: int = PAIR_CELL_SIZE) -> go.F
 
 def make_accuracy_figure(report: dict, width: int) -> go.Figure:
     mode = report["mode"]
-    fig = make_subplots(
-        rows=1,
-        cols=2,
-        subplot_titles=("Best observed accuracy", "Observed accuracy and estimated noise"),
-        horizontal_spacing=0.13,
-    )
-
-    core = [
-        record
-        for record in report["records"]
-        if record["source"] in ("current_default", "sobol", "bo")
-    ]
-    running_best = -math.inf
-    best = []
-    for record in core:
-        running_best = max(running_best, record["objective_mean"])
-        best.append(running_best)
+    evaluations = list(range(1, len(report["records"]) + 1))
+    fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=list(range(1, len(core) + 1)),
-            y=best,
-            mode="lines+markers",
-            line={"color": MODE_COLORS[mode]},
-            showlegend=False,
-            hovertemplate="evaluation %{x}<br>best accuracy=%{y:.5f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
+            x=evaluations,
+            y=[record["accuracy"] for record in report["records"]],
+            customdata=list(zip(report["record_means"], report["record_two_sd"])),
+            text=[record["source"] for record in report["records"]],
+            mode="markers", name="observed",
+            marker={"color": "#9AA0A6", "size": 6, "opacity": 0.65},
+            hovertemplate=(
+                "evaluation %{x}<br>observed accuracy: %{y:.5f}<br>"
+                "GP mean ± 2 SD: %{customdata[0]:.5f} ± %{customdata[1]:.5f}<br>"
+                "%{text}<extra></extra>"
+            ),
+        )
     )
     fig.add_trace(
         go.Scatter(
-            x=list(range(1, len(report["records"]) + 1)),
-            y=[record["objective_mean"] for record in report["records"]],
+            x=evaluations, y=report["record_means"],
             error_y={
-                "type": "data",
-                "array": [math.sqrt(record["objective_variance"]) for record in report["records"]],
-                "visible": True,
+                "type": "data", "array": report["record_two_sd"], "visible": True,
             },
             text=[record["source"] for record in report["records"]],
-            mode="markers",
+            mode="markers", name="GP mean ± 2 SD",
             marker={"color": MODE_COLORS[mode], "size": 7},
-            showlegend=False,
-            hovertemplate="evaluation %{x}<br>accuracy=%{y:.5f}<br>%{text}<extra></extra>",
-        ),
-        row=1,
-        col=2,
+            customdata=report["record_two_sd"],
+            hovertemplate=(
+                "evaluation %{x}<br>GP mean ± 2 SD: %{y:.5f} ± %{customdata:.5f}<br>"
+                "%{text}<extra></extra>"
+            ),
+        )
     )
-    fig.update_xaxes(title_text="search evaluation", row=1, col=1)
-    fig.update_xaxes(title_text="evaluation", row=1, col=2)
-    fig.update_yaxes(title_text="accuracy", row=1, col=1)
-    fig.update_yaxes(title_text="accuracy", row=1, col=2)
     fig.update_layout(
-        width=width,
-        height=460,
+        title="Observed accuracy and GP posterior at evaluated locations",
+        width=width, height=460,
         margin={"t": 75, "b": 70, "l": 80, "r": 45},
-        showlegend=False,
+        xaxis={"title": "evaluation"}, yaxis={"title": "accuracy"},
+        legend={"orientation": "h", "y": 1.08},
     )
     return fig
 
@@ -501,30 +517,30 @@ def make_dataset_comparison_figure(experiment: dict) -> go.Figure:
     fig = go.Figure()
     for mode in modes:
         means = []
-        errors = []
+        posterior_sd = []
         hover = []
         for dataset in datasets:
-            confirmation = dataset["modes"][mode]["summary"]["predicted_optimum"]["confirmation"]
-            means.append(confirmation["objective_mean"])
-            errors.append(math.sqrt(confirmation["objective_variance"]))
+            optimum = dataset["modes"][mode]["summary"]["optimum"]
+            means.append(optimum["posterior_mean"])
+            posterior_sd.append(2.0 * optimum["posterior_sd"])
             hover.append(dataset["seq_file"])
         fig.add_trace(
             go.Bar(
                 name=mode,
                 x=[dataset["label"] for dataset in datasets],
                 y=means,
-                error_y={"type": "data", "array": errors, "visible": True},
+                error_y={"type": "data", "array": posterior_sd, "visible": True},
                 marker_color=MODE_COLORS[mode],
-                customdata=hover,
+                customdata=list(zip(hover, posterior_sd)),
                 hovertemplate=(
-                    "%{customdata}<br>mode="
+                    "%{customdata[0]}<br>mode="
                     + mode
-                    + "<br>actual optimum mean=%{y:.5f}<extra></extra>"
+                    + "<br>GP mean ± 2 SD=%{y:.5f} ± %{customdata[1]:.5f}<extra></extra>"
                 ),
             )
         )
     fig.update_layout(
-        title="Actual optimum imputation accuracy by sequence file",
+        title="GP accuracy at selected evaluated optima by sequence file",
         barmode="group",
         width=max(900, min(1500, 150 * len(datasets) + 350)),
         height=520,
@@ -572,11 +588,9 @@ def get_sidebar_context(reports: list[dict]) -> dict:
                 }
                 for pair in report["pairs"]
             ],
-            "best_accuracy": summary["best_observed"]["objective_mean"],
-            "best_runs": len(summary["best_observed"]["runs"]),
-            "current_default_accuracy": summary["current_default"]["objective_mean"],
-            "current_default_runs": len(summary["current_default"]["runs"]),
-            "predicted_optimum": summary["predicted_optimum"],
+            "observation_noise_sd": summary["observation_noise_sd"],
+            "current_default": summary["current_default"],
+            "optimum": summary["optimum"],
             "less_informative": summary["less_informative"],
         }
     return context
@@ -629,20 +643,33 @@ function updateOverview() {
             meta: {kind: 'overview_surface', role: source.meta.role},
         };
         if (source.z) trace.z = transpose(source.z);
-        if (source.customdata) trace.customdata = transpose(source.customdata);
+        if (source.meta.role === 'heatmap' && source.customdata) {
+            trace.customdata = transpose(source.customdata);
+        }
         if (source.meta.role === 'heatmap') {
             trace.hovertemplate = `${pair.x_name}: %{x:.4g}<br>` +
-                `${pair.y_name}: %{y:.4g}<br>predicted accuracy: %{z:.5f}<br>` +
-                'posterior SD: %{customdata:.5f}<extra></extra>';
+                `${pair.y_name}: %{y:.4g}<br>` +
+                'GP mean ± 2 SD: %{z:.5f} ± %{customdata:.5f}<extra></extra>';
         } else if (source.meta.role === 'contour') {
             trace.contours = {...source.contours, showlabels: true};
             trace.textfont = {...source.textfont, size: 11};
         } else if (source.meta.role === 'observed') {
             trace.marker = {...source.marker, size: 5, opacity: 1.0};
+            trace.hovertemplate = `${pair.x_name}: %{x:.4g}<br>` +
+                `${pair.y_name}: %{y:.4g}<br>` +
+                'observed accuracy: %{customdata[0]:.5f}<br>' +
+                'GP mean ± 2 SD: %{customdata[1]:.5f} ± %{customdata[2]:.5f}' +
+                '<extra>evaluated point</extra>';
         } else if (source.meta.role === 'optimum') {
-            trace.hovertemplate = 'GP optimum candidate<extra></extra>';
+            trace.hovertemplate = 'GP optimum (evaluated)<br>' +
+                `${pair.x_name}: %{x:.4g}<br>${pair.y_name}: %{y:.4g}<br>` +
+                'GP mean ± 2 SD: %{customdata[0]:.5f} ± %{customdata[1]:.5f}' +
+                '<extra></extra>';
         } else if (source.meta.role === 'less_informative') {
-            trace.hovertemplate = 'Less-informative candidate<extra></extra>';
+            trace.hovertemplate = 'Less-informative candidate (evaluated)<br>' +
+                `${pair.x_name}: %{x:.4g}<br>${pair.y_name}: %{y:.4g}<br>` +
+                'GP mean ± 2 SD: %{customdata[0]:.5f} ± %{customdata[1]:.5f}' +
+                '<extra></extra>';
         }
         return trace;
     });
@@ -659,32 +686,19 @@ function updateOverview() {
 
 function updateSummary() {
     const mode = selectedReport();
-    document.getElementById('current-default-label').textContent =
-        `Current defaults: actual mean (${mode.current_default_runs} runs)`;
-    document.getElementById('current-default-accuracy').textContent =
-        mode.current_default_accuracy.toFixed(5);
-    document.getElementById('best-label').textContent =
-        `Best observed: actual mean (${mode.best_runs} runs)`;
-    document.getElementById('best-accuracy').textContent = mode.best_accuracy.toFixed(5);
-    document.getElementById('predicted-accuracy').textContent =
-        mode.predicted_optimum.posterior_mean.toFixed(5);
-    document.getElementById('predicted-actual-label').textContent =
-        `Optimum: actual mean (${mode.predicted_optimum.confirmation.runs.length} runs)`;
-    document.getElementById('predicted-confirmed-accuracy').textContent =
-        mode.predicted_optimum.confirmation.objective_mean.toFixed(5);
-    document.getElementById('less-informative-accuracy').textContent =
-        mode.less_informative.posterior_mean.toFixed(5);
-    document.getElementById('less-informative-actual-label').textContent =
-        `Less-informative: actual mean (${mode.less_informative.confirmation.runs.length} runs)`;
-    document.getElementById('less-informative-confirmed-accuracy').textContent =
-        mode.less_informative.confirmation.objective_mean.toFixed(5);
+    const interval = candidate =>
+        `${candidate.posterior_mean.toFixed(5)} ± ${(2 * candidate.posterior_sd).toFixed(5)}`;
+    document.getElementById('current-default-accuracy').textContent = interval(mode.current_default);
+    document.getElementById('optimum-accuracy').textContent = interval(mode.optimum);
+    document.getElementById('less-informative-accuracy').textContent = interval(mode.less_informative);
+    document.getElementById('noise-sd').textContent = mode.observation_noise_sd.toFixed(5);
     document.getElementById('candidate-params').innerHTML = Object.entries(
         mode.less_informative.cpp_params
     ).map(([name, value]) =>
         `<tr><td>${name}</td><td>${Number(value).toPrecision(4)}</td></tr>`
     ).join('');
     document.getElementById('optimum-params').innerHTML = Object.entries(
-        mode.predicted_optimum.cpp_params
+        mode.optimum.cpp_params
     ).map(([name, value]) =>
         `<tr><td>${name}</td><td>${Number(value).toPrecision(4)}</td></tr>`
     ).join('');
@@ -749,23 +763,23 @@ sidebar.innerHTML = `
         ).join('')}
     </div></section>
     <section><h3>Large contour pair</h3><select id="pair-select"></select></section>
-    <section class="tune-summary"><h3>Accuracy summary</h3>
-        <div><span id="current-default-label"></span><strong id="current-default-accuracy"></strong></div>
-        <div><span id="best-label"></span><strong id="best-accuracy"></strong></div>
-        <div><span>Optimum: GP prediction</span><strong id="predicted-accuracy"></strong></div>
-        <div><span id="predicted-actual-label"></span><strong id="predicted-confirmed-accuracy"></strong></div>
-        <div><span>Less-informative: GP prediction</span><strong id="less-informative-accuracy"></strong></div>
-        <div><span id="less-informative-actual-label"></span><strong id="less-informative-confirmed-accuracy"></strong></div>
+    <section class="tune-summary"><h3>GP accuracy summary (mean ± 2 SD)</h3>
+        <div><span>Current defaults</span><strong id="current-default-accuracy"></strong></div>
+        <div><span>Evaluated optimum</span><strong id="optimum-accuracy"></strong></div>
+        <div><span>Evaluated less-informative</span><strong id="less-informative-accuracy"></strong></div>
+        <div><span>Learned observation-noise SD</span><strong id="noise-sd"></strong></div>
     </section>
-    <section><h3>GP optimum C++ candidate</h3>
+    <section><h3>Evaluated GP optimum C++ parameters</h3>
         <table><tbody id="optimum-params"></tbody></table></section>
-    <section><h3>Less-informative C++ candidate</h3>
+    <section><h3>Evaluated less-informative C++ parameters</h3>
         <table><tbody id="candidate-params"></tbody></table></section>
     <section class="tune-note"><h3>Interpretation</h3>
         <p>Each heatmap is the GP posterior mean with unshown parameters fixed at the
         less-informative candidate. White lines show equal predicted accuracy.</p>
-        <p>The black star is the GP optimum, the cyan diamond is the less-informative
-        candidate, and dots are evaluated configurations projected into each cell.</p>
+        <p>The black star is the evaluated point with the highest GP mean. The cyan
+        diamond is the least-informative evaluated point within 0.0025 of that mean.</p>
+        <p>Every dot is one DFCP run. Error bars use the GP's shared learned
+        observation-noise SD; candidate SDs describe latent posterior uncertainty.</p>
         <p>Shorter ARD lengthscales indicate faster surrogate variation, but are not
         causal importance scores.</p>
     </section>`;
