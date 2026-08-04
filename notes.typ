@@ -1752,20 +1752,17 @@ potential problems: noisy, no perfect matches
 
 = eval
 - block vs pbwt vs viterbi init
-   - imputation acc: pbwt > block, viterbi, pbwt match len 20 is a good default
-   - tree matching (clade iou and excess parsiomony): higher pbwt match len is worse
-   - loc iou: higher pbwt match len is better
-   - time: block < pbwt < viterbi
+  - imputation acc: pbwt > block, viterbi, pbwt match len 20 is a good default
+  - tree matching (clade iou and excess parsiomony): higher pbwt match len is worse
+  - loc iou: higher pbwt match len is better
+  - time: block < pbwt < viterbi
+  - pbwt mismatch: not much difference. pbwt is too hard, should tolerate more mismatching.
 
 - hard vs soft vs noisy
    - seq files: imputation acc drops to %80 at 0.1 bit flip, 0.05 switch
    - need to tune HP across datasets and dfcp modes
 
 - dfcp vs shapeit, beagle, eagle
-
-== pbwt init
-- adaptive match length threshold: choose largest match length to get avg \# clusters < threshold. binary search?
-- option to include current allele in match
 
 == model changes
 - $alpha$ per location
