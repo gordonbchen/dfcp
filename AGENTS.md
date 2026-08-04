@@ -77,6 +77,8 @@ current executable.
   PBWT-initialized DFCP, independently for each sequence file.
 - `scripts/tune_viz.py`: reads tuning JSON and builds the interactive Plotly
   hyperparameter-sensitivity report without rerunning DFCP.
+- `scripts/seq_file_name.py`: parses injected bit-flip and switch-error rates from
+  simulated haplotype filenames for consistent labels and ordering.
 - `scripts/plotly_html.py`: writes one shared `docs/assets/plotly.min.js` for generated
   reports and can externalize the Plotly bundle from an existing report.
 - `scripts/parsimony.py`: evaluates simulated error files against true trees

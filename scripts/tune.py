@@ -22,6 +22,7 @@ from botorch.sampling.normal import SobolQMCNormalSampler
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
 from dfcp import build_dfcp, run_dfcp
+from seq_file_name import get_seq_sort_key
 
 
 DEFAULT_SEQ_DIR = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
@@ -391,7 +392,7 @@ def resolve_seq_files(args: argparse.Namespace) -> list[Path]:
     if args.seq_files:
         files = args.seq_files
     elif args.seq_dir:
-        files = sorted(args.seq_dir.glob("haps*.txt*"))
+        files = sorted(args.seq_dir.glob("haps*.txt*"), key=get_seq_sort_key)
     else:
         files = [DEFAULT_SEQ_FILE]
     if not files:

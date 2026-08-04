@@ -4,7 +4,6 @@ import argparse
 import itertools
 import json
 import math
-import re
 from pathlib import Path
 
 import plotly.graph_objects as go
@@ -14,6 +13,7 @@ from botorch.models import SingleTaskGP
 from plotly.subplots import make_subplots
 
 from plotly_html import ensure_plotly_asset
+from seq_file_name import get_seq_label
 from tune import ParameterSpec, fit_surrogate
 
 
@@ -21,16 +21,6 @@ GRID_SIZE = 30
 VISUAL_SIGNIFICANT_DIGITS = 7
 PAIR_CELL_SIZE = 135
 MODE_COLORS = {"hard": "#3366CC", "noisy": "#C9342C", "soft": "#2A9D8F"}
-ERROR_RE = re.compile(r"\\.txt\\.gz_([0-9.]+)_([0-9.]+)\\.txt\\.gz_")
-
-
-def get_seq_label(seq_file: Path) -> str:
-    match = ERROR_RE.search(seq_file.name)
-    if match is None:
-        return "Baseline (no injected errors)"
-    return f"Bit flip {match.group(1)}, switch {match.group(2)}"
-
-
 def get_pairs(specs: tuple[ParameterSpec, ...]) -> list[tuple[int, int]]:
     pairs = list(itertools.combinations(range(len(specs)), 2))
     return sorted(pairs, key=lambda pair: (specs[pair[0]].group != specs[pair[1]].group, pair))

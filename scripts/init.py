@@ -3,7 +3,6 @@
 import argparse
 import json
 import math
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,10 +11,10 @@ from plotly.subplots import make_subplots
 
 from dfcp import build_dfcp, run_dfcp
 from plotly_html import ensure_plotly_asset
+from seq_file_name import get_seq_label, get_seq_sort_key
 
 
 DEFAULT_SEQ_DIR = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
-ERROR_RE = re.compile(r"\\.txt\\.gz_([0-9.]+)_([0-9.]+)\\.txt\\.gz_")
 MASKS = (0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
 MODES = {
     "hard": {"noisy": 0, "soft": 0},
@@ -85,20 +84,6 @@ INIT_METHODS = (
     InitMethod("pbwt", 100, True),
     InitMethod("viterbi"),
 )
-
-
-def get_seq_label(seq_file: Path) -> str:
-    match = ERROR_RE.search(seq_file.name)
-    if match is None:
-        return "Baseline (no injected errors)"
-    return f"Bit flip {match.group(1)}, switch {match.group(2)}"
-
-
-def get_seq_sort_key(seq_file: Path) -> tuple[bool, float, float]:
-    match = ERROR_RE.search(seq_file.name)
-    if match is None:
-        return False, 0.0, 0.0
-    return True, float(match.group(1)), float(match.group(2))
 
 
 def parse_args() -> argparse.Namespace:
