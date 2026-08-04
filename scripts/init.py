@@ -207,7 +207,10 @@ def write_json(experiment: dict, path: Path) -> None:
 
 def make_figure(experiment: dict) -> go.Figure:
     masks = experiment["config"]["masks"]
-    datasets = experiment["datasets"]
+    datasets = sorted(
+        experiment["datasets"],
+        key=lambda dataset: get_seq_sort_key(Path(dataset["seq_file"])),
+    )
     ncols = 2
     nrows = math.ceil(len(METRICS) / ncols)
     fig = make_subplots(

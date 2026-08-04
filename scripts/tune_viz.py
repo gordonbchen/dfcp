@@ -13,7 +13,7 @@ from botorch.models import SingleTaskGP
 from plotly.subplots import make_subplots
 
 from plotly_html import ensure_plotly_asset
-from seq_file_name import get_seq_label
+from seq_file_name import get_seq_label, get_seq_sort_key
 from tune import ParameterSpec, fit_surrogate
 
 
@@ -919,6 +919,7 @@ def load_experiment(path: Path) -> dict:
         if not isinstance(modes, dict) or not modes:
             raise ValueError(f"{path} contains a dataset with no tuned modes")
         dataset["label"] = get_seq_label(Path(dataset["seq_file"]))
+    datasets.sort(key=lambda dataset: get_seq_sort_key(Path(dataset["seq_file"])))
     return experiment
 
 
