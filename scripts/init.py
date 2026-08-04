@@ -200,7 +200,7 @@ def load_experiment(path: Path) -> dict:
 
 def write_json(experiment: dict, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(experiment, indent=2, allow_nan=False) + "\n")
+    path.write_text(json.dumps(experiment, indent=0, allow_nan=False) + "\n")
 
 
 def make_figure(experiment: dict) -> go.Figure:
