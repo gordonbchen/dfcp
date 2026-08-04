@@ -559,7 +559,7 @@ def main() -> None:
         experiment["datasets"].append(dataset)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(experiment, indent=2, allow_nan=False) + "\n")
+    args.output.write_text(json.dumps(experiment, indent=0, allow_nan=False) + "\n")
     print(f"wrote {args.output}")
 
 
