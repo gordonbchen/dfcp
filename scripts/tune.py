@@ -24,6 +24,7 @@ import torch
 from botorch.acquisition import PosteriorMean
 from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.acquisition.logei import qLogNoisyExpectedImprovement
+from botorch.exceptions.errors import CandidateGenerationError
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
 from botorch.models.transforms.outcome import Standardize
@@ -50,6 +51,7 @@ ACQUISITION_RAW_SAMPLES = 1024
 RECOMMENDATION_RESTARTS = 20
 RECOMMENDATION_RAW_SAMPLES = 2048
 CONSTRAINED_RAW_SAMPLES = 16384
+CONSTRAINT_START_MARGIN = 1e-5
 
 
 @dataclass(frozen=True)
@@ -313,25 +315,41 @@ def optimize_less_informative(
         )
         feasible = raw_points[raw_means >= threshold]
         penalties = prior_information_penalty(feasible, specs)
-        restart_count = min(RECOMMENDATION_RESTARTS, len(feasible))
-        starts = feasible[torch.topk(-penalties, restart_count).indices].unsqueeze(1)
+        fallback = feasible[torch.argmin(penalties)]
+
+        interior = raw_points[raw_means >= threshold + CONSTRAINT_START_MARGIN]
+        interior_penalties = prior_information_penalty(interior, specs)
+        restart_count = min(RECOMMENDATION_RESTARTS, len(interior))
+        starts = interior[
+            torch.topk(-interior_penalties, restart_count).indices
+        ].unsqueeze(1)
 
     def accuracy_constraint(point: torch.Tensor) -> torch.Tensor:
         return model.posterior(point.unsqueeze(0)).mean.squeeze() - threshold
 
-    candidate, _ = optimize_acqf(
-        NegativePriorInformation(model, specs), bounds=unit_bounds(len(specs)), q=1,
-        num_restarts=restart_count, raw_samples=None,
-        batch_initial_conditions=starts,
-        nonlinear_inequality_constraints=[(accuracy_constraint, True)],
-        options={"batch_limit": 1, "maxiter": 200},
-    )
+    try:
+        candidate, _ = optimize_acqf(
+            NegativePriorInformation(model, specs), bounds=unit_bounds(len(specs)), q=1,
+            num_restarts=restart_count, raw_samples=None,
+            batch_initial_conditions=starts,
+            nonlinear_inequality_constraints=[(accuracy_constraint, True)],
+            options={"batch_limit": 1, "maxiter": 200},
+        )
+    except CandidateGenerationError:
+        print(
+            "constrained recommendation optimization failed; "
+            "using the best feasible Sobol candidate",
+            flush=True,
+        )
+        return fallback
+
     candidate = candidate.squeeze(0)
     with torch.no_grad():
-        is_feasible = model.posterior(candidate.unsqueeze(0)).mean.squeeze() >= threshold - 1e-7
-    if not bool(is_feasible):
-        candidate = feasible[torch.argmin(penalties)]
-    return candidate
+        candidate_mean = model.posterior(candidate.unsqueeze(0)).mean.squeeze()
+        candidate_penalty = prior_information_penalty(candidate.unsqueeze(0), specs).squeeze()
+        fallback_penalty = prior_information_penalty(fallback.unsqueeze(0), specs).squeeze()
+        use_candidate = candidate_mean >= threshold and candidate_penalty <= fallback_penalty
+    return candidate if bool(use_candidate) else fallback
 
 
 def select_candidates(
