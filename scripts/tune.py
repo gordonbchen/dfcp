@@ -81,14 +81,14 @@ class ParameterSpec:
 
 
 COMMON_PARAMETERS = (
-    ParameterSpec("alpha_shape", 0.5, 10.0, "log", "alpha"),
+    ParameterSpec("alpha_shape", 0.1, 10.0, "log", "alpha"),
     ParameterSpec("alpha_mean", 0.001, 10.0, "log", "alpha"),
 
     ParameterSpec("d_mean", 0.1, 0.9, "linear", "d"),
     ParameterSpec("d_conc", 1.0, 20.0, "log", "d"),
 
     ParameterSpec("gamma_shape", 1.0, 10.0, "log", "gamma"),
-    ParameterSpec("gamma_mean", 0.001, 10.0, "log", "gamma"),
+    ParameterSpec("gamma_mean", 0.0001, 10.0, "log", "gamma"),
 )
 NOISY_PARAMETERS = (
     ParameterSpec("eps_mean", 0.001, 0.2, "log", "eps"),
