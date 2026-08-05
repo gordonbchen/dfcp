@@ -1746,9 +1746,36 @@ potential problems: noisy, no perfect matches
 
 
 #pagebreak()
+= Imputation Eval
+- phased data to dfcp vs beagle (and minimac4, impute5)
+- datasets: reference (phased, non-missing), target (need imputation), imputed
+- masking: untyped (mask all alleles at that loc in target) vs sporadic (mask some alleles in target)
+- fixed reference imputation (train on reference, freeze, then impute)
+  vs joint reference-target imputation (batch train on reference, target)
+
+vcf outputs
+- GT: imputed genotype value
+- HDS: haplotype dosages (prob of 1)
+- DS: genotype dosage (sum of hds probs)
+- IMP: imputed 1 or 0
+
+metrics
+- $r^2$ correltation b/t \# minor alleles and dosage $EE[G]$, binned by minor allele count
+
+
+
+
+
+#pagebreak()
 = TODO
 - phasing
 - saving dfcp after training, loading for inference
+- windowing
+
+== ideas
+- transformer for imputation
+- $d_l$ depending on genetic map (how far away the variant sites are), or the other way, estimating dist via $d_l$
+- beagle does composite references (similar idea to core sets, but instead composite refs)
 
 = eval
 - block vs pbwt vs viterbi init
@@ -1761,8 +1788,6 @@ potential problems: noisy, no perfect matches
 - hard vs soft vs noisy
    - seq files: imputation acc drops to %80 at 0.1 bit flip, 0.05 switch
    - need to tune HP across datasets and dfcp modes
-
-- dfcp vs shapeit, beagle, eagle
 
 == model changes
 - $alpha$ per location
