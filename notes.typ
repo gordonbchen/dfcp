@@ -1768,19 +1768,22 @@ metrics
 
 #pagebreak()
 = TODO
+- beagle compute
+
+= evals
+- dfcp vs beagle imputation
+  - saving dfcp after training, loading for inference
+  - forward backward on frozen, trained dfcp
+  - windowing
+
+- ancestral tree time sampling: density plot of best clade time for each cluster
+
 - phasing
-- saving dfcp after training, loading for inference
-- windowing
 
-== ideas
-- transformer for imputation
-- $d_l$ depending on genetic map (how far away the variant sites are), or the other way, estimating dist via $d_l$
-- beagle does composite references (similar idea to core sets, but instead composite refs)
-
-= eval
+= tuning results
 - block vs pbwt vs viterbi init
-  - imputation acc: pbwt > block, viterbi, pbwt match len 20 is a good default
-  - tree matching (clade iou and excess parsiomony): higher pbwt match len is worse
+  - imputation acc: pbwt > block and viterbi, pbwt match len 20 is a good default
+  - tree matching: higher pbwt match len is worse
   - loc iou: higher pbwt match len is better
   - time: block < pbwt < viterbi
   - pbwt mismatch: not much difference. pbwt is too hard, should tolerate more mismatching.
@@ -1792,8 +1795,12 @@ metrics
 == model changes
 - $alpha$ per location
 - $epsilon$ per location for noisy
+- multiple sequences taken out during maximization / stochastic updates
+- $d_l$ depending on genetic map (how far away the variant sites are),
+  or the other way, estimating dist via $d_l$
 
 == ideas
 - methylation (cancer data)
 - arg model: "The Effect of Single Recombination Events on Coalescent Tree Height and Shape"
+- nucleotide transformer
 
