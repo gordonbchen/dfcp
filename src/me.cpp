@@ -23,145 +23,24 @@
 #include "util.hpp"
 
 
-int main(int argc, char *argv[]) {
-    Json json;
+void dfcp(
+    HyperParams& HP,
 
-    // Read seq file.
-    if (argc < 2) { throw std::invalid_argument("Requires sequence file."); }
-    std::cerr << "seq_file=" << argv[1] << '\n';
-    json.add("seq_file", argv[1]);
-    std::ifstream seq_file(argv[1]);
-    if (!seq_file.is_open()) { throw std::runtime_error("Failed to open sequence file."); };
+    bool soft, bool noisy,
 
-    int N = 0;
-    int L = 0;
-    std::vector<int8_t> x_raw;
-    std::string line;
-    while (std::getline(seq_file, line)) {
-        if (N == 0) {
-            L = line.length();
-        }
-        for (char c : line) {
-            if (c < '0' || c > '9') { throw std::runtime_error("Invalid allele char."); };
-            x_raw.push_back(c - '0');
-        }
-        ++N;
-    }
-    int K = *std::max_element(x_raw.begin(), x_raw.end()) + 1;
-    HyperParams HP{.N=N, .L=L, .K=K};
+    bool block_init,
+    bool pbwt_init, int pbwt_match_len, bool pbwt_match_curr,
+    bool init_only,
 
-    // Parse optional args.
-    double val = -1.0;
-    double mask = -1.0;
+    std::vector<int8_t>& x, std::vector<SparseX>& x_val_true,
+    std::vector<int>& raw_to_split_idxs,
+    int n_train_seqs, int n_val_seqs, int n_masked_alleles,
 
-    char *tree_fname = nullptr;
-    char *variant_pos_fname = nullptr;
-    int variant_start_pos = -1;
-    char *tree_vis_fname = nullptr;
-    double clade_beta = 2.0;
+    char *tree_fname, char *variant_pos_fname, int variant_start_pos,
+    char *tree_vis_fname, double clade_beta,
 
-    bool noisy = false;
-    bool soft = false;
-    bool block_init = false;
-    bool pbwt_init = false;
-    int pbwt_match_len = 5;
-    bool pbwt_match_curr = true;
-    bool init_only = false;
-
-    int i = 2;
-    while (i < argc) {
-        if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
-
-        std::string_view arg{argv[i]};
-        if (arg == "--tau_1") { HP.tau_1 = parse_double(argv[i+1]); }
-        else if (arg == "--tau_2") { HP.tau_2 = parse_double(argv[i+1]); }
-        else if (arg == "--v_1") { HP.v_1 = parse_double(argv[i+1]); }
-        else if (arg == "--v_2") { HP.v_2 = parse_double(argv[i+1]); }
-        else if (arg == "--phi_1") { HP.phi_1 = parse_double(argv[i+1]); }
-        else if (arg == "--phi_2") { HP.phi_2 = parse_double(argv[i+1]); }
-
-        else if (arg == "--noisy") { noisy = parse_int(argv[i+1]) == 1; }
-        else if (arg == "--lambda_1") { HP.lambda_1 = parse_double(argv[i+1]); }
-        else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
-
-        else if (arg == "--val") { val = parse_double(argv[i+1]); }
-        else if (arg == "--mask") { mask = parse_double(argv[i+1]); }
-
-        else if (arg == "--tree") { tree_fname = argv[i+1]; }
-        else if (arg == "--variant_pos_fname") { variant_pos_fname = argv[i+1]; }
-        else if (arg == "--variant_start_pos") { variant_start_pos = parse_int(argv[i+1]); }
-        else if (arg == "--tree_vis") { tree_vis_fname = argv[i+1]; }
-        else if (arg == "--clade_beta") {
-            clade_beta = parse_double(argv[i+1]);
-            if (clade_beta < 1.0) { throw std::invalid_argument("clade_beta must be at least 1."); }
-        }
-
-        else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
-        else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
-        else if (arg == "--pbwt_init") { pbwt_init = (parse_int(argv[i+1]) == 1); }
-        else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
-        else if (arg == "--pbwt_match_curr") { pbwt_match_curr = (parse_int(argv[i+1]) == 1); }
-        else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
-
-        else { throw std::invalid_argument("Arg not recognized."); }
-        i += 2;
-    }
-    if (noisy && soft) { throw std::invalid_argument("noisy is only for hard dfcp."); }
-    if (block_init && pbwt_init) { throw std::invalid_argument("cannot do block and pbwt init."); }
-    std::cerr << HP << '\n';
-
-    // Split val for imputation.
-    bool do_val = val > 0.0;
-    if (do_val != (mask > 0.0)) {
-        throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0.");
-    };
-    std::vector<int8_t> x(HP.N * HP.L, -1);
-    int n_train_seqs = 0;
-    int n_val_seqs = 0;
-    std::vector<int> raw_to_split_idxs(HP.N, -1);
-
-    int n_masked_alleles = 0;
-    std::vector<SparseX> x_val_true;
-    x_val_true.reserve(do_val ? static_cast<size_t>(val * mask * HP.N * HP.L) : 0);
-
-    if (val > 0.0) {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::bernoulli_distribution val_dist(val);
-        std::bernoulli_distribution mask_dist(mask);
-
-        for (int i = 0; i < HP.N; ++i) {
-            auto line = x_raw.begin() + i*HP.L;
-            if (!val_dist(gen)) {
-                std::copy(line, line+HP.L, x.begin() + n_train_seqs*HP.L);
-                raw_to_split_idxs[i] = n_train_seqs;
-                ++n_train_seqs;
-                continue;
-            }
-            std::copy(line, line+HP.L, x.end() - (n_val_seqs+1)*HP.L);
-            raw_to_split_idxs[i] = HP.N - (n_val_seqs+1);
-            for (int l = 0; l < HP.L; ++l) {
-                if (!mask_dist(gen)) { continue; }
-                x_val_true.emplace_back(HP.N - (n_val_seqs+1), l, line[l]);
-                x[idx2d(HP.N - (n_val_seqs+1), l, HP.L)] = -1;
-                ++n_masked_alleles;
-            }
-            ++n_val_seqs;
-        }
-        HP.N = n_train_seqs;
-        if (n_train_seqs == 0) { throw std::runtime_error("no train seqs."); }
-        if (n_masked_alleles == 0) { throw std::runtime_error("invalid validation split."); }
-        std::cerr << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_alleles=" << n_masked_alleles << '\n';
-        json.add("n_val_seqs", n_val_seqs).add("n_masked_alleles", n_masked_alleles);
-    }
-    else {
-        x = std::move(x_raw);
-        for (int i = 0; i < HP.N; ++i) {
-            raw_to_split_idxs[i] = i;
-        }
-        n_train_seqs = HP.N;
-    }
-
+    Json& json
+) {
     // Init params and clusters.
     Params params{HP};
     Clusters clusters{HP, soft, noisy};
@@ -419,8 +298,165 @@ int main(int argc, char *argv[]) {
     }
     std::cerr << "cluster_purity=" << cluster_purity << '\n';
     json.add("cluster_purity", cluster_purity);
+}
 
+
+int main(int argc, char *argv[]) {
+    Json json;
+
+    // Read seq file.
+    if (argc < 2) { throw std::invalid_argument("Requires sequence file."); }
+    std::cerr << "seq_file=" << argv[1] << '\n';
+    json.add("seq_file", argv[1]);
+    std::ifstream seq_file(argv[1]);
+    if (!seq_file.is_open()) { throw std::runtime_error("Failed to open sequence file."); };
+
+    int N = 0;
+    int L = 0;
+    std::vector<int8_t> x_raw;
+    std::string line;
+    while (std::getline(seq_file, line)) {
+        if (N == 0) {
+            L = line.length();
+        }
+        for (char c : line) {
+            if (c < '0' || c > '9') { throw std::runtime_error("Invalid allele char."); };
+            x_raw.push_back(c - '0');
+        }
+        ++N;
+    }
+    int K = *std::max_element(x_raw.begin(), x_raw.end()) + 1;
+    HyperParams HP{.N=N, .L=L, .K=K};
+
+    // Parse optional args.
+    double val = -1.0;
+    double mask = -1.0;
+
+    char *tree_fname = nullptr;
+    char *variant_pos_fname = nullptr;
+    int variant_start_pos = -1;
+    char *tree_vis_fname = nullptr;
+    double clade_beta = 2.0;
+
+    bool noisy = false;
+    bool soft = false;
+    bool block_init = false;
+    bool pbwt_init = false;
+    int pbwt_match_len = 5;
+    bool pbwt_match_curr = true;
+    bool init_only = false;
+
+    int i = 2;
+    while (i < argc) {
+        if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
+
+        std::string_view arg{argv[i]};
+        if (arg == "--tau_1") { HP.tau_1 = parse_double(argv[i+1]); }
+        else if (arg == "--tau_2") { HP.tau_2 = parse_double(argv[i+1]); }
+        else if (arg == "--v_1") { HP.v_1 = parse_double(argv[i+1]); }
+        else if (arg == "--v_2") { HP.v_2 = parse_double(argv[i+1]); }
+        else if (arg == "--phi_1") { HP.phi_1 = parse_double(argv[i+1]); }
+        else if (arg == "--phi_2") { HP.phi_2 = parse_double(argv[i+1]); }
+
+        else if (arg == "--noisy") { noisy = parse_int(argv[i+1]) == 1; }
+        else if (arg == "--lambda_1") { HP.lambda_1 = parse_double(argv[i+1]); }
+        else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
+
+        else if (arg == "--val") { val = parse_double(argv[i+1]); }
+        else if (arg == "--mask") { mask = parse_double(argv[i+1]); }
+
+        else if (arg == "--tree") { tree_fname = argv[i+1]; }
+        else if (arg == "--variant_pos_fname") { variant_pos_fname = argv[i+1]; }
+        else if (arg == "--variant_start_pos") { variant_start_pos = parse_int(argv[i+1]); }
+        else if (arg == "--tree_vis") { tree_vis_fname = argv[i+1]; }
+        else if (arg == "--clade_beta") {
+            clade_beta = parse_double(argv[i+1]);
+            if (clade_beta < 1.0) { throw std::invalid_argument("clade_beta must be at least 1."); }
+        }
+
+        else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--pbwt_init") { pbwt_init = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
+        else if (arg == "--pbwt_match_curr") { pbwt_match_curr = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
+
+        else { throw std::invalid_argument("Arg not recognized."); }
+        i += 2;
+    }
+    if (noisy && soft) { throw std::invalid_argument("noisy is only for hard dfcp."); }
+    if (block_init && pbwt_init) { throw std::invalid_argument("cannot do block and pbwt init."); }
+    std::cerr << HP << '\n';
+
+    // Split val for imputation.
+    bool do_val = val > 0.0;
+    if (do_val != (mask > 0.0)) {
+        throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0.");
+    };
+    std::vector<int8_t> x(HP.N * HP.L, -1);
+    int n_train_seqs = 0;
+    int n_val_seqs = 0;
+    std::vector<int> raw_to_split_idxs(HP.N, -1);
+
+    int n_masked_alleles = 0;
+    std::vector<SparseX> x_val_true;
+    x_val_true.reserve(do_val ? static_cast<size_t>(val * mask * HP.N * HP.L) : 0);
+
+    if (val > 0.0) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::bernoulli_distribution val_dist(val);
+        std::bernoulli_distribution mask_dist(mask);
+
+        for (int i = 0; i < HP.N; ++i) {
+            auto line = x_raw.begin() + i*HP.L;
+            if (!val_dist(gen)) {
+                std::copy(line, line+HP.L, x.begin() + n_train_seqs*HP.L);
+                raw_to_split_idxs[i] = n_train_seqs;
+                ++n_train_seqs;
+                continue;
+            }
+            std::copy(line, line+HP.L, x.end() - (n_val_seqs+1)*HP.L);
+            raw_to_split_idxs[i] = HP.N - (n_val_seqs+1);
+            for (int l = 0; l < HP.L; ++l) {
+                if (!mask_dist(gen)) { continue; }
+                x_val_true.emplace_back(HP.N - (n_val_seqs+1), l, line[l]);
+                x[idx2d(HP.N - (n_val_seqs+1), l, HP.L)] = -1;
+                ++n_masked_alleles;
+            }
+            ++n_val_seqs;
+        }
+        HP.N = n_train_seqs;
+        if (n_train_seqs == 0) { throw std::runtime_error("no train seqs."); }
+        if (n_masked_alleles == 0) { throw std::runtime_error("invalid validation split."); }
+        std::cerr << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_alleles=" << n_masked_alleles << '\n';
+        json.add("n_val_seqs", n_val_seqs).add("n_masked_alleles", n_masked_alleles);
+    }
+    else {
+        x = std::move(x_raw);
+        for (int i = 0; i < HP.N; ++i) {
+            raw_to_split_idxs[i] = i;
+        }
+        n_train_seqs = HP.N;
+    }
+
+
+    dfcp(
+        HP,
+
+        soft, noisy,
+
+        block_init,
+        pbwt_init, pbwt_match_len, pbwt_match_curr,
+        init_only,
+
+        x, x_val_true, raw_to_split_idxs,
+        n_train_seqs, n_val_seqs, n_masked_alleles,
+
+        tree_fname, variant_pos_fname, variant_start_pos,
+        tree_vis_fname, clade_beta,
+        json
+    );
     std::cout << json.str() << '\n';
-    return 0;
 }
 
