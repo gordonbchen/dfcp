@@ -23,6 +23,76 @@
 #include "util.hpp"
 
 
+void train_dfcp(
+    Clusters& clusters, Params& params, HyperParams& HP,
+
+    bool block_init,
+    bool pbwt_init, int pbwt_match_len, bool pbwt_match_curr,
+    bool init_only,
+
+    std::vector<int8_t>& x,
+
+    Json& json
+) {
+    // Init clusters.
+    auto t0 = std::chrono::steady_clock::now();
+    if (block_init) {
+        clusters.block_init(x);
+    }
+    else if (pbwt_init) {
+        if (HP.K != 2) { throw std::invalid_argument("pbwt_init only supported for K=2."); }
+        clusters.pbwt_init(x, pbwt_match_len, pbwt_match_curr);
+    }
+    else {
+        int N = HP.N;
+        HP.N = 0;
+        add_seqs(clusters, x.begin(), N, HP, params);
+    }
+    auto t1 = std::chrono::steady_clock::now();
+    auto t_init = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cerr << "t_init=" << t_init << '\n';
+    json.add("t_init", t_init);
+
+    if (init_only) { return; }
+
+    // Train.
+    EarlyStopping early_stop{2, false, 1e-3};
+    double elbo = 0.0;
+
+    std::vector<Json> train_log;
+    while (!early_stop.converged()) {
+        auto t0 = std::chrono::steady_clock::now();
+        max_step(clusters, x, HP, params);
+        if (clusters.noisy) {
+            max_cluster_emissions(clusters, HP, params);
+        }
+        auto t1 = std::chrono::steady_clock::now();
+        expect_step(HP, params, clusters);
+        auto t2 = std::chrono::steady_clock::now();
+        elbo = calc_elbo(HP, params, clusters);
+        auto t3 = std::chrono::steady_clock::now();
+        early_stop.update(elbo);
+
+        auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+        auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
+        auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
+        std::cerr << early_stop.step << ": elbo=" << elbo
+            << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
+            << "ms t_step=" << t_step << "ms\n";
+        train_log.emplace_back();
+        train_log[train_log.size()-1].add("elbo", elbo)
+            .add("t_max", t_max).add("t_expect", t_expect).add("t_elbo", t_elbo).add("t_step", t_step);
+    }
+    json.add("train_log", train_log);
+
+    Json param_log;
+    param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d)
+        .add("alpha_eps", params.alpha_eps).add("beta_eps", params.beta_eps);
+    json.add("params", param_log);
+}
+
+
 void dfcp(
     HyperParams& HP,
 
@@ -41,63 +111,19 @@ void dfcp(
 
     Json& json
 ) {
-    // Init params and clusters.
     Params params{HP};
     Clusters clusters{HP, soft, noisy};
-    auto t0 = std::chrono::steady_clock::now();
-    if (block_init) {
-        clusters.block_init(x);
-    }
-    else if (pbwt_init) {
-        if (HP.K != 2) { throw std::invalid_argument("pbwt_init only supported for K=2."); }
-        clusters.pbwt_init(x, pbwt_match_len, pbwt_match_curr);
-    }
-    else {
-        HP.N = 0;
-        add_seqs(clusters, x.begin(), n_train_seqs, HP, params);
-    }
-    auto t1 = std::chrono::steady_clock::now();
-    auto t_init = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cerr << "t_init=" << t_init << '\n';
-    json.add("t_init", t_init);
+    train_dfcp(
+        clusters, params, HP,
 
-    // Train.
-    if (!init_only) {
-        EarlyStopping early_stop{2, false, 1e-3};
-        double elbo = 0.0;
+        block_init,
+        pbwt_init, pbwt_match_len, pbwt_match_curr,
+        init_only,
 
-        std::vector<Json> train_log;
-        while (!early_stop.converged()) {
-            auto t0 = std::chrono::steady_clock::now();
-            max_step(clusters, x, HP, params);
-            if (clusters.noisy) {
-                max_cluster_emissions(clusters, HP, params);
-            }
-            auto t1 = std::chrono::steady_clock::now();
-            expect_step(HP, params, clusters);
-            auto t2 = std::chrono::steady_clock::now();
-            elbo = calc_elbo(HP, params, clusters);
-            auto t3 = std::chrono::steady_clock::now();
-            early_stop.update(elbo);
+        x,
 
-            auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-            auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
-            auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
-            auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
-            std::cerr << early_stop.step << ": elbo=" << elbo
-                << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
-                << "ms t_step=" << t_step << "ms\n";
-            train_log.emplace_back();
-            train_log[train_log.size()-1].add("elbo", elbo)
-                .add("t_max", t_max).add("t_expect", t_expect).add("t_elbo", t_elbo).add("t_step", t_step);
-        }
-        json.add("train_log", train_log);
-
-        Json param_log;
-        param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d)
-            .add("alpha_eps", params.alpha_eps).add("beta_eps", params.beta_eps);
-        json.add("params", param_log);
-    }
+        json
+    );
 
     // Impute.
     if (n_val_seqs > 0) {
@@ -242,7 +268,7 @@ void dfcp(
     }
 
     // Cluster stability IOU.
-    t0 = std::chrono::steady_clock::now();
+    auto t0 = std::chrono::steady_clock::now();
     double mean_iou = 0.0;
     double mean_emission_iou = 0.0;
     for (int l = 0; l < HP.L-1; ++l) {
@@ -271,7 +297,7 @@ void dfcp(
     }
     mean_iou /= HP.L-1;
     mean_emission_iou /= HP.L-1;
-    t1 = std::chrono::steady_clock::now();
+    auto t1 = std::chrono::steady_clock::now();
     auto t_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cerr << "mean_iou=" << mean_iou << " mean_emission_iou=" << mean_emission_iou
         << " t_iou=" << t_iou << "ms\n";
