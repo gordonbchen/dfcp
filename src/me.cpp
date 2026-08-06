@@ -30,7 +30,7 @@ void train_dfcp(
     bool pbwt_init, int pbwt_match_len, bool pbwt_match_curr,
     bool init_only,
 
-    std::vector<int8_t>& x,
+    std::vector<int8_t>& x, int n_train_seqs,
 
     Json& json
 ) {
@@ -44,9 +44,8 @@ void train_dfcp(
         clusters.pbwt_init(x, pbwt_match_len, pbwt_match_curr);
     }
     else {
-        int N = HP.N;
         HP.N = 0;
-        add_seqs(clusters, x.begin(), N, HP, params);
+        add_seqs(clusters, x.begin(), n_train_seqs, HP, params);
     }
     auto t1 = std::chrono::steady_clock::now();
     auto t_init = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
@@ -120,7 +119,7 @@ void dfcp(
         pbwt_init, pbwt_match_len, pbwt_match_curr,
         init_only,
 
-        x,
+        x, n_train_seqs,
 
         json
     );
