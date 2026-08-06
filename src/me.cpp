@@ -30,22 +30,23 @@ void train_dfcp(
     bool pbwt_init, int pbwt_match_len, bool pbwt_match_curr,
     bool init_only,
 
-    std::vector<int8_t>& x, int n_train_seqs,
+    std::vector<int8_t>& x_train,
 
     Json& json
 ) {
     // Init clusters.
     auto t0 = std::chrono::steady_clock::now();
     if (block_init) {
-        clusters.block_init(x);
+        clusters.block_init(x_train);
     }
     else if (pbwt_init) {
         if (HP.K != 2) { throw std::invalid_argument("pbwt_init only supported for K=2."); }
-        clusters.pbwt_init(x, pbwt_match_len, pbwt_match_curr);
+        clusters.pbwt_init(x_train, pbwt_match_len, pbwt_match_curr);
     }
     else {
+        int N = HP.N;
         HP.N = 0;
-        add_seqs(clusters, x.begin(), n_train_seqs, HP, params);
+        add_seqs(clusters, x_train.begin(), N, HP, params);
     }
     auto t1 = std::chrono::steady_clock::now();
     auto t_init = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
@@ -61,7 +62,7 @@ void train_dfcp(
     std::vector<Json> train_log;
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
-        max_step(clusters, x, HP, params);
+        max_step(clusters, x_train, HP, params);
         if (clusters.noisy) {
             max_cluster_emissions(clusters, HP, params);
         }
@@ -101,9 +102,9 @@ void dfcp(
     bool pbwt_init, int pbwt_match_len, bool pbwt_match_curr,
     bool init_only,
 
-    std::vector<int8_t>& x, std::vector<SparseX>& x_val_true,
-    std::vector<int>& raw_to_split_idxs,
-    int n_train_seqs, int n_val_seqs, int n_masked_alleles,
+    std::vector<int8_t>& x_train, int n_train_seqs, std::vector<size_t>& train_idxs,
+    std::vector<int8_t>& x_val, int n_val_seqs, std::vector<size_t>& val_idxs,
+    std::vector<SparseX>& x_val_true, int n_masked_alleles,
 
     char *tree_fname, char *variant_pos_fname, int variant_start_pos,
     char *tree_vis_fname, double clade_beta,
@@ -119,7 +120,7 @@ void dfcp(
         pbwt_init, pbwt_match_len, pbwt_match_curr,
         init_only,
 
-        x, n_train_seqs,
+        x_train,
 
         json
     );
@@ -127,16 +128,16 @@ void dfcp(
     // Impute.
     if (n_val_seqs > 0) {
         auto t0 = std::chrono::steady_clock::now();
-        add_seqs(clusters, x.begin() + n_train_seqs*HP.L, n_val_seqs, HP, params);
+        add_seqs(clusters, x_val.begin(), n_val_seqs, HP, params);
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
-        std::vector<int8_t> modes{count_modes(x, n_train_seqs, HP.L, HP.K)};
+        std::vector<int8_t> modes{count_modes(x_train, n_train_seqs, HP.L, HP.K)};
 
         int n_dfcp_correct = 0;
         int n_mode_correct = 0;
         for (SparseX& s : x_val_true) {
-            if (s.x == clusters.r_assign[idx2d(s.i, s.l, HP.L)]->get_imputed_emission(clusters.soft)) {
+            if (s.x == clusters.r_assign[idx2d(n_train_seqs+s.i, s.l, HP.L)]->get_imputed_emission(clusters.soft)) {
                 ++n_dfcp_correct;
             }
             if (s.x == modes[s.l]) {
@@ -152,9 +153,9 @@ void dfcp(
             .add("mode_impute_acc", mode_impute_acc);
     }
 
-    // Unmask x for eval.
+    // Unmask x_val for eval.
     for (SparseX& s : x_val_true) {
-        x[idx2d(s.i, s.l, HP.L)] = s.x;
+        x_val[idx2d(s.i, s.l, HP.L)] = s.x;
     }
 
     // Tree eval.
@@ -187,15 +188,20 @@ void dfcp(
             }
             std::vector<int> cluster_assign(HP.N);
             for (int i = 0; i < HP.N; ++i) {
-                cluster_assign[i] = cluster_idxs.at(clusters.r_assign[idx2d(raw_to_split_idxs[i], l, HP.L)]);
+                int idx = i < n_train_seqs ? train_idxs[i] : val_idxs[i-n_train_seqs];
+                cluster_assign[idx] = cluster_idxs.at(clusters.r_assign[idx2d(i, l, HP.L)]);
             }
             excess_parsimony += calc_excess_parsimony(
                 coal_trees[tree_idxs[l]], cluster_assign, clusters.rs[l].size()
             );
 
+            std::vector<int> emission_counts(HP.K, 0);
             std::vector<int> emission_clusters(HP.N);
             for (int i = 0; i < HP.N; ++i) {
-                emission_clusters[i] = x[idx2d(raw_to_split_idxs[i], l, HP.L)];
+                int idx = i < n_train_seqs ? train_idxs[i] : val_idxs[i-n_train_seqs];
+                int xi = comb_xi(x_train, x_val, idx2d(i,l,HP.L), n_train_seqs*HP.L);
+                emission_clusters[idx] = xi;
+                ++emission_counts[xi];
             }
             int n_obs_emissions = count_observed_labels(emission_clusters, HP.K);
             emission_excess_parsimony += calc_excess_parsimony(
@@ -217,10 +223,6 @@ void dfcp(
                 clade_weight_sum += weight;
             }
 
-            std::vector<int> emission_counts(HP.K, 0);
-            for (int i = 0; i < HP.N; ++i) {
-                ++emission_counts[x[idx2d(i, l, HP.L)]];
-            }
             for (int k = 0; k < HP.K; ++k) {
                 if (emission_counts[k] == 0) {
                     continue;
@@ -284,8 +286,10 @@ void dfcp(
                 n_intersect += l_same && l1_same;
                 n_union += l_same || l1_same;
 
-                int l_emission_same = x[idx2d(i,l,HP.L)] == x[idx2d(j,l,HP.L)];
-                int l1_emission_same = x[idx2d(i,l+1,HP.L)] == x[idx2d(j,l+1,HP.L)];
+                int l_emission_same = comb_xi(x_train, x_val, idx2d(i,l,HP.L), n_train_seqs*HP.L)
+                    == comb_xi(x_train, x_val, idx2d(j,l,HP.L), n_train_seqs*HP.L);
+                int l1_emission_same = comb_xi(x_train, x_val, idx2d(i,l+1,HP.L), n_train_seqs*HP.L)
+                    == comb_xi(x_train, x_val, idx2d(j,l+1,HP.L), n_train_seqs*HP.L);;
                 n_emission_intersect += l_emission_same && l1_emission_same;
                 n_emission_union += l_emission_same || l1_emission_same;
             }
@@ -418,14 +422,21 @@ int main(int argc, char *argv[]) {
     if (do_val != (mask > 0.0)) {
         throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0.");
     };
-    std::vector<int8_t> x(HP.N * HP.L, -1);
     int n_train_seqs = 0;
+    std::vector<int8_t> x_train;
+    std::vector<size_t> train_idxs;
+    x_train.reserve(static_cast<size_t>(HP.N*HP.L * (1.0-val)));
+    train_idxs.reserve(static_cast<size_t>(HP.N*HP.L * (1.0-val)));
+
     int n_val_seqs = 0;
-    std::vector<int> raw_to_split_idxs(HP.N, -1);
+    std::vector<int8_t> x_val;
+    std::vector<size_t> val_idxs;
+    x_val.reserve(static_cast<size_t>(HP.N*HP.L * val));
+    val_idxs.reserve(static_cast<size_t>(HP.N*HP.L * val));
 
     int n_masked_alleles = 0;
     std::vector<SparseX> x_val_true;
-    x_val_true.reserve(do_val ? static_cast<size_t>(val * mask * HP.N * HP.L) : 0);
+    x_val_true.reserve(static_cast<size_t>(HP.N*HP.L * val*mask));
 
     if (val > 0.0) {
         std::random_device rd;
@@ -436,17 +447,17 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < HP.N; ++i) {
             auto line = x_raw.begin() + i*HP.L;
             if (!val_dist(gen)) {
-                std::copy(line, line+HP.L, x.begin() + n_train_seqs*HP.L);
-                raw_to_split_idxs[i] = n_train_seqs;
+                x_train.insert(x_train.end(), line, line+HP.L);
+                train_idxs[n_train_seqs] = i;
                 ++n_train_seqs;
                 continue;
             }
-            std::copy(line, line+HP.L, x.end() - (n_val_seqs+1)*HP.L);
-            raw_to_split_idxs[i] = HP.N - (n_val_seqs+1);
+            x_val.insert(x_val.end(), line, line+HP.L);
+            val_idxs[n_val_seqs] = i;
             for (int l = 0; l < HP.L; ++l) {
                 if (!mask_dist(gen)) { continue; }
-                x_val_true.emplace_back(HP.N - (n_val_seqs+1), l, line[l]);
-                x[idx2d(HP.N - (n_val_seqs+1), l, HP.L)] = -1;
+                x_val_true.emplace_back(n_val_seqs, l, line[l]);
+                x_val[idx2d(n_val_seqs, l, HP.L)] = -1;
                 ++n_masked_alleles;
             }
             ++n_val_seqs;
@@ -458,13 +469,12 @@ int main(int argc, char *argv[]) {
         json.add("n_val_seqs", n_val_seqs).add("n_masked_alleles", n_masked_alleles);
     }
     else {
-        x = std::move(x_raw);
+        x_train = std::move(x_raw);
         for (int i = 0; i < HP.N; ++i) {
-            raw_to_split_idxs[i] = i;
+            train_idxs[i] = i;
         }
         n_train_seqs = HP.N;
     }
-
 
     dfcp(
         HP,
@@ -475,8 +485,9 @@ int main(int argc, char *argv[]) {
         pbwt_init, pbwt_match_len, pbwt_match_curr,
         init_only,
 
-        x, x_val_true, raw_to_split_idxs,
-        n_train_seqs, n_val_seqs, n_masked_alleles,
+        x_train, n_train_seqs, train_idxs,
+        x_val, n_val_seqs, val_idxs,
+        x_val_true, n_masked_alleles,
 
         tree_fname, variant_pos_fname, variant_start_pos,
         tree_vis_fname, clade_beta,
