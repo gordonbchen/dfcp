@@ -30,7 +30,7 @@ void train_dfcp(
     bool pbwt_init, int pbwt_match_len, bool pbwt_match_curr,
     bool init_only,
 
-    std::vector<int8_t>& x_train,
+    const std::vector<int8_t>& x_train,
 
     Json& json
 ) {
@@ -93,181 +93,171 @@ void train_dfcp(
 }
 
 
-void dfcp(
-    HyperParams& HP,
+void impute(
+    Clusters& clusters, const Params& params, HyperParams& HP,
 
-    bool soft, bool noisy,
-
-    bool block_init,
-    bool pbwt_init, int pbwt_match_len, bool pbwt_match_curr,
-    bool init_only,
-
-    std::vector<int8_t>& x_train, int n_train_seqs, std::vector<size_t>& train_idxs,
-    std::vector<int8_t>& x_val, int n_val_seqs, std::vector<size_t>& val_idxs,
-    std::vector<SparseX>& x_val_true, int n_masked_alleles,
-
-    char *tree_fname, char *variant_pos_fname, int variant_start_pos,
-    char *tree_vis_fname, double clade_beta,
+    const std::vector<int8_t>& x_train, int n_train_seqs,
+    const std::vector<int8_t>& x_val, int n_val_seqs,
+    const std::vector<SparseX>& x_val_true, int n_masked_alleles,
 
     Json& json
 ) {
-    Params params{HP};
-    Clusters clusters{HP, soft, noisy};
-    train_dfcp(
-        clusters, params, HP,
+    auto t0 = std::chrono::steady_clock::now();
+    add_seqs(clusters, x_val.begin(), n_val_seqs, HP, params);
+    auto t1 = std::chrono::steady_clock::now();
+    auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
-        block_init,
-        pbwt_init, pbwt_match_len, pbwt_match_curr,
-        init_only,
+    std::vector<int8_t> modes{count_modes(x_train, n_train_seqs, HP.L, HP.K)};
 
-        x_train,
-
-        json
-    );
-
-    // Impute.
-    if (n_val_seqs > 0) {
-        auto t0 = std::chrono::steady_clock::now();
-        add_seqs(clusters, x_val.begin(), n_val_seqs, HP, params);
-        auto t1 = std::chrono::steady_clock::now();
-        auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-
-        std::vector<int8_t> modes{count_modes(x_train, n_train_seqs, HP.L, HP.K)};
-
-        int n_dfcp_correct = 0;
-        int n_mode_correct = 0;
-        for (SparseX& s : x_val_true) {
-            if (s.x == clusters.r_assign[idx2d(n_train_seqs+s.i, s.l, HP.L)]->get_imputed_emission(clusters.soft)) {
-                ++n_dfcp_correct;
-            }
-            if (s.x == modes[s.l]) {
-                ++n_mode_correct;
-            }
+    int n_dfcp_correct = 0;
+    int n_mode_correct = 0;
+    for (const SparseX& s : x_val_true) {
+        if (s.x == clusters.r_assign[idx2d(n_train_seqs+s.i, s.l, HP.L)]->get_imputed_emission(clusters.soft)) {
+            ++n_dfcp_correct;
         }
-        double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / n_masked_alleles;
-        double mode_impute_acc = static_cast<double>(n_mode_correct) / n_masked_alleles;
-
-        std::cerr << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
-            << "ms mode_impute_acc=" << mode_impute_acc << '\n';
-        json.add("dfcp_impute_acc", dfcp_impute_acc).add("t_impute", t_impute)
-            .add("mode_impute_acc", mode_impute_acc);
-    }
-
-    // Unmask x_val for eval.
-    for (SparseX& s : x_val_true) {
-        x_val[idx2d(s.i, s.l, HP.L)] = s.x;
-    }
-
-    // Tree eval.
-    if (tree_fname != nullptr) {
-        if ((variant_pos_fname == nullptr) || (variant_start_pos < 0)) {
-            throw std::invalid_argument("Tree eval requires variant position file and variant start pos.");
+        if (s.x == modes[s.l]) {
+            ++n_mode_correct;
         }
-        std::vector<int> variant_pos{parse_pos_file_idx(variant_pos_fname, variant_start_pos, HP.L)};
-        auto [coal_trees, recomb_pos] = parse_tree_file(tree_fname);
-        std::vector<int> tree_idxs{get_tree_idxs(variant_pos, recomb_pos)};
+    }
+    double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / n_masked_alleles;
+    double mode_impute_acc = static_cast<double>(n_mode_correct) / n_masked_alleles;
 
-        int excess_parsimony = 0;
-        int emission_excess_parsimony = 0;
-        std::chrono::steady_clock::duration t_parsimony_duration{};
+    std::cerr << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
+        << "ms mode_impute_acc=" << mode_impute_acc << '\n';
+    json.add("dfcp_impute_acc", dfcp_impute_acc).add("t_impute", t_impute)
+        .add("mode_impute_acc", mode_impute_acc);
+}
 
-        double weighted_clade_iou_sum = 0.0;
-        double clade_weight_sum = 0.0;
-        double emission_weighted_clade_iou_sum = 0.0;
-        double emission_clade_weight_sum = 0.0;
-        std::chrono::steady_clock::duration t_clade_iou_duration{};
 
-        for (int l = 0; l < HP.L; ++l) {
-            // Parismony.
-            auto t_parsimony0 = std::chrono::steady_clock::now();
+void tree_eval(
+    const Clusters& clusters, const HyperParams& HP,
 
-            std::unordered_map<Cluster*, int> cluster_idxs;
-            cluster_idxs.reserve(clusters.rs[l].size());
-            for (Cluster* c : clusters.rs[l]) {
-                cluster_idxs.emplace(c, cluster_idxs.size());
-            }
-            std::vector<int> cluster_assign(HP.N);
-            for (int i = 0; i < HP.N; ++i) {
-                int idx = i < n_train_seqs ? train_idxs[i] : val_idxs[i-n_train_seqs];
-                cluster_assign[idx] = cluster_idxs.at(clusters.r_assign[idx2d(i, l, HP.L)]);
-            }
-            excess_parsimony += calc_excess_parsimony(
-                coal_trees[tree_idxs[l]], cluster_assign, clusters.rs[l].size()
+    const std::vector<int8_t>& x_train, const std::vector<size_t>& train_idxs, int n_train_seqs,
+    const std::vector<int8_t>& x_val, const std::vector<size_t>& val_idxs,
+
+    char *tree_fname, char *variant_pos_fname, int variant_start_pos,
+    double clade_beta,
+    char *tree_vis_fname,
+
+    Json& json
+) {
+    if ((tree_fname == nullptr) || (variant_pos_fname == nullptr) || (variant_start_pos < 0)) {
+        throw std::invalid_argument("Tree eval requires variant position file and variant start pos.");
+    }
+    std::vector<int> variant_pos{parse_pos_file_idx(variant_pos_fname, variant_start_pos, HP.L)};
+    auto [coal_trees, recomb_pos] = parse_tree_file(tree_fname);
+    std::vector<int> tree_idxs{get_tree_idxs(variant_pos, recomb_pos)};
+
+    int excess_parsimony = 0;
+    int emission_excess_parsimony = 0;
+    std::chrono::steady_clock::duration t_parsimony_duration{};
+
+    double weighted_clade_iou_sum = 0.0;
+    double clade_weight_sum = 0.0;
+    double emission_weighted_clade_iou_sum = 0.0;
+    double emission_clade_weight_sum = 0.0;
+    std::chrono::steady_clock::duration t_clade_iou_duration{};
+
+    for (int l = 0; l < HP.L; ++l) {
+        // Parismony.
+        auto t_parsimony0 = std::chrono::steady_clock::now();
+
+        std::unordered_map<Cluster*, int> cluster_idxs;
+        cluster_idxs.reserve(clusters.rs[l].size());
+        for (Cluster* c : clusters.rs[l]) {
+            cluster_idxs.emplace(c, cluster_idxs.size());
+        }
+        std::vector<int> cluster_assign(HP.N);
+        for (int i = 0; i < HP.N; ++i) {
+            int idx = i < n_train_seqs ? train_idxs[i] : val_idxs[i-n_train_seqs];
+            cluster_assign[idx] = cluster_idxs.at(clusters.r_assign[idx2d(i, l, HP.L)]);
+        }
+        excess_parsimony += calc_excess_parsimony(
+            coal_trees[tree_idxs[l]], cluster_assign, clusters.rs[l].size()
+        );
+
+        std::vector<int> emission_counts(HP.K, 0);
+        std::vector<int> emission_clusters(HP.N);
+        for (int i = 0; i < HP.N; ++i) {
+            int idx = i < n_train_seqs ? train_idxs[i] : val_idxs[i-n_train_seqs];
+            int xi = comb_xi(x_train, x_val, idx2d(i,l,HP.L), n_train_seqs*HP.L);
+            emission_clusters[idx] = xi;
+            ++emission_counts[xi];
+        }
+        int n_obs_emissions = count_observed_labels(emission_clusters, HP.K);
+        emission_excess_parsimony += calc_excess_parsimony(
+            coal_trees[tree_idxs[l]], emission_clusters, n_obs_emissions 
+        );
+
+        t_parsimony_duration += std::chrono::steady_clock::now() - t_parsimony0;
+
+        // Importance-weighted clade iou.
+        auto t_clade_iou0 = std::chrono::steady_clock::now();
+        for (const auto& [c, cluster_idx] : cluster_idxs) {
+            double max_clade_iou = calc_max_clade_iou(
+                coal_trees[tree_idxs[l]], cluster_assign, cluster_idx, c->n
             );
 
-            std::vector<int> emission_counts(HP.K, 0);
-            std::vector<int> emission_clusters(HP.N);
-            for (int i = 0; i < HP.N; ++i) {
-                int idx = i < n_train_seqs ? train_idxs[i] : val_idxs[i-n_train_seqs];
-                int xi = comb_xi(x_train, x_val, idx2d(i,l,HP.L), n_train_seqs*HP.L);
-                emission_clusters[idx] = xi;
-                ++emission_counts[xi];
+            double z = static_cast<double>(c->n - 1) / (HP.N - 1);
+            double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
+            weighted_clade_iou_sum += weight * max_clade_iou;
+            clade_weight_sum += weight;
+        }
+
+        for (int k = 0; k < HP.K; ++k) {
+            if (emission_counts[k] == 0) {
+                continue;
             }
-            int n_obs_emissions = count_observed_labels(emission_clusters, HP.K);
-            emission_excess_parsimony += calc_excess_parsimony(
-                coal_trees[tree_idxs[l]], emission_clusters, n_obs_emissions 
+            double max_clade_iou = calc_max_clade_iou(
+                coal_trees[tree_idxs[l]], emission_clusters, k, emission_counts[k]
             );
 
-            t_parsimony_duration += std::chrono::steady_clock::now() - t_parsimony0;
-
-            // Importance-weighted clade iou.
-            auto t_clade_iou0 = std::chrono::steady_clock::now();
-            for (const auto& [c, cluster_idx] : cluster_idxs) {
-                double max_clade_iou = calc_max_clade_iou(
-                    coal_trees[tree_idxs[l]], cluster_assign, cluster_idx, c->n
-                );
-
-                double z = static_cast<double>(c->n - 1) / (HP.N - 1);
-                double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
-                weighted_clade_iou_sum += weight * max_clade_iou;
-                clade_weight_sum += weight;
-            }
-
-            for (int k = 0; k < HP.K; ++k) {
-                if (emission_counts[k] == 0) {
-                    continue;
-                }
-                double max_clade_iou = calc_max_clade_iou(
-                    coal_trees[tree_idxs[l]], emission_clusters, k, emission_counts[k]
-                );
-
-                double z = static_cast<double>(emission_counts[k] - 1) / (HP.N - 1);
-                double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
-                emission_weighted_clade_iou_sum += weight * max_clade_iou;
-                emission_clade_weight_sum += weight;
-            }
-            t_clade_iou_duration += std::chrono::steady_clock::now() - t_clade_iou0;
-
-            // Tree viz.
-            if ((tree_vis_fname != nullptr) && (l < 16)) {
-                tree_to_dot(
-                    tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assign, emission_clusters, l, 16
-                );
-            }
+            double z = static_cast<double>(emission_counts[k] - 1) / (HP.N - 1);
+            double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
+            emission_weighted_clade_iou_sum += weight * max_clade_iou;
+            emission_clade_weight_sum += weight;
         }
-        double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
-        double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
+        t_clade_iou_duration += std::chrono::steady_clock::now() - t_clade_iou0;
 
-        double clade_iou = clade_weight_sum == 0.0 ? -1.0 : weighted_clade_iou_sum / clade_weight_sum;
-        if (clade_weight_sum == 0.0) { std::cerr << "clade_iou undefined, no nontrivial clusters.\n"; }
-        double emission_clade_iou = emission_clade_weight_sum == 0.0 ?
-            -1.0 : emission_weighted_clade_iou_sum / emission_clade_weight_sum;
-        if (emission_clade_weight_sum == 0.0) {std::cerr << "emission_clade_iou undefined, no nontrivial clusters.\n";}
-
-        auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t_parsimony_duration).count();
-        auto t_clade_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t_clade_iou_duration).count();
-        std::cerr << "mean_excess_parsimony=" << mean_excess_parsimony
-            << " mean_emission_excess_parsimony=" << mean_emission_excess_parsimony
-            << " t_parsimony=" << t_parsimony << "ms\n"
-            << "clade_iou=" << clade_iou << " emission_clade_iou=" << emission_clade_iou
-            << " clade_beta=" << clade_beta << " t_clade_iou=" << t_clade_iou << "ms\n";
-        json.add("mean_excess_parsimony", mean_excess_parsimony)
-            .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony)
-            .add("t_parsimony", t_parsimony)
-            .add("clade_iou", clade_iou).add("emission_clade_iou", emission_clade_iou)
-            .add("clade_beta", clade_beta).add("t_clade_iou", t_clade_iou);
+        // Tree viz.
+        if ((tree_vis_fname != nullptr) && (l < 16)) {
+            tree_to_dot(
+                tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assign, emission_clusters, l, 16
+            );
+        }
     }
+    double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
+    double mean_emission_excess_parsimony = static_cast<double>(emission_excess_parsimony) / HP.L;
 
+    double clade_iou = clade_weight_sum == 0.0 ? -1.0 : weighted_clade_iou_sum / clade_weight_sum;
+    if (clade_weight_sum == 0.0) { std::cerr << "clade_iou undefined, no nontrivial clusters.\n"; }
+    double emission_clade_iou = emission_clade_weight_sum == 0.0 ?
+        -1.0 : emission_weighted_clade_iou_sum / emission_clade_weight_sum;
+    if (emission_clade_weight_sum == 0.0) {std::cerr << "emission_clade_iou undefined, no nontrivial clusters.\n";}
+
+    auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t_parsimony_duration).count();
+    auto t_clade_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t_clade_iou_duration).count();
+    std::cerr << "mean_excess_parsimony=" << mean_excess_parsimony
+        << " mean_emission_excess_parsimony=" << mean_emission_excess_parsimony
+        << " t_parsimony=" << t_parsimony << "ms\n"
+        << "clade_iou=" << clade_iou << " emission_clade_iou=" << emission_clade_iou
+        << " clade_beta=" << clade_beta << " t_clade_iou=" << t_clade_iou << "ms\n";
+    json.add("mean_excess_parsimony", mean_excess_parsimony)
+        .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony)
+        .add("t_parsimony", t_parsimony)
+        .add("clade_iou", clade_iou).add("emission_clade_iou", emission_clade_iou)
+        .add("clade_beta", clade_beta).add("t_clade_iou", t_clade_iou);
+}
+
+
+void eval_clusters(
+    const Clusters& clusters, const HyperParams& HP,
+
+    const std::vector<int8_t>& x_train, const std::vector<int8_t>& x_val,
+    int n_train_seqs, int n_masked_alleles,
+
+    Json& json
+) {
     // Cluster stability IOU.
     auto t0 = std::chrono::steady_clock::now();
     double mean_iou = 0.0;
@@ -476,23 +466,62 @@ int main(int argc, char *argv[]) {
         n_train_seqs = HP.N;
     }
 
-    dfcp(
-        HP,
+    // Init params and clusters.
+    Params params{HP};
+    Clusters clusters{HP, soft, noisy};
 
-        soft, noisy,
+    train_dfcp(
+        clusters, params, HP,
 
         block_init,
         pbwt_init, pbwt_match_len, pbwt_match_curr,
         init_only,
 
-        x_train, n_train_seqs, train_idxs,
-        x_val, n_val_seqs, val_idxs,
-        x_val_true, n_masked_alleles,
+        x_train,
 
-        tree_fname, variant_pos_fname, variant_start_pos,
-        tree_vis_fname, clade_beta,
         json
     );
+
+    if (n_val_seqs > 0) {
+        impute(
+            clusters, params, HP,
+
+            x_train, n_train_seqs,
+            x_val, n_val_seqs,
+            x_val_true, n_masked_alleles,
+
+            json
+        );
+    }
+
+    // Unmask x_val for eval.
+    for (const SparseX& s : x_val_true) {
+        x_val[idx2d(s.i, s.l, HP.L)] = s.x;
+    }
+    if (tree_fname != nullptr) {
+        tree_eval(
+            clusters, HP,
+
+            x_train, train_idxs, n_train_seqs,
+            x_val, val_idxs,
+
+            tree_fname, variant_pos_fname, variant_start_pos,
+            clade_beta,
+            tree_vis_fname,
+
+            json
+        );
+    }
+
+    eval_clusters(
+        clusters, HP,
+
+        x_train, x_val,
+        n_train_seqs, n_masked_alleles,
+
+        json
+    );
+
     std::cout << json.str() << '\n';
 }
 
