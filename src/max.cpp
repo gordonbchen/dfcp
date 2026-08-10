@@ -160,7 +160,7 @@ void viterbi_seq(
             if (clusters.noisy && (xi[l] != -1)) {
                 emission_ll = xi[l] == a->emission ? Elog_match : Elog_mismatch;
             }
-            if (clusters.soft && (xi[l] != -1)) {
+            else if (clusters.soft && (xi[l] != -1)) {
                 emission_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, a->nk[xi[l]], params.mu_log_gamma[l])
                     - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs, params.mu_log_gamma[l]);
             }
