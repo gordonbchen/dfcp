@@ -84,7 +84,7 @@ void viterbi_seq(
             }
             else {
                 int nkl = clusters.rs_by_emit[idx2d(l,xi[l],HP.K)].size();
-                new_a_ll = -delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
+                new_a_ll = -delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size(), params.mu_log_gamma[l]);
                 if (clusters.noisy) {
                     double c = (static_cast<double>(clusters.rs[l].size()) - HP.K*nkl) / (HP.K-1.0);
                     double mu_y = params.mu_gamma[l] + nkl + c*mu_eps;
