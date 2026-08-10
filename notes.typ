@@ -1802,6 +1802,7 @@ metrics
 - dfcp vs beagle imputation
   - saving dfcp after training, loading for inference
   - forward backward on frozen, trained dfcp
+  - viterbi probabilities instead of hard accuracy (also viterbi vs forward backward)
   - windowing
 
 - ancestral tree time sampling: density plot of best clade time for each cluster
@@ -1831,4 +1832,9 @@ metrics
 - methylation (cancer data)
 - arg model: "The Effect of Single Recombination Events on Coalescent Tree Height and Shape"
 - nucleotide transformer
+
+
+== done
+- refactoring main in preparation for vs beagle (with vcf format)
+- fix noisy maximization step: consider matches and mismatches when creating new cluster
 
