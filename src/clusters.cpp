@@ -22,7 +22,7 @@ void Cluster::add_child(Cluster *child) {
     child->parents.push_back(this);
 }
 
-Mode Cluster::mode() {
+Mode Cluster::mode() const {
     Mode mode{0, nk[0]};
     for (size_t k = 1; k < nk.size(); ++k) {
         if (nk[k] > mode.count) {
@@ -33,7 +33,7 @@ Mode Cluster::mode() {
     return mode;
 }
 
-int Cluster::get_imputed_emission(bool soft) {
+int Cluster::get_imputed_emission(bool soft) const {
     return soft ? mode().idx : emission;
 }
 
@@ -270,7 +270,7 @@ void Clusters::set_emission(Cluster* c, int new_emission) {
     c->emission = new_emission;
 }
 
-int Clusters::cluster_mode(int l) {
+int Clusters::cluster_mode(int l) const {
     if (soft) { throw std::runtime_error("Soft clusters don't have emissions, no cluster emission mode"); }
     int max_k = 0;
     size_t max_nk = rs_by_emit[idx2d(l, 0, HP.K)].size();

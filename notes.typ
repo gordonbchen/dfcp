@@ -1457,6 +1457,9 @@ $
 epsilon.alt ~& "Beta"(alpha_epsilon.alt = lambda_1 + O - m, beta_epsilon.alt = lambda_2 + m)
 $
 
+
+
+#pagebreak()
 == Maximization Likelihood
 $a != emptyset$
 $
@@ -1471,12 +1474,39 @@ $a = emptyset$
 $
 beta_l ~ "Dirichlet"(gamma_l) \
 
-theta_(a l) ~ "Categorical"(beta_l)
+theta_(a l) ~ "Categorical"(beta_l) \
+
+PP(x_(i l) = k) = cases(
+  1-epsilon.alt wide& x_(i l) = theta_(a l),
+  epsilon.alt \/ (K-1) wide& "otherwise"
+) \ \
 $
 
 $
-Lambda(x_(i l) = k | a=emptyset) = (gamma_l + n_(k l)) / (K gamma_l + \#cal(R)_l^(-i)) dot (1-epsilon.alt)
+Lambda(x_(i l) = k | a=emptyset) =&
+  (gamma_l + n_(k l)) / (K gamma_l + \#cal(R)_l^(-i)) (1-epsilon.alt) +
+  (1 - (gamma_l + n_(k l)) / (K gamma_l + \#cal(R)_l^(-i))) epsilon.alt / (K-1) \
+
+=& ((gamma_l + n_(k l))(1- epsilon.alt K/(K-1)) + (K gamma_l + \#cal(R)_l^(-i)) epsilon.alt/(K-1) ) \/ (K gamma_l + \#cal(R)_l^(-i)) \
+
+=& (gamma_l + n_(k l) + (\#cal(R)_l^(-i)- K n_(k l))/(K-1) epsilon.alt) \/ (K gamma_l + \#cal(R)_l^(-i)) \ \ \
+
+
+EE_q log Lambda(x_(i l) = k | a=emptyset) =& EE_q log (gamma_l + n_(k l) + (\#cal(R)_l^(-i)- K n_(k l))/(K-1) epsilon.alt)
+  - EE_(gamma_l) log (K gamma_l + \#cal(R)_l^(-i)) \ \
+
+
+Y =& gamma_l + n_(k l) + (\#cal(R)_l^(-i)- K n_(k l))/(K-1) epsilon.alt \
+
+EE[Y] =& EE[gamma_l] + n_(k l) + c EE[epsilon.alt] \
+
+"Var"[Y] =& "Var"[gamma_l] + c^2 "Var"[epsilon.alt] \
+
+"then delta approx for " EE[log Y]
+\ \ \
 $
+
+
 
 $
 EE_q log Lambda(x_(i l) | a) = cases(
@@ -1486,9 +1516,7 @@ EE_q log Lambda(x_(i l) | a) = cases(
   )
   wide& a != emptyset,
 
-  EE_(gamma_l)[ log (gamma_l + n_(k l)) ] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ]
-    + EE_epsilon.alt [log(1-epsilon.alt)]
-  wide& a = emptyset
+  EE[log Y] - EE_(gamma_l)[ log (K gamma_l + \#cal(R)_l^(-i)) ] wide& a = emptyset
 ) \ \
 $
 

@@ -32,9 +32,9 @@ struct Cluster {
 
     void add_child(Cluster *child);
 
-    Mode mode();
+    Mode mode() const;
 
-    int get_imputed_emission(bool soft);
+    int get_imputed_emission(bool soft) const;
 };
 
 
@@ -73,6 +73,6 @@ struct Clusters {
 
     void set_emission(Cluster* c, int new_emission);
 
-    int cluster_mode(int l);
+    int cluster_mode(int l) const;
 };
 
