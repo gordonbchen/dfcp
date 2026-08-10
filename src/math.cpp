@@ -1,9 +1,14 @@
 #include <cmath>
 #include <boost/math/special_functions/trigamma.hpp>
+#include <optional>
 #include "math.hpp"
 
 
-double delta_Elogx(double mu, double sigma2, double a, double b) {
+double delta_Elogx(double mu, double sigma2, double a, double b, std::optional<double> Elogx) {
+    if ((Elogx.has_value()) && (b == 0.0)) {
+        return std::log(a) + Elogx.value();
+    }
+
     double x = a*mu + b;
     return std::log(x) - 0.5*sigma2*a*a / (x*x);
 }
