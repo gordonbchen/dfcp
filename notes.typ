@@ -1774,6 +1774,101 @@ potential problems: noisy, no perfect matches
 
 
 #pagebreak()
+= Forward Backward
+$
+log p(x_i,C_i|C^(-i),Theta) =& log p(a_1) + sum_(l=1)^(L-1) [log p(b_l|a_l) + log p(a_(l+1)|b_l)] + sum_(l=1)^L log Lambda (x_(i l)|a_l) \
+$
+
+== Backward
+$
+m_l (a) =& log p(x_(i,l:L),a_l=a) \
+
+  =& log Lambda(x_(i l)|a) + log sum_(b in F_l (a) union {emptyset}) exp [log p(b_l|a_l) + m_l (b)] \
+$
+
+$
+log p(b_l=b|a_l=a) = cases(
+  0 wide& a = emptyset = b,
+  log (\#b - d_l) - log \#a wide& a in R_l \, b in F_l (a),
+  log (\#F_l (a) dot d_l) - log \#a wide& a in R_l \, b = emptyset
+) \ \ \
+$
+
+
+$
+m_l (b) =& log p(x_(i,l+1:L),b_l=b) \
+
+  =& log sum_(a in {C_l (b), emptyset}) exp [log p(a_(l+1)|b_l) + m_(l+1)(a)]
+$
+
+$
+p(a_(l+1)=a|b_l=b) = cases(
+  0 wide& a in R_(l+1) \, b in C_l (a),
+  log alpha - log (alpha + d_l \#Q_l) wide& b = emptyset = a,
+  log (d_l \#C_l (a)) - log (alpha + d_l \#Q_l) wide& b = emptyset \, a in R_(l+1)
+) \ \ \
+$
+
+== Forward
+$
+m_l (a) =& log p(x_(i,0:l),a_l=a) \
+
+  =& log Lambda(x_(i l)|a) + log sum_(b in C_(l-1)(a) union {emptyset}) exp [log p(a_l|b_(l-1)) + m_(l-1) (b)] \ \ \
+
+
+m_l (b) =& log p(x_(0,l:L),b_l=b) \
+
+  =& log sum_(a in {C_l (b), emptyset}) exp [log p(b_l|a_l) + m_(l)(a)]
+$
+
+Special case to include $p(a_0 ~ "CRP"(alpha))$ at the very first loc.
+
+== Combined
+$
+m_l (a) =& p(x_i,a_l=a) = m_l^b (a) + m_l^f (a) - log Lambda(x_(i l)|a) \ \
+
+
+m_l (b) =& p(x_i,b_l=b) = m_l^b (b) + m_l^f (b)
+$ \
+
+$
+p(x_(i l)=k) = log sum_(a in R_l) exp [log p(x_(i l)=k | a_l=a) + m_l(a)]
+$
+
+then normalize.
+
+Forward backward cannot be used during maximization step (can create infeasible sequence).
+Can be used during imputation.
+
+== expectations don't distribute through the log sum exp correctly
+$
+m_l (a) =& EE_q log p(x_i,a_l=a) \
+
+  =& EE_q log Lambda(x_(i l)|a) + EE_q log sum_(b in F_l (a) union {emptyset}) exp [log p(b_l|a_l) + m_l (b)] \
+
+  !=& EE_q log Lambda(x_(i l)|a) + log sum_(b in F_l (a) union {emptyset}) exp [EE_q log p(b_l|a_l) + m_l (b)] \
+$
+
+
+instead
+
+$
+log q^*(C_i) =& EE_q [log p(x_i,C_i,Theta|C^(-i))] + C \
+
+  =& EE_q log p(a_1) + sum_(l=1)^L [EE_q log p(b_l|a_l) + EE_q log p(a_(l+1)|b_l) + EE_q log Lambda(x_(i l)|a_l)] + C \ \
+
+
+q^*(C_i) prop& exp EE_q log p(a_1) dot product_(l=1)^L [
+  exp EE_q log p(b_l|a_l) dot exp EE_q log p(a_(l+1)|b_l) dot exp EE_q log Lambda(x_(i l)|a_l)
+]
+$
+
+then do forward backward on $exp EE_q log p$. This is justified.
+
+
+
+
+#pagebreak()
 = Imputation Eval
 - phased data to dfcp vs beagle (and minimac4, impute5)
 - datasets: reference (phased, non-missing), target (need imputation), imputed
