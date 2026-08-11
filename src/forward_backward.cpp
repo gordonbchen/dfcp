@@ -1,12 +1,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <utility>
 #include "clusters.hpp"
 #include "params.hpp"
 #include "hyperparams.hpp"
@@ -25,6 +25,12 @@ double get_msg_ll(const std::unordered_map<Cluster*, double>& msgs, Cluster* c, 
 }
 
 double log_sum_exp(double x1, double x2) {
+    if (x1 == -std::numeric_limits<double>::infinity()) {
+        return x2;
+    }
+    if (x2 == -std::numeric_limits<double>::infinity()) {
+        return x1;
+    }
     double xmax = std::max(x1, x2);
     return xmax + std::log(std::exp(x1 - xmax) + std::exp(x2 - xmax));
 }
@@ -145,8 +151,8 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
     return a_msgs;
 }
 
-void forward_backward(
-    std::vector<int8_t>::const_iterator xi,
+std::vector<double> forward_backward(
+    std::vector<int8_t>::const_iterator xi, std::vector<int> prob_idxs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
     std::vector<std::unordered_map<Cluster*, double>> a_msgs = get_bkwd_msgs(xi, clusters, params, HP);
@@ -160,5 +166,27 @@ void forward_backward(
                 : get_cluster_emission_ll(a, xi[l], l, clusters, params, HP);
         }
     }
+
+    std::vector<double> probs(prob_idxs.size() * HP.K, -std::numeric_limits<double>::infinity());
+    for (size_t i = 0; i < prob_idxs.size(); ++i) {
+        int l = prob_idxs[i];
+        for (const auto& [a, ll] : a_msgs[l]) {
+            for (int k = 0; k < HP.K; ++k) {
+                double emission_ll = (a == nullptr) ? get_new_cluster_ll(k, l, clusters, params, HP)
+                    : get_cluster_emission_ll(a, k, l, clusters, params, HP);
+                probs[idx2d(i,k,HP.K)] = log_sum_exp(probs[idx2d(i,k,HP.K)], ll + emission_ll);
+            }
+        }
+
+        // Normalize.
+        double sum_ll = probs[idx2d(i,0,HP.K)];
+        for (int k = 1; k < HP.K; ++k) {
+            sum_ll = log_sum_exp(sum_ll, probs[idx2d(i,k,HP.K)]);
+        }
+        for (int k = 0; k < HP.K; ++k) {
+            probs[idx2d(i,k,HP.K)] = std::exp(probs[idx2d(i,k,HP.K)] - sum_ll);
+        }
+    }
+    return probs;
 }
 
