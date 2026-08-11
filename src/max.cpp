@@ -30,7 +30,7 @@ double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, boo
 
 double get_new_cluster_ll(double xil, int l, const Clusters& clusters, const Params& params, const HyperParams& HP) {
     // TODO: noisy, soft, hard enum.
-    if ((xil == -1) || (!clusters.noisy && !clusters.soft)) {
+    if (xil == -1) {
         return 0.0;
     }
 
