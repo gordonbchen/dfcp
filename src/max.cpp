@@ -159,6 +159,11 @@ void viterbi_seq(
         }
     }
 
+    // Initial CRP probs.
+    for (auto& [a, m] : a_msgs[0]) {
+        m.ll += (a == nullptr) ? params.mu_log_alpha : std::log(static_cast<double>(a->n));
+    }
+
     // Viterbi path.
     Cluster* a = std::max_element(a_msgs[0].begin(), a_msgs[0].end(),
         [](const auto& a, const auto& b) { return a.second.ll < b.second.ll; }
