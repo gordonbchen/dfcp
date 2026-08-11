@@ -6,6 +6,7 @@
 
 double delta_Elogx(double mu, double sigma2, double a, double b, std::optional<double> Elogx) {
     if ((Elogx.has_value()) && (b == 0.0)) {
+        // TODO : negative a.
         return std::log(a) + Elogx.value();
     }
 
