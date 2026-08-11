@@ -226,6 +226,8 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
 
         params.mu_eps = calc_beta_mean(params.alpha_eps, params.beta_eps);
         params.sigma2_eps = calc_beta_var(params.alpha_eps, params.beta_eps);
+
+        params.update_Eeps_log_match_mismatch();
     }
 }
 

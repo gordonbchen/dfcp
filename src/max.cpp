@@ -6,7 +6,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <boost/math/special_functions/digamma.hpp>
 #include "max.hpp"
 #include "hyperparams.hpp"
 #include "params.hpp"
@@ -29,11 +28,48 @@ double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, boo
     return it->second.ll;
 }
 
-int get_new_cluster_emission(
-    int8_t xil, int l,
-    double Elog_match, double Elog_mismatch,
-    const Clusters& clusters, const HyperParams& HP, const Params& params
+double get_new_cluster_ll(double xil, int l, const Clusters& clusters, const Params& params, const HyperParams& HP) {
+    // TODO: noisy, soft, hard enum.
+    if ((xil == -1) || (!clusters.noisy && !clusters.soft)) {
+        return 0.0;
+    }
+
+    if (clusters.soft) {
+        return -std::log(static_cast<double>(HP.K));
+    }
+
+    int nkl = clusters.rs_by_emit[idx2d(l,xil,HP.K)].size();
+    double ll = -delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size(), params.mu_log_gamma[l]);
+    if (clusters.noisy) {
+        double c = (static_cast<double>(clusters.rs[l].size()) - HP.K*nkl) / (HP.K-1.0);
+        double mu_y = params.mu_gamma[l] + nkl + c*params.mu_eps;
+        double sigma2_y = params.sigma2_gamma[l] + c*c*params.sigma2_eps;
+        ll += delta_Elogx(mu_y, sigma2_y, 1.0, 0.0);
+        return ll;
+    }
+
+    ll += delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl, params.mu_log_gamma[l]);
+    return ll;
+}
+
+double get_cluster_emission_ll(
+    Cluster* a, double xil, int l,
+    const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
+    if (xil == -1) {
+        return 0.0;
+    }
+    if (clusters.noisy) {
+        return xil == a->emission ? params.Eeps_log_match : params.Eeps_log_mismatch;
+    }
+    if (clusters.soft) {
+        return delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, a->nk[xil], params.mu_log_gamma[l])
+            - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs, params.mu_log_gamma[l]);
+    }
+    return xil == a->emission ? 0.0 : -std::numeric_limits<double>::infinity();
+}
+
+int get_new_cluster_emission(int8_t xil, int l, const Clusters& clusters, const HyperParams& HP, const Params& params) {
     if (clusters.soft) {
         return -1;
     }
@@ -49,7 +85,7 @@ int get_new_cluster_emission(
     for (int k = 0; k < HP.K; ++k) {
         int nkl = clusters.rs_by_emit[idx2d(l,k,HP.K)].size();
         double ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl, params.mu_log_gamma[l])
-            + (xil == k ? Elog_match : Elog_mismatch);
+            + (xil == k ? params.Eeps_log_match : params.Eeps_log_mismatch);
         if (ll > best_ll) {
             best_ll = ll;
             best_k = k;
@@ -62,52 +98,17 @@ void viterbi_seq(
     Clusters& clusters, std::vector<int8_t>::const_iterator xi, int i,
     const HyperParams& HP, const Params& params
 ) {
-    double Elog_match, Elog_mismatch;
-    Elog_match = Elog_mismatch = std::numeric_limits<double>::infinity();
-    if (clusters.noisy) {
-        double digamma_eps_sum = boost::math::digamma(params.alpha_eps + params.beta_eps);
-        Elog_match = boost::math::digamma(params.beta_eps) - digamma_eps_sum;
-        Elog_mismatch = boost::math::digamma(params.alpha_eps) - digamma_eps_sum - std::log(HP.K-1.0);
-    }
-
     std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
     for (int l = HP.L-1; l >= 0; --l) {
-        // Likelihood for new cluster.
-        double new_a_ll = 0.0;
-        if (xi[l] != -1) {
-            if (clusters.soft) {
-                new_a_ll = -std::log(static_cast<double>(HP.K));
-            }
-            else {
-                int nkl = clusters.rs_by_emit[idx2d(l,xi[l],HP.K)].size();
-                new_a_ll = -delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size(), params.mu_log_gamma[l]);
-                if (clusters.noisy) {
-                    double c = (static_cast<double>(clusters.rs[l].size()) - HP.K*nkl) / (HP.K-1.0);
-                    double mu_y = params.mu_gamma[l] + nkl + c*params.mu_eps;
-                    double sigma2_y = params.sigma2_gamma[l] + c*c*params.sigma2_eps;
-                    new_a_ll += delta_Elogx(mu_y, sigma2_y, 1.0, 0.0);
-                }
-                else {
-                    new_a_ll += delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl, params.mu_log_gamma[l]);
-                }
-            }
-        }
+        double new_a_ll = get_new_cluster_ll(xi[l], l, clusters, params, HP);
 
         std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xi[l] == -1) ?
             clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xi[l], HP.K)];
         if (l == HP.L-1) {
             a_msgs[l][nullptr] = Msg{new_a_ll, nullptr};
             for (Cluster *a : matching_as) {
-                double ll = 0.0;
-                if (clusters.noisy && xi[l] != -1) {
-                    ll = xi[l] == a->emission ? Elog_match : Elog_mismatch;
-                }
-                else if (clusters.soft && xi[l] != -1) {
-                    ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, a->nk[xi[l]], params.mu_log_gamma[l])
-                        - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs, params.mu_log_gamma[l]);
-                }
-                a_msgs[l][a] = Msg{ll, nullptr};
+                a_msgs[l][a] = Msg{get_cluster_emission_ll(a, xi[l], l, clusters, params, HP), nullptr};
             }
             continue;
         }
@@ -153,14 +154,7 @@ void viterbi_seq(
                     best_b_ll = ll;
                 }
             }
-            double emission_ll = 0.0;
-            if (clusters.noisy && (xi[l] != -1)) {
-                emission_ll = xi[l] == a->emission ? Elog_match : Elog_mismatch;
-            }
-            else if (clusters.soft && (xi[l] != -1)) {
-                emission_ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, a->nk[xi[l]], params.mu_log_gamma[l])
-                    - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs, params.mu_log_gamma[l]);
-            }
+            double emission_ll = get_cluster_emission_ll(a, xi[l], l, clusters, params, HP);
             a_msgs[l][a] = Msg{emission_ll - std::log(static_cast<double>(a->n)) + best_b_ll, best_b};
         }
     }
@@ -171,7 +165,7 @@ void viterbi_seq(
     )->first;
     Cluster* a_obj = a;
     if (a == nullptr) {
-        int emission = get_new_cluster_emission(xi[0], 0, Elog_match, Elog_mismatch, clusters, HP, params);
+        int emission = get_new_cluster_emission(xi[0], 0, clusters, HP, params);
         a_obj = clusters.create_empty_cluster(true, 0, emission);
     }
     clusters.cluster_add(a_obj, i, xi[0]);
@@ -189,7 +183,7 @@ void viterbi_seq(
         a = b_msgs[l].at(b).next;
         a_obj = a;
         if (a == nullptr) {
-            int emission = get_new_cluster_emission(xi[l+1], l+1, Elog_match, Elog_mismatch, clusters, HP, params);
+            int emission = get_new_cluster_emission(xi[l+1], l+1, clusters, HP, params);
             a_obj = clusters.create_empty_cluster(true, l+1, emission);
         }
         clusters.cluster_add(a_obj, i, xi[l+1]);
@@ -231,11 +225,6 @@ void add_seqs(
 
 void max_cluster_emissions(Clusters& clusters, const HyperParams& HP, const Params& params) {
     if (!clusters.noisy) { throw std::runtime_error("Only need to maximize cluster emissions if noisy."); }
-
-    double digamma_eps_sum = boost::math::digamma(params.alpha_eps + params.beta_eps);
-    double Elog_match = boost::math::digamma(params.beta_eps) - digamma_eps_sum;
-    double Elog_mismatch = boost::math::digamma(params.alpha_eps) - digamma_eps_sum - std::log(HP.K-1.0);
-
     for (int l = 0; l < HP.L; ++l) {
         for (Cluster* a : clusters.rs[l]) {
             int best_k = 0;
@@ -243,7 +232,7 @@ void max_cluster_emissions(Clusters& clusters, const HyperParams& HP, const Para
             for (int k = 0; k < HP.K; ++k) {
                 int nkl = clusters.rs_by_emit[idx2d(l,k,HP.K)].size() - (a->emission == k);
                 double ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl, params.mu_log_gamma[l])
-                    + a->nk[k]*Elog_match + (a->n_obs - a->nk[k])*Elog_mismatch;
+                    + a->nk[k]*params.Eeps_log_match + (a->n_obs - a->nk[k])*params.Eeps_log_mismatch;
                 if (ll > best_ll) {
                     best_ll = ll;
                     best_k = k;

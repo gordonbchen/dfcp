@@ -25,6 +25,8 @@ inline double calc_gamma_var(double shape, double rate) {
 
 
 struct Params {
+    int K;
+
     double mu_alpha;
     double sigma2_alpha;
     double mu_log_alpha;
@@ -44,8 +46,12 @@ struct Params {
     double beta_eps;
     double mu_eps;
     double sigma2_eps;
+    double Eeps_log_match;
+    double Eeps_log_mismatch;
 
     Params(const HyperParams& HP) :
+        K(HP.K),
+
         mu_alpha(calc_gamma_mean(HP.tau_1, HP.tau_2)),
         sigma2_alpha(calc_gamma_var(HP.tau_1, HP.tau_2)),
         mu_log_alpha(boost::math::digamma(HP.tau_1) - std::log(HP.tau_2)),
@@ -65,6 +71,14 @@ struct Params {
         beta_eps(HP.lambda_2),
         mu_eps(calc_beta_mean(HP.lambda_1, HP.lambda_2)),
         sigma2_eps(calc_beta_var(HP.lambda_1, HP.lambda_2))
-    {}
+    {
+        update_Eeps_log_match_mismatch();
+    }
+
+    void update_Eeps_log_match_mismatch() {
+        double digamma_eps_sum = boost::math::digamma(alpha_eps + beta_eps);
+        Eeps_log_match = boost::math::digamma(beta_eps) - digamma_eps_sum;
+        Eeps_log_mismatch = boost::math::digamma(alpha_eps) - digamma_eps_sum - std::log(K-1.0);
+    }
 };
 
