@@ -223,6 +223,9 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
         // eps update.
         params.alpha_eps = HP.lambda_1 + clusters.n_obs - clusters.n_matches;
         params.beta_eps = HP.lambda_2 + clusters.n_matches;
+
+        params.mu_eps = calc_beta_mean(params.alpha_eps, params.beta_eps);
+        params.sigma2_eps = calc_beta_var(params.alpha_eps, params.beta_eps);
     }
 }
 
