@@ -28,7 +28,7 @@ double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, boo
     return it->second.ll;
 }
 
-double get_new_cluster_ll(double xil, int l, const Clusters& clusters, const Params& params, const HyperParams& HP) {
+double get_new_cluster_ll(int8_t xil, int l, const Clusters& clusters, const Params& params, const HyperParams& HP) {
     // TODO: noisy, soft, hard enum.
     if (xil == -1) {
         return 0.0;
@@ -53,7 +53,7 @@ double get_new_cluster_ll(double xil, int l, const Clusters& clusters, const Par
 }
 
 double get_cluster_emission_ll(
-    Cluster* a, double xil, int l,
+    Cluster* a, int8_t xil, int l,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
     if (xil == -1) {
