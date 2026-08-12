@@ -1892,6 +1892,8 @@ metrics
 #pagebreak()
 = TODO
 - beagle compute
+- (noisy, soft, hard), (block, pbwt, viterbi) enums
+- viterbi imputation shouldn't actually add to clusters (return clusters or *probs*)?
 
 = evals
 - dfcp vs beagle imputation
@@ -1932,4 +1934,7 @@ metrics
 == done
 - refactoring main in preparation for vs beagle (with vcf format)
 - fix noisy maximization step: consider matches and mismatches when creating new cluster
+- forward backward (also fixing viterbi)
+- sporadic -> untyped imputation
+- ancestral tree sampling time
 
