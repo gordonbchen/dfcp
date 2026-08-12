@@ -19,6 +19,7 @@ add_executable(dfcp
     src/math.cpp
     src/util.cpp
     src/pbwt.cpp
+    src/forward_backward.cpp
 )
 
 target_include_directories(dfcp PRIVATE
