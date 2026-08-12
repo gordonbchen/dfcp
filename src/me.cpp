@@ -16,7 +16,7 @@
 #include "params.hpp"
 #include "clusters.hpp"
 #include "max.hpp"
-#include "forward_backward.hpp"
+#include "fwd_bkwd.hpp"
 #include "expect.hpp"
 #include "elbo.hpp"
 #include "tree.hpp"
@@ -104,17 +104,17 @@ void impute(
     Json& json
 ) {
     std::chrono::steady_clock::duration viterbi_impute_dur{};
-    std::chrono::steady_clock::duration forward_backward_impute_dur{};
+    std::chrono::steady_clock::duration fwd_bkwd_impute_dur{};
 
     std::vector<int8_t> modes{count_modes(x_train, n_train_seqs, HP.L, HP.K)};
 
     int n_viterbi_correct = 0;
-    int n_forward_backward_correct = 0;
+    int n_fwd_bkwd_correct = 0;
     int n_mode_correct = 0;
     for (int i = 0; i < n_val_seqs; ++i) {
         auto t0 = std::chrono::steady_clock::now();
-        std::vector<double> probs{forward_backward(x_val.begin() + i*HP.L, masked_ls, clusters, params, HP)};
-        forward_backward_impute_dur += std::chrono::steady_clock::now() - t0;
+        std::vector<double> probs{fwd_bkwd(x_val.begin() + i*HP.L, masked_ls, clusters, params, HP)};
+        fwd_bkwd_impute_dur += std::chrono::steady_clock::now() - t0;
 
         t0 = std::chrono::steady_clock::now();
         // TODO: maybe this shouldn't actually add x_val to clusters, just return clusters x_val would be assigned to.
@@ -131,24 +131,22 @@ void impute(
                 ++n_mode_correct;
             }
             if (probs[idx2d(il,x_true,HP.K)] > 0.5) {
-                ++n_forward_backward_correct;
+                ++n_fwd_bkwd_correct;
             }
         }
     }
     double n_masked_alleles = n_val_seqs * n_masked_ls;
     double viterbi_impute_acc = n_viterbi_correct / n_masked_alleles;
     double mode_impute_acc = n_mode_correct / n_masked_alleles;
-    double forward_backward_impute_acc = n_forward_backward_correct / n_masked_alleles;
+    double fwd_bkwd_impute_acc = n_fwd_bkwd_correct / n_masked_alleles;
 
     auto t_viterbi_impute = std::chrono::duration_cast<std::chrono::milliseconds>(viterbi_impute_dur).count();
-    auto t_forward_backward_impute = std::chrono::duration_cast<std::chrono::milliseconds>(forward_backward_impute_dur).count();
+    auto t_fwd_bkwd_impute = std::chrono::duration_cast<std::chrono::milliseconds>(fwd_bkwd_impute_dur).count();
     std::cerr << "viterbi_impute_acc=" << viterbi_impute_acc << " t_viterbi_impute=" << t_viterbi_impute << "ms\n"
-        << "forward_backward_impute_acc=" << forward_backward_impute_acc
-        << " t_forward_backward_impute=" << t_forward_backward_impute << "ms\n"
+        << "fwd_bkwd_impute_acc=" << fwd_bkwd_impute_acc << " t_fwd_bkwd_impute=" << t_fwd_bkwd_impute << "ms\n"
         << "mode_impute_acc=" << mode_impute_acc << '\n';
     json.add("viterbi_impute_acc", viterbi_impute_acc).add("t_viterbi_impute", t_viterbi_impute)
-        .add("forward_backward_impute_acc", forward_backward_impute_acc)
-        .add("t_forward_backward_impute", t_forward_backward_impute)
+        .add("fwd_bkwd_impute_acc", fwd_bkwd_impute_acc).add("t_fwd_bkwd_impute", t_fwd_bkwd_impute)
         .add("mode_impute_acc", mode_impute_acc);
 }
 
