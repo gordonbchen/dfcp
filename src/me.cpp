@@ -354,8 +354,8 @@ int main(int argc, char *argv[]) {
     HyperParams HP{.N=N, .L=L, .K=K};
 
     // Parse optional args.
-    double val = -1.0;
-    double mask = -1.0;
+    double val = 0.0;
+    double mask = 0.0;
 
     char *tree_fname = nullptr;
     char *variant_pos_fname = nullptr;
@@ -445,12 +445,12 @@ int main(int argc, char *argv[]) {
             auto line = x_raw.begin() + i*HP.L;
             if (!val_dist(gen)) {
                 x_train.insert(x_train.end(), line, line+HP.L);
-                train_idxs[n_train_seqs] = i;
+                train_idxs.emplace_back(i);
                 ++n_train_seqs;
                 continue;
             }
             x_val.insert(x_val.end(), line, line+HP.L);
-            val_idxs[n_val_seqs] = i;
+            val_idxs.emplace_back(i);
             ++n_val_seqs;
         }
         HP.N = n_train_seqs;
@@ -476,7 +476,7 @@ int main(int argc, char *argv[]) {
     else {
         x_train = std::move(x_raw);
         for (int i = 0; i < HP.N; ++i) {
-            train_idxs[i] = i;
+            train_idxs.emplace_back(i);
         }
         n_train_seqs = HP.N;
     }

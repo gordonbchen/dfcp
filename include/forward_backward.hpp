@@ -7,7 +7,7 @@
 
 
 std::vector<double> forward_backward(
-    std::vector<int8_t>::const_iterator xi, std::vector<int> prob_idxs,
+    std::vector<int8_t>::const_iterator xi, const std::vector<int>& prob_idxs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 
