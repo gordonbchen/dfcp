@@ -89,8 +89,8 @@ COMMON_PARAMETERS = (
     ParameterSpec("d_mean", 0.1, 0.9, "linear", "d"),
     ParameterSpec("d_conc", 1.0, 20.0, "log", "d"),
 
-    ParameterSpec("gamma_shape", 1.0, 10.0, "log", "gamma"),
-    ParameterSpec("gamma_mean", 0.0001, 10.0, "log", "gamma"),
+    ParameterSpec("gamma_shape", 0.1, 10.0, "log", "gamma"),
+    ParameterSpec("gamma_mean", 0.0001, 5.0, "log", "gamma"),
 )
 NOISY_PARAMETERS = (
     ParameterSpec("eps_mean", 0.001, 0.2, "log", "eps"),
@@ -173,7 +173,7 @@ def evaluate_point(
         "search_params": search_params,
         "cpp_params": dfcp_params,
         "accuracy": float(output["dfcp_impute_acc"]),
-        "n_masked_alleles": int(output["n_masked_alleles"]),
+        "n_masked_ls": int(output["n_masked_ls"]),
         "source": source,
         "iteration": iteration,
     }
