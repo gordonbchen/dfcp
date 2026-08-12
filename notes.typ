@@ -1872,8 +1872,8 @@ then do forward backward on $exp EE_q log p$. This is justified.
 = Imputation Eval
 - phased data to dfcp vs beagle (and minimac4, impute5)
 - datasets: reference (phased, non-missing), target (need imputation), imputed
-- masking: untyped (mask all alleles at that loc in target) vs sporadic (mask some alleles in target)
-- fixed reference imputation (train on reference, freeze, then impute)
+- masking: *untyped* (mask all alleles at that loc in target) vs sporadic (mask some alleles in target)
+- *fixed reference imputation* (train on reference, freeze, then impute)
   vs joint reference-target imputation (batch train on reference, target)
 
 vcf outputs
