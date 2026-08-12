@@ -172,7 +172,7 @@ def evaluate_point(
         "x": point,
         "search_params": search_params,
         "cpp_params": dfcp_params,
-        "accuracy": float(output["dfcp_impute_acc"]),
+        "accuracy": float(output["viterbi_impute_acc"]),
         "n_masked_ls": int(output["n_masked_ls"]),
         "source": source,
         "iteration": iteration,
