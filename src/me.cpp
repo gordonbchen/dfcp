@@ -16,6 +16,7 @@
 #include "params.hpp"
 #include "clusters.hpp"
 #include "max.hpp"
+#include "forward_backward.hpp"
 #include "expect.hpp"
 #include "elbo.hpp"
 #include "tree.hpp"
@@ -102,35 +103,52 @@ void impute(
 
     Json& json
 ) {
-    auto t0 = std::chrono::steady_clock::now();
-    // TODO: maybe this shouldn't actually add x_val to clusters, just return clusters x_val would be assigned to.
-    add_seqs(clusters, x_val.begin(), n_val_seqs, HP, params);
-    auto t1 = std::chrono::steady_clock::now();
-    auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::chrono::steady_clock::duration viterbi_impute_dur{};
+    std::chrono::steady_clock::duration forward_backward_impute_dur{};
 
     std::vector<int8_t> modes{count_modes(x_train, n_train_seqs, HP.L, HP.K)};
 
-    int n_dfcp_correct = 0;
+    int n_viterbi_correct = 0;
+    int n_forward_backward_correct = 0;
     int n_mode_correct = 0;
     for (int i = 0; i < n_val_seqs; ++i) {
+        auto t0 = std::chrono::steady_clock::now();
+        std::vector<double> probs{forward_backward(x_val.begin() + i*HP.L, masked_ls, clusters, params, HP)};
+        forward_backward_impute_dur += std::chrono::steady_clock::now() - t0;
+
+        t0 = std::chrono::steady_clock::now();
+        // TODO: maybe this shouldn't actually add x_val to clusters, just return clusters x_val would be assigned to.
+        add_seqs(clusters, x_val.begin() + i*HP.L, 1, HP, params);
+        viterbi_impute_dur += std::chrono::steady_clock::now() - t0;
+
         for (int il = 0; il < n_masked_ls; ++il) {
             int l = masked_ls[il];
             int x_true = x_val_true[idx2d(i,il,n_masked_ls)];
-            int imputed_emission = clusters.r_assign[idx2d(n_train_seqs+i,l,HP.L)]->get_imputed_emission(clusters.soft);
-            if (x_true == imputed_emission) {
-                ++n_dfcp_correct;
+            if (x_true == clusters.r_assign[idx2d(n_train_seqs+i,l,HP.L)]->get_imputed_emission(clusters.soft)) {
+                ++n_viterbi_correct;
             }
             if (x_true == modes[l]) {
                 ++n_mode_correct;
             }
+            if (probs[idx2d(il,x_true,HP.K)] > 0.5) {
+                ++n_forward_backward_correct;
+            }
         }
     }
-    double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / (n_val_seqs * n_masked_ls);
-    double mode_impute_acc = static_cast<double>(n_mode_correct) / (n_val_seqs * n_masked_ls);
+    double n_masked_alleles = n_val_seqs * n_masked_ls;
+    double viterbi_impute_acc = n_viterbi_correct / n_masked_alleles;
+    double mode_impute_acc = n_mode_correct / n_masked_alleles;
+    double forward_backward_impute_acc = n_forward_backward_correct / n_masked_alleles;
 
-    std::cerr << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
-        << "ms mode_impute_acc=" << mode_impute_acc << '\n';
-    json.add("dfcp_impute_acc", dfcp_impute_acc).add("t_impute", t_impute)
+    auto t_viterbi_impute = std::chrono::duration_cast<std::chrono::milliseconds>(viterbi_impute_dur).count();
+    auto t_forward_backward_impute = std::chrono::duration_cast<std::chrono::milliseconds>(forward_backward_impute_dur).count();
+    std::cerr << "viterbi_impute_acc=" << viterbi_impute_acc << " t_viterbi_impute=" << t_viterbi_impute << "ms\n"
+        << "forward_backward_impute_acc=" << forward_backward_impute_acc
+        << " t_forward_backward_impute=" << t_forward_backward_impute << "ms\n"
+        << "mode_impute_acc=" << mode_impute_acc << '\n';
+    json.add("viterbi_impute_acc", viterbi_impute_acc).add("t_viterbi_impute", t_viterbi_impute)
+        .add("forward_backward_impute_acc", forward_backward_impute_acc)
+        .add("t_forward_backward_impute", t_forward_backward_impute)
         .add("mode_impute_acc", mode_impute_acc);
 }
 
@@ -156,13 +174,13 @@ void tree_eval(
 
     int excess_parsimony = 0;
     int emission_excess_parsimony = 0;
-    std::chrono::steady_clock::duration t_parsimony_duration{};
+    std::chrono::steady_clock::duration t_parsimony_dur{};
 
     double weighted_clade_iou_sum = 0.0;
     double clade_weight_sum = 0.0;
     double emission_weighted_clade_iou_sum = 0.0;
     double emission_clade_weight_sum = 0.0;
-    std::chrono::steady_clock::duration t_clade_iou_duration{};
+    std::chrono::steady_clock::duration t_clade_iou_dur{};
 
     for (int l = 0; l < HP.L; ++l) {
         // Parismony.
@@ -195,7 +213,7 @@ void tree_eval(
             coal_trees[tree_idxs[l]], emission_clusters, n_obs_emissions 
         );
 
-        t_parsimony_duration += std::chrono::steady_clock::now() - t_parsimony0;
+        t_parsimony_dur += std::chrono::steady_clock::now() - t_parsimony0;
 
         // Importance-weighted clade iou.
         auto t_clade_iou0 = std::chrono::steady_clock::now();
@@ -223,7 +241,7 @@ void tree_eval(
             emission_weighted_clade_iou_sum += weight * max_clade_iou;
             emission_clade_weight_sum += weight;
         }
-        t_clade_iou_duration += std::chrono::steady_clock::now() - t_clade_iou0;
+        t_clade_iou_dur += std::chrono::steady_clock::now() - t_clade_iou0;
 
         // Tree viz.
         if ((tree_vis_fname != nullptr) && (l < 16)) {
@@ -241,8 +259,8 @@ void tree_eval(
         -1.0 : emission_weighted_clade_iou_sum / emission_clade_weight_sum;
     if (emission_clade_weight_sum == 0.0) {std::cerr << "emission_clade_iou undefined, no nontrivial clusters.\n";}
 
-    auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t_parsimony_duration).count();
-    auto t_clade_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t_clade_iou_duration).count();
+    auto t_parsimony = std::chrono::duration_cast<std::chrono::milliseconds>(t_parsimony_dur).count();
+    auto t_clade_iou = std::chrono::duration_cast<std::chrono::milliseconds>(t_clade_iou_dur).count();
     std::cerr << "mean_excess_parsimony=" << mean_excess_parsimony
         << " mean_emission_excess_parsimony=" << mean_emission_excess_parsimony
         << " t_parsimony=" << t_parsimony << "ms\n"
