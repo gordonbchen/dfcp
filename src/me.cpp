@@ -98,11 +98,12 @@ void impute(
 
     const std::vector<int8_t>& x_train, int n_train_seqs,
     const std::vector<int8_t>& x_val, int n_val_seqs,
-    const std::vector<SparseX>& x_val_true, int n_masked_alleles,
+    const std::vector<int8_t>& x_val_true, const std::vector<int>& masked_ls, int n_masked_ls,
 
     Json& json
 ) {
     auto t0 = std::chrono::steady_clock::now();
+    // TODO: maybe this shouldn't actually add x_val to clusters, just return clusters x_val would be assigned to.
     add_seqs(clusters, x_val.begin(), n_val_seqs, HP, params);
     auto t1 = std::chrono::steady_clock::now();
     auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
@@ -111,16 +112,21 @@ void impute(
 
     int n_dfcp_correct = 0;
     int n_mode_correct = 0;
-    for (const SparseX& s : x_val_true) {
-        if (s.x == clusters.r_assign[idx2d(n_train_seqs+s.i, s.l, HP.L)]->get_imputed_emission(clusters.soft)) {
-            ++n_dfcp_correct;
-        }
-        if (s.x == modes[s.l]) {
-            ++n_mode_correct;
+    for (int i = 0; i < n_val_seqs; ++i) {
+        for (int il = 0; il < n_masked_ls; ++il) {
+            int l = masked_ls[il];
+            int x_true = x_val_true[idx2d(i,il,n_masked_ls)];
+            int imputed_emission = clusters.r_assign[idx2d(n_train_seqs+i,l,HP.L)]->get_imputed_emission(clusters.soft);
+            if (x_true == imputed_emission) {
+                ++n_dfcp_correct;
+            }
+            if (x_true == modes[l]) {
+                ++n_mode_correct;
+            }
         }
     }
-    double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / n_masked_alleles;
-    double mode_impute_acc = static_cast<double>(n_mode_correct) / n_masked_alleles;
+    double dfcp_impute_acc = static_cast<double>(n_dfcp_correct) / (n_val_seqs * n_masked_ls);
+    double mode_impute_acc = static_cast<double>(n_mode_correct) / (n_val_seqs * n_masked_ls);
 
     std::cerr << "dfcp_impute_acc=" << dfcp_impute_acc << " t_impute=" << t_impute
         << "ms mode_impute_acc=" << mode_impute_acc << '\n';
@@ -254,7 +260,7 @@ void eval_clusters(
     const Clusters& clusters, const HyperParams& HP,
 
     const std::vector<int8_t>& x_train, const std::vector<int8_t>& x_val,
-    int n_train_seqs, int n_masked_alleles,
+    int n_train_seqs, int n_val_seqs, int n_masked_ls,
 
     Json& json
 ) {
@@ -310,7 +316,7 @@ void eval_clusters(
                 cluster_purity += c->mode().count;
             }
         }
-        cluster_purity /= HP.N*HP.L - n_masked_alleles;
+        cluster_purity /= HP.N*HP.L - (n_val_seqs * n_masked_ls);
     }
     else if (clusters.noisy) {
         cluster_purity = clusters.n_matches / static_cast<double>(clusters.n_obs);
@@ -408,8 +414,7 @@ int main(int argc, char *argv[]) {
     std::cerr << HP << '\n';
 
     // Split val for imputation.
-    bool do_val = val > 0.0;
-    if (do_val != (mask > 0.0)) {
+    if ((val > 0.0) != (mask > 0.0)) {
         throw std::invalid_argument("If imputation val frac > 0, need mask frac > 0.");
     };
     int n_train_seqs = 0;
@@ -424,8 +429,10 @@ int main(int argc, char *argv[]) {
     x_val.reserve(static_cast<size_t>(HP.N*HP.L * val));
     val_idxs.reserve(static_cast<size_t>(HP.N*HP.L * val));
 
-    int n_masked_alleles = 0;
-    std::vector<SparseX> x_val_true;
+    int n_masked_ls = 0;
+    std::vector<int> masked_ls;
+    std::vector<int8_t> x_val_true;
+    masked_ls.reserve(static_cast<size_t>(mask * HP.L));
     x_val_true.reserve(static_cast<size_t>(HP.N*HP.L * val*mask));
 
     if (val > 0.0) {
@@ -444,19 +451,27 @@ int main(int argc, char *argv[]) {
             }
             x_val.insert(x_val.end(), line, line+HP.L);
             val_idxs[n_val_seqs] = i;
-            for (int l = 0; l < HP.L; ++l) {
-                if (!mask_dist(gen)) { continue; }
-                x_val_true.emplace_back(n_val_seqs, l, line[l]);
-                x_val[idx2d(n_val_seqs, l, HP.L)] = -1;
-                ++n_masked_alleles;
-            }
             ++n_val_seqs;
         }
         HP.N = n_train_seqs;
         if (n_train_seqs == 0) { throw std::runtime_error("no train seqs."); }
-        if (n_masked_alleles == 0) { throw std::runtime_error("invalid validation split."); }
-        std::cerr << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_alleles=" << n_masked_alleles << '\n';
-        json.add("n_val_seqs", n_val_seqs).add("n_masked_alleles", n_masked_alleles);
+        if (n_val_seqs == 0) { throw std::runtime_error("no val seqs."); }
+
+        for (int l = 0; l < HP.L; ++l) {
+            if (!mask_dist(gen)) { continue; }
+            masked_ls.emplace_back(l);
+            ++n_masked_ls;
+        }
+        if (n_masked_ls == 0) { throw std::runtime_error("no masked ls."); }
+
+        for (int i = 0; i < n_val_seqs; ++i) {
+            for (int l : masked_ls) {
+                x_val_true.emplace_back(x_val[idx2d(i, l, HP.L)]);
+                x_val[idx2d(i, l, HP.L)] = -1;
+            }
+        }
+        std::cerr << HP << "\nn_val_seqs=" << n_val_seqs << " n_masked_ls=" << n_masked_ls << '\n';
+        json.add("n_val_seqs", n_val_seqs).add("n_masked_ls", n_masked_ls);
     }
     else {
         x_train = std::move(x_raw);
@@ -488,15 +503,18 @@ int main(int argc, char *argv[]) {
 
             x_train, n_train_seqs,
             x_val, n_val_seqs,
-            x_val_true, n_masked_alleles,
+            x_val_true, masked_ls, n_masked_ls,
 
             json
         );
     }
 
     // Unmask x_val for eval.
-    for (const SparseX& s : x_val_true) {
-        x_val[idx2d(s.i, s.l, HP.L)] = s.x;
+    for (int i = 0; i < n_val_seqs; ++i) {
+        for (int il = 0; il < n_masked_ls; ++il) {
+            int l = masked_ls[il];
+            x_val[idx2d(i,l,HP.L)] = x_val_true[idx2d(i,il,n_masked_ls)];
+        }
     }
     if (tree_fname != nullptr) {
         tree_eval(
@@ -517,11 +535,10 @@ int main(int argc, char *argv[]) {
         clusters, HP,
 
         x_train, x_val,
-        n_train_seqs, n_masked_alleles,
+        n_train_seqs, n_val_seqs, n_masked_ls,
 
         json
     );
-
     std::cout << json.str() << '\n';
 }
 
