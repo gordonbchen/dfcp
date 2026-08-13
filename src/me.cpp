@@ -383,6 +383,7 @@ int main(int argc, char *argv[]) {
     HyperParams HP{.N=N, .L=L, .K=K};
 
     // Parse optional args.
+    int seed = 0;
     double val = 0.0;
     double mask = 0.0;
 
@@ -416,6 +417,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--lambda_1") { HP.lambda_1 = parse_double(argv[i+1]); }
         else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
 
+        else if (arg == "--seed") { seed = parse_int(argv[i+1]); }
         else if (arg == "--val") { val = parse_double(argv[i+1]); }
         else if (arg == "--mask") { mask = parse_double(argv[i+1]); }
 
@@ -463,7 +465,10 @@ int main(int argc, char *argv[]) {
 
     if (val > 0.0) {
         std::random_device rd;
-        std::mt19937 gen(rd());
+        seed = (seed == 0) ? rd() : seed;
+        std::cerr << "seed=" << seed << '\n';
+        json.add("seed", seed);
+        std::mt19937 gen(seed);
         std::bernoulli_distribution val_dist(val);
         std::bernoulli_distribution mask_dist(mask);
 
