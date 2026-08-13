@@ -151,7 +151,7 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
     return a_msgs;
 }
 
-std::vector<double> forward_backward(
+std::vector<double> fwd_bkwd(
     std::vector<int8_t>::const_iterator xi, const std::vector<int>& prob_idxs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {

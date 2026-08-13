@@ -83,8 +83,9 @@ current executable.
   reports and can externalize the Plotly bundle from an existing report.
 - `scripts/parsimony.py`: evaluates simulated error files against true trees
   and plots excess parsimony.
-- `scripts/viz.py`: reads one result JSON document from stdin and plots the
-  training trace, parameter means, and timings.
+- `scripts/viz.py`: reads one result JSON document from stdin or a file and
+  builds an interactive Plotly report; it renders DFCP's DOT tree output as
+  locus-selectable Graphviz SVGs with zoom controls.
 
 ### Deprecated Python
 
@@ -235,11 +236,12 @@ indices, and ignores branch lengths.
 Trees are represented as
 
 ```cpp
-std::unordered_map<int, std::pair<int, int>>
+std::unordered_map<int, CoalNode>
 ```
 
 Internal node IDs are negative, the root is `-1`, and leaves are nonnegative
-sequence indexes. A node absent from the map is treated as a leaf.
+sequence indexes. A node absent from the map is treated as a leaf. `CoalNode`
+stores both child indexes and their branch lengths.
 
 At a recombination boundary, `get_tree_idxs` selects the new tree for a variant
 at exactly that position.
@@ -261,11 +263,11 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--val`: probability of holding out a whole sequence.
 - `--mask`: probability of masking each allele in held-out sequences.
 - `--tree`: fastsimcoal marginal-tree file.
-- `--variant_pos`: variant-position file.
+- `--variant_pos_fname`: variant-position file.
 - `--variant_start_pos`: starting index in the position list.
-- `--tree_vis`: DOT output path for the first eight loci.
+- `--tree_vis`: DOT output path for the first 16 loci.
 - `--clade_beta`: symmetric Beta shape for cluster-to-clade importance
-  weights; defaults to `1` and must be at least `1`.
+  weights; defaults to `2` and must be at least `1`.
 - `--soft`: enabled only when the value is exactly `1`.
 - `--block_init`: enabled only when the value is exactly `1`.
 
@@ -275,7 +277,7 @@ A representative hard-mode run is:
 ./build.sh && ./build/dfcp \
   data/examples/simulated/SIM1_LEN500_NHAPS100/haps_SIMOUT_1.txt.gz_SIMOUT_14572-15071.txt \
   --tree data/examples/simulated/SIM1_LEN500_NHAPS100/ex_0_pop_1_1_true_trees.trees_1_14572_500.trees \
-  --variant_pos data/examples/simulated/SIM1_LEN500_NHAPS100/variant_pos.txt \
+  --variant_pos_fname data/examples/simulated/SIM1_LEN500_NHAPS100/variant_pos.txt \
   --variant_start_pos 14572 \
   --mask 0.2 --val 0.2
 ```
@@ -299,8 +301,8 @@ Always-present fields include:
 
 Validation adds held-out counts, DFCP and mode imputation accuracy, and timing.
 Tree evaluation adds mean excess parsimony, emission excess parsimony,
-`clade_beta`, importance-weighted `mean_clade_iou`, `t_parsimony`, and
-`t_clade_iou`.
+`clade_beta`, importance-weighted `clade_iou` and `emission_clade_iou`, their
+best-clade height samples, `t_parsimony`, and `t_clade_iou`.
 
 Cluster assignments are not currently serialized.
 
@@ -344,8 +346,7 @@ loci, as written in `notes.typ`, rather than a mean of per-locus means.
 Shape `1` gives every cluster equal weight. Shapes greater than `1` increasingly
 downweight singleton and full-sample clusters. Shapes below `1` are rejected
 because their density is infinite at those endpoints. If every cluster has
-zero weight, the executable reports `1`, since those endpoint clusters match
-leaf or root clades exactly.
+zero weight, the executable reports `-1` to mark the aggregate as undefined.
 
 The clade maximization is computed for all clusters in one postorder traversal
 per locus. Each subtree carries counts by cluster label and child maps are
@@ -426,7 +427,7 @@ unless the input or executable is extended to control the RNG.
 - Unordered containers and exact score ties can make fitting nondeterministic.
 - Tree parsing is intentionally specialized and does not validate arbitrary
   Newick trees.
-- DOT output is written as an eight-locus graph. Inputs shorter than eight loci
+- DOT output is written as a 16-locus graph. Inputs shorter than 16 loci
   do not reach the expected closing-locus condition.
 - Soft purity after validation insertion includes inserted clusters/counts in
   the numerator but uses `n_train_seqs` in the denominator.

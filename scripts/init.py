@@ -24,7 +24,7 @@ MODES = {
 PHASES = {"pre": 1, "post": 0}
 SHARED_METRICS = (
     "t_init",
-    "dfcp_impute_acc",
+    "viterbi_impute_acc",
     "clade_iou",
     "mean_excess_parsimony",
     "mean_iou",
@@ -32,7 +32,7 @@ SHARED_METRICS = (
 )
 POST_METRICS = ("elbo", "iterations")
 METRICS = (
-    "dfcp_impute_acc",
+    "viterbi_impute_acc",
     "elbo",
     "clade_iou",
     "mean_excess_parsimony",

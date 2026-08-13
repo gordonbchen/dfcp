@@ -6,7 +6,7 @@
 #include "hyperparams.hpp"
 
 
-std::vector<double> forward_backward(
+std::vector<double> fwd_bkwd(
     std::vector<int8_t>::const_iterator xi, const std::vector<int>& prob_idxs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
