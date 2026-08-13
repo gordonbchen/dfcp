@@ -176,11 +176,17 @@ void tree_eval(
 
     double weighted_clade_iou_sum = 0.0;
     double clade_weight_sum = 0.0;
+    std::vector<double> dfcp_clade_heights;
+    dfcp_clade_heights.reserve(clusters.nR);
     double emission_weighted_clade_iou_sum = 0.0;
     double emission_clade_weight_sum = 0.0;
+    std::vector<double> emission_clade_heights;
+    emission_clade_heights.reserve(HP.L * HP.K);
     std::chrono::steady_clock::duration t_clade_iou_dur{};
 
     for (int l = 0; l < HP.L; ++l) {
+        const std::unordered_map<int, CoalNode>& coal_tree{coal_trees[tree_idxs[l]]};
+
         // Parismony.
         auto t_parsimony0 = std::chrono::steady_clock::now();
 
@@ -194,9 +200,7 @@ void tree_eval(
             int idx = i < n_train_seqs ? train_idxs[i] : val_idxs[i-n_train_seqs];
             cluster_assign[idx] = cluster_idxs.at(clusters.r_assign[idx2d(i, l, HP.L)]);
         }
-        excess_parsimony += calc_excess_parsimony(
-            coal_trees[tree_idxs[l]], cluster_assign, clusters.rs[l].size()
-        );
+        excess_parsimony += calc_excess_parsimony(coal_tree, cluster_assign, clusters.rs[l].size());
 
         std::vector<int> emission_counts(HP.K, 0);
         std::vector<int> emission_clusters(HP.N);
@@ -207,18 +211,15 @@ void tree_eval(
             ++emission_counts[xi];
         }
         int n_obs_emissions = count_observed_labels(emission_clusters, HP.K);
-        emission_excess_parsimony += calc_excess_parsimony(
-            coal_trees[tree_idxs[l]], emission_clusters, n_obs_emissions 
-        );
+        emission_excess_parsimony += calc_excess_parsimony(coal_tree, emission_clusters, n_obs_emissions);
 
         t_parsimony_dur += std::chrono::steady_clock::now() - t_parsimony0;
 
         // Importance-weighted clade iou.
         auto t_clade_iou0 = std::chrono::steady_clock::now();
         for (const auto& [c, cluster_idx] : cluster_idxs) {
-            double max_clade_iou = calc_max_clade_iou(
-                coal_trees[tree_idxs[l]], cluster_assign, cluster_idx, c->n
-            );
+            auto [max_clade_iou, clade_root] = calc_max_clade_iou(coal_tree, cluster_assign, cluster_idx, c->n);
+            dfcp_clade_heights.emplace_back(calc_node_height(coal_tree, clade_root));
 
             double z = static_cast<double>(c->n - 1) / (HP.N - 1);
             double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
@@ -230,9 +231,8 @@ void tree_eval(
             if (emission_counts[k] == 0) {
                 continue;
             }
-            double max_clade_iou = calc_max_clade_iou(
-                coal_trees[tree_idxs[l]], emission_clusters, k, emission_counts[k]
-            );
+            auto [max_clade_iou, clade_root] = calc_max_clade_iou(coal_tree, emission_clusters, k, emission_counts[k]);
+            emission_clade_heights.emplace_back(calc_node_height(coal_tree, clade_root));
 
             double z = static_cast<double>(emission_counts[k] - 1) / (HP.N - 1);
             double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
@@ -243,9 +243,7 @@ void tree_eval(
 
         // Tree viz.
         if ((tree_vis_fname != nullptr) && (l < 16)) {
-            tree_to_dot(
-                tree_vis_fname, coal_trees[tree_idxs[l]], cluster_assign, emission_clusters, l, 16
-            );
+            tree_to_dot(tree_vis_fname, coal_tree, cluster_assign, emission_clusters, l, 16);
         }
     }
     double mean_excess_parsimony = static_cast<double>(excess_parsimony) / HP.L;
@@ -268,7 +266,8 @@ void tree_eval(
         .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony)
         .add("t_parsimony", t_parsimony)
         .add("clade_iou", clade_iou).add("emission_clade_iou", emission_clade_iou)
-        .add("clade_beta", clade_beta).add("t_clade_iou", t_clade_iou);
+        .add("clade_beta", clade_beta).add("t_clade_iou", t_clade_iou)
+        .add("dfcp_clade_heights", dfcp_clade_heights).add("emission_clade_heights", emission_clade_heights);
 }
 
 

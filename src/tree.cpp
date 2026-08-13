@@ -42,7 +42,7 @@ std::vector<int> parse_pos_file_idx(const char *fname, int start_idx, int L) {
     return pos;
 }
 
-const char* parse_coal_subtree(const char *s, std::unordered_map<int, std::pair<int, int>>& coal_tree, int idx) {
+const char* parse_coal_subtree(const char *s, std::unordered_map<int, CoalNode>& coal_tree, int idx) {
     while (*s != '(') { ++s; }
     ++s;
 
@@ -54,6 +54,10 @@ const char* parse_coal_subtree(const char *s, std::unordered_map<int, std::pair<
     else {
         left_idx = std::strtol(s, nullptr, 10) - 1;
     }
+
+    while (*s != ':') { ++s; }
+    ++s;
+    double left_height = std::strtod(s, nullptr);
 
     while (*s != ' ') { ++s; }
     ++s;
@@ -67,11 +71,15 @@ const char* parse_coal_subtree(const char *s, std::unordered_map<int, std::pair<
         right_idx = std::strtol(s, nullptr, 10) - 1;
     }
 
-    coal_tree.emplace(idx, std::pair<int, int>{left_idx, right_idx});
+    while (*s != ':') { ++s; }
+    ++s;
+    double right_height = std::strtod(s, nullptr);
+
+    coal_tree.emplace(idx, CoalNode{left_idx, right_idx, left_height, right_height});
     return s;
 }
 
-int parse_coal_tree(const char *s, std::unordered_map<int, std::pair<int, int>>& coal_tree) {
+int parse_coal_tree(const char *s, std::unordered_map<int, CoalNode>& coal_tree) {
     s = std::strstr(s, "pos_");
     if (s == nullptr) { throw std::runtime_error("Failed to parse tree, could not find 'pos_'"); }
     s += 4;
@@ -81,7 +89,7 @@ int parse_coal_tree(const char *s, std::unordered_map<int, std::pair<int, int>>&
     return recomb_pos;
 }
 
-std::pair<std::vector<std::unordered_map<int, std::pair<int, int>>>, std::vector<int>> parse_tree_file(
+std::pair<std::vector<std::unordered_map<int, CoalNode>>, std::vector<int>> parse_tree_file(
     const char *fname
 ) {
     std::ifstream tree_file{fname};
@@ -92,7 +100,7 @@ std::pair<std::vector<std::unordered_map<int, std::pair<int, int>>>, std::vector
         std::getline(tree_file, line);
     }
 
-    std::vector<std::unordered_map<int, std::pair<int, int>>> trees;
+    std::vector<std::unordered_map<int, CoalNode>> trees;
     std::vector<int> recomb_pos;
     int l = 0;
     while (std::getline(tree_file, line)) {
@@ -173,7 +181,7 @@ struct ParsimonyMsg {
 
 ParsimonyMsg calc_parsimony(
     int idx,
-    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
+    const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assignments,
     const size_t n_clusters
 ) {
@@ -183,9 +191,9 @@ ParsimonyMsg calc_parsimony(
         return ParsimonyMsg{0, std::move(cluster_bm)};
     }
 
-    const auto& [left, right] = coal_tree.at(idx);
-    ParsimonyMsg lp = calc_parsimony(left, coal_tree, cluster_assignments, n_clusters);
-    ParsimonyMsg rp = calc_parsimony(right, coal_tree, cluster_assignments, n_clusters);
+    const auto& coal_node = coal_tree.at(idx);
+    ParsimonyMsg lp = calc_parsimony(coal_node.left, coal_tree, cluster_assignments, n_clusters);
+    ParsimonyMsg rp = calc_parsimony(coal_node.right, coal_tree, cluster_assignments, n_clusters);
 
     cluster_bm.intersect(lp.cluster_bm, rp.cluster_bm);
     if (!cluster_bm.is_empty()) {
@@ -196,7 +204,7 @@ ParsimonyMsg calc_parsimony(
 }
 
 int calc_excess_parsimony(
-    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
+    const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assignments,
     int n_clusters
 ) {
@@ -224,19 +232,20 @@ struct CladeIOUMsg {
     double iou;
     int leaves;
     int isect;
+    int root;
 };
 
 CladeIOUMsg calc_max_clade_iou_dfs(
     int v,
-    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
+    const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assign,
     int cluster_idx,
     int cluster_size
 ) {
     if (v < 0) {
-        const auto& [l, r] = coal_tree.at(v);
-        CladeIOUMsg l_msg{calc_max_clade_iou_dfs(l, coal_tree, cluster_assign, cluster_idx, cluster_size)};
-        CladeIOUMsg r_msg{calc_max_clade_iou_dfs(r, coal_tree, cluster_assign, cluster_idx, cluster_size)};
+        const auto& coal_node = coal_tree.at(v);
+        CladeIOUMsg l_msg{calc_max_clade_iou_dfs(coal_node.left, coal_tree, cluster_assign, cluster_idx, cluster_size)};
+        CladeIOUMsg r_msg{calc_max_clade_iou_dfs(coal_node.right, coal_tree, cluster_assign, cluster_idx, cluster_size)};
 
         CladeIOUMsg msg;
         msg.leaves = l_msg.leaves + r_msg.leaves;
@@ -244,6 +253,7 @@ CladeIOUMsg calc_max_clade_iou_dfs(
 
         double iou = static_cast<double>(msg.isect) / (msg.leaves + cluster_size - msg.isect);
         msg.iou = std::max(iou, std::max(l_msg.iou, r_msg.iou));
+        msg.root = (iou > std::max(l_msg.iou, r_msg.iou)) ? v : ((l_msg.iou > r_msg.iou) ? l_msg.root : r_msg.root);
         return msg;
     }
 
@@ -251,16 +261,26 @@ CladeIOUMsg calc_max_clade_iou_dfs(
     msg.leaves = 1;
     msg.isect = cluster_assign[v] == cluster_idx ? 1 : 0;
     msg.iou = static_cast<double>(msg.isect) / (msg.leaves + cluster_size - msg.isect);
+    msg.root = v;
     return msg;
 }
 
-double calc_max_clade_iou(
-    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
+std::pair<double, int> calc_max_clade_iou(
+    const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assign,
     int cluster_idx,
     int cluster_size
 ) {
-    return calc_max_clade_iou_dfs(-1, coal_tree, cluster_assign, cluster_idx, cluster_size).iou;
+    CladeIOUMsg msg = calc_max_clade_iou_dfs(-1, coal_tree, cluster_assign, cluster_idx, cluster_size);
+    return {msg.iou, msg.root};
+}
+
+double calc_node_height(const std::unordered_map<int, CoalNode>& coal_tree, int idx) {
+    if (idx > 0) {
+        return 0.0;
+    }
+    const CoalNode& node = coal_tree.at(idx);
+    return node.left_height + calc_node_height(coal_tree, node.left);
 }
 
 
@@ -344,7 +364,7 @@ void label_leaf(
 
 void tree_to_dot(
     const char *file,
-    const std::unordered_map<int, std::pair<int, int>>& coal_tree,
+    const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assignments,
     const std::vector<int>& emissions,
     int l, int L
@@ -360,19 +380,17 @@ void tree_to_dot(
 
     const std::string indent(8, ' ');
 
-    for (const auto& [node, children] : coal_tree) {
-        const auto& [left, right] = children;
+    for (const auto& [node_idx, coal_node] : coal_tree) {
+        std::string n_str = node_name(node_idx, l);
+        std::string l_str = node_name(coal_node.left, l);
+        std::string r_str  = node_name(coal_node.right, l);
 
-        std::string n_str = node_name(node, l);
-        std::string l_str = node_name(left, l);
-        std::string r_str  = node_name(right, l);
-
-        s << indent << n_str << " [label=\"" << node << "\"];\n";
+        s << indent << n_str << " [label=\"" << node_idx << "\"];\n";
         s << indent << n_str << " -> " << l_str << ";\n";
         s << indent << n_str << " -> " << r_str << ";\n";
 
-        if (left >= 0) { label_leaf(l_str, left, cluster_assignments, emissions, indent, s); }
-        if (right >= 0) { label_leaf(r_str, right, cluster_assignments, emissions, indent, s); }
+        if (coal_node.left >= 0) { label_leaf(l_str, coal_node.left, cluster_assignments, emissions, indent, s); }
+        if (coal_node.right >= 0) { label_leaf(r_str, coal_node.right, cluster_assignments, emissions, indent, s); }
     }
     s << "    }\n";
 
