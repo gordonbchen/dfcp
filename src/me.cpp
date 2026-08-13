@@ -94,6 +94,18 @@ void train_dfcp(
 }
 
 
+int get_max_prob_emission(std::vector<double>::const_iterator probs, int K) {
+    int best_k = 0;
+    double best_prob = probs[0];
+    for (int k = 1; k < K; ++k) {
+        if (probs[k] > best_prob) {
+            best_k = k;
+            best_prob = probs[k];
+        }
+    }
+    return best_k;
+}
+
 void impute(
     Clusters& clusters, const Params& params, HyperParams& HP,
 
@@ -113,25 +125,34 @@ void impute(
     int n_mode_correct = 0;
     for (int i = 0; i < n_val_seqs; ++i) {
         auto t0 = std::chrono::steady_clock::now();
-        std::vector<double> probs{fwd_bkwd(x_val.begin() + i*HP.L, masked_ls, clusters, params, HP)};
+        std::vector<double> fwd_bkwd_probs{fwd_bkwd(x_val.begin() + i*HP.L, masked_ls, clusters, params, HP)};
         fwd_bkwd_impute_dur += std::chrono::steady_clock::now() - t0;
 
         t0 = std::chrono::steady_clock::now();
-        // TODO: maybe this shouldn't actually add x_val to clusters, just return clusters x_val would be assigned to.
-        add_seqs(clusters, x_val.begin() + i*HP.L, 1, HP, params);
+        std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(clusters, x_val.begin() + i*HP.L, HP, params)};
+        std::vector<double> viterbi_probs;
+        viterbi_probs.reserve(n_masked_ls * HP.K);
+        for (int il = 0; il < n_masked_ls; ++il) {
+            int l = masked_ls[il];
+            for (int k = 0; k < HP.K; ++k) {
+                double p = std::exp(get_cluster_emission_ll(viterbi_clusters[2*l], k, l, clusters, params, HP));
+                viterbi_probs.emplace_back(p);
+            }
+        }
         viterbi_impute_dur += std::chrono::steady_clock::now() - t0;
 
         for (int il = 0; il < n_masked_ls; ++il) {
             int l = masked_ls[il];
             int x_true = x_val_true[idx2d(i,il,n_masked_ls)];
-            if (x_true == clusters.r_assign[idx2d(n_train_seqs+i,l,HP.L)]->get_imputed_emission(clusters.soft)) {
+
+            if (x_true == get_max_prob_emission(viterbi_probs.begin() + il*HP.K, HP.K)) {
                 ++n_viterbi_correct;
+            }
+            if (x_true == get_max_prob_emission(fwd_bkwd_probs.begin() + il*HP.K, HP.K)) {
+                ++n_fwd_bkwd_correct;
             }
             if (x_true == modes[l]) {
                 ++n_mode_correct;
-            }
-            if (probs[idx2d(il,x_true,HP.K)] > 0.5) {
-                ++n_fwd_bkwd_correct;
             }
         }
     }
@@ -556,4 +577,3 @@ int main(int argc, char *argv[]) {
     );
     std::cout << json.str() << '\n';
 }
-

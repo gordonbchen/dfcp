@@ -33,10 +33,6 @@ Mode Cluster::mode() const {
     return mode;
 }
 
-int Cluster::get_imputed_emission(bool soft) const {
-    return soft ? mode().idx : emission;
-}
-
 
 Clusters::Clusters(const HyperParams& HP_, bool soft_, bool noisy_) :
     HP(HP_),

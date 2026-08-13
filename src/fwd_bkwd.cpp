@@ -41,7 +41,7 @@ std::vector<std::unordered_map<Cluster*, double>> get_bkwd_msgs(
     std::vector<std::unordered_map<Cluster*, double>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, double>> b_msgs(HP.L-1);
     for (int l = HP.L-1; l >= 0; --l) {
-        double new_a_ll = get_new_cluster_ll(xi[l], l, clusters, params, HP);
+        double new_a_ll = get_cluster_emission_ll(nullptr, xi[l], l, clusters, params, HP);
 
         const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xi[l] == -1) ?
             clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xi[l], HP.K)];
@@ -98,7 +98,7 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
     std::vector<std::unordered_map<Cluster*, double>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, double>> b_msgs(HP.L-1);
     for (int l = 0; l < HP.L; ++l) {
-        double new_a_ll = get_new_cluster_ll(xi[l], l, clusters, params, HP);
+        double new_a_ll = get_cluster_emission_ll(nullptr, xi[l], l, clusters, params, HP);
 
         const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xi[l] == -1) ?
             clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xi[l], HP.K)];
@@ -162,8 +162,7 @@ std::vector<double> fwd_bkwd(
         for (const auto& [a, ll] : fwd_a_msgs[l]) {
             a_msgs[l][a] = get_msg_ll(a_msgs[l], a, clusters.noisy, clusters.soft) + ll;
             // Emission probs are double counted.
-            a_msgs[l][a] -= (a == nullptr) ? get_new_cluster_ll(xi[l], l, clusters, params, HP)
-                : get_cluster_emission_ll(a, xi[l], l, clusters, params, HP);
+            a_msgs[l][a] -= get_cluster_emission_ll(a, xi[l], l, clusters, params, HP);
         }
     }
 
@@ -172,8 +171,7 @@ std::vector<double> fwd_bkwd(
         int l = prob_idxs[i];
         for (const auto& [a, ll] : a_msgs[l]) {
             for (int k = 0; k < HP.K; ++k) {
-                double emission_ll = (a == nullptr) ? get_new_cluster_ll(k, l, clusters, params, HP)
-                    : get_cluster_emission_ll(a, k, l, clusters, params, HP);
+                double emission_ll = get_cluster_emission_ll(a, k, l, clusters, params, HP);
                 probs[idx2d(i,k,HP.K)] = log_sum_exp(probs[idx2d(i,k,HP.K)], ll + emission_ll);
             }
         }

@@ -33,8 +33,6 @@ struct Cluster {
     void add_child(Cluster *child);
 
     Mode mode() const;
-
-    int get_imputed_emission(bool soft) const;
 };
 
 

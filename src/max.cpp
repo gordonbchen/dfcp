@@ -28,82 +28,54 @@ double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, boo
     return it->second.ll;
 }
 
-double get_new_cluster_ll(int8_t xil, int l, const Clusters& clusters, const Params& params, const HyperParams& HP) {
+double get_cluster_emission_ll(
+    Cluster* a, int8_t xil, int l,
+    const Clusters& clusters, const Params& params, const HyperParams& HP
+) {
     // TODO: noisy, soft, hard enum.
     if (xil == -1) {
         return 0.0;
     }
 
-    if (clusters.soft) {
-        return -std::log(static_cast<double>(HP.K));
-    }
+    if (a == nullptr) {
+        if (clusters.soft) {
+            return -std::log(static_cast<double>(HP.K));
+        }
 
-    int nkl = clusters.rs_by_emit[idx2d(l,xil,HP.K)].size();
-    double ll = -delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size(), params.mu_log_gamma[l]);
-    if (clusters.noisy) {
-        double c = (static_cast<double>(clusters.rs[l].size()) - HP.K*nkl) / (HP.K-1.0);
-        double mu_y = params.mu_gamma[l] + nkl + c*params.mu_eps;
-        double sigma2_y = params.sigma2_gamma[l] + c*c*params.sigma2_eps;
-        ll += delta_Elogx(mu_y, sigma2_y, 1.0, 0.0);
+        int nkl = clusters.rs_by_emit[idx2d(l,xil,HP.K)].size();
+        double ll = -delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size(), params.mu_log_gamma[l]);
+        if (clusters.noisy) {
+            double c = (static_cast<double>(clusters.rs[l].size()) - HP.K*nkl) / (HP.K-1.0);
+            double mu_y = params.mu_gamma[l] + nkl + c*params.mu_eps;
+            double sigma2_y = params.sigma2_gamma[l] + c*c*params.sigma2_eps;
+            ll += delta_Elogx(mu_y, sigma2_y, 1.0, 0.0);
+            return ll;
+        }
+
+        ll += delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl, params.mu_log_gamma[l]);
         return ll;
     }
 
-    ll += delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl, params.mu_log_gamma[l]);
-    return ll;
-}
-
-double get_cluster_emission_ll(
-    Cluster* a, int8_t xil, int l,
-    const Clusters& clusters, const Params& params, const HyperParams& HP
-) {
-    if (xil == -1) {
-        return 0.0;
-    }
-    if (clusters.noisy) {
-        return xil == a->emission ? params.Eeps_log_match : params.Eeps_log_mismatch;
-    }
     if (clusters.soft) {
         return delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, a->nk[xil], params.mu_log_gamma[l])
             - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs, params.mu_log_gamma[l]);
     }
+    if (clusters.noisy) {
+        return xil == a->emission ? params.Eeps_log_match : params.Eeps_log_mismatch;
+    }
     return xil == a->emission ? 0.0 : -std::numeric_limits<double>::infinity();
 }
 
-int get_new_cluster_emission(int8_t xil, int l, const Clusters& clusters, const HyperParams& HP, const Params& params) {
-    if (clusters.soft) {
-        return -1;
-    }
-    if (xil == -1) {
-        return clusters.cluster_mode(l);
-    }
-    if (!clusters.noisy) {
-        return xil;
-    }
-
-    int best_k = 0;
-    double best_ll = -std::numeric_limits<double>::infinity();
-    for (int k = 0; k < HP.K; ++k) {
-        int nkl = clusters.rs_by_emit[idx2d(l,k,HP.K)].size();
-        double ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl, params.mu_log_gamma[l])
-            + (xil == k ? params.Eeps_log_match : params.Eeps_log_mismatch);
-        if (ll > best_ll) {
-            best_ll = ll;
-            best_k = k;
-        }
-    }
-    return best_k;
-}
-
-void viterbi_seq(
-    Clusters& clusters, std::vector<int8_t>::const_iterator xi, int i,
+std::vector<Cluster*> get_viterbi_clusters(
+    const Clusters& clusters, std::vector<int8_t>::const_iterator xi,
     const HyperParams& HP, const Params& params
 ) {
     std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
     for (int l = HP.L-1; l >= 0; --l) {
-        double new_a_ll = get_new_cluster_ll(xi[l], l, clusters, params, HP);
+        double new_a_ll = get_cluster_emission_ll(nullptr, xi[l], l, clusters, params, HP);
 
-        std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xi[l] == -1) ?
+        const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xi[l] == -1) ?
             clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xi[l], HP.K)];
         if (l == HP.L-1) {
             a_msgs[l][nullptr] = Msg{new_a_ll, nullptr};
@@ -127,7 +99,7 @@ void viterbi_seq(
 
         Cluster* best_a = nullptr;
         double best_a_ll = params.mu_log_alpha + a_msgs[l+1].at(nullptr).ll;
-        std::unordered_set<Cluster*>& matching_next_as = clusters.noisy || clusters.soft || (xi[l+1] == -1) ?
+        const std::unordered_set<Cluster*>& matching_next_as = clusters.noisy || clusters.soft || (xi[l+1] == -1) ?
             clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xi[l+1], HP.K)];
         for (Cluster *a : matching_next_as) {
             double nCl = a->parents.size();
@@ -165,9 +137,58 @@ void viterbi_seq(
     }
 
     // Viterbi path.
+    std::vector<Cluster*> best_clusters;
+    best_clusters.reserve(HP.L + HP.L-1);
+
     Cluster* a = std::max_element(a_msgs[0].begin(), a_msgs[0].end(),
         [](const auto& a, const auto& b) { return a.second.ll < b.second.ll; }
     )->first;
+    best_clusters.emplace_back(a);
+
+    Cluster* b;
+    for (int l = 0; l < HP.L-1; ++l) {
+        b = a_msgs[l].at(a).next;
+        best_clusters.emplace_back(b);
+
+        a = b_msgs[l].at(b).next;
+        best_clusters.emplace_back(a);
+    }
+    return best_clusters;
+}
+
+
+int get_new_cluster_emission(int8_t xil, int l, const Clusters& clusters, const HyperParams& HP, const Params& params) {
+    if (clusters.soft) {
+        return -1;
+    }
+    if (xil == -1) {
+        return clusters.cluster_mode(l);
+    }
+    if (!clusters.noisy) {
+        return xil;
+    }
+
+    int best_k = 0;
+    double best_ll = -std::numeric_limits<double>::infinity();
+    for (int k = 0; k < HP.K; ++k) {
+        int nkl = clusters.rs_by_emit[idx2d(l,k,HP.K)].size();
+        double ll = delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, nkl, params.mu_log_gamma[l])
+            + (xil == k ? params.Eeps_log_match : params.Eeps_log_mismatch);
+        if (ll > best_ll) {
+            best_ll = ll;
+            best_k = k;
+        }
+    }
+    return best_k;
+}
+
+void viterbi_seq(
+    Clusters& clusters, std::vector<int8_t>::const_iterator xi, int i,
+    const HyperParams& HP, const Params& params
+) {
+    std::vector<Cluster*> best_clusters{get_viterbi_clusters(clusters, xi, HP, params)};
+
+    Cluster* a = best_clusters[0];
     Cluster* a_obj = a;
     if (a == nullptr) {
         int emission = get_new_cluster_emission(xi[0], 0, clusters, HP, params);
@@ -178,14 +199,14 @@ void viterbi_seq(
     Cluster* b = nullptr;
     Cluster* b_obj = nullptr;
     for (int l = 0; l < HP.L-1; ++l) {
-        b = a_msgs[l].at(a).next;
+        b = best_clusters[2*l + 1];
         b_obj = (b == nullptr) ? clusters.create_empty_cluster(false, l, -1) : b;
         clusters.cluster_add(b_obj, i, -1);
         if (a == nullptr || b == nullptr) {
             a_obj->add_child(b_obj);
         }
 
-        a = b_msgs[l].at(b).next;
+        a = best_clusters[2 * (l+1)];
         a_obj = a;
         if (a == nullptr) {
             int emission = get_new_cluster_emission(xi[l+1], l+1, clusters, HP, params);
