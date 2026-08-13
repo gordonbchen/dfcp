@@ -276,7 +276,7 @@ std::pair<double, int> calc_max_clade_iou(
 }
 
 double calc_node_height(const std::unordered_map<int, CoalNode>& coal_tree, int idx) {
-    if (idx > 0) {
+    if (idx >= 0) {
         return 0.0;
     }
     const CoalNode& node = coal_tree.at(idx);
@@ -398,4 +398,3 @@ void tree_to_dot(
         s << "}\n";
     }
 }
-
