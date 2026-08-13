@@ -43,13 +43,6 @@ inline size_t idx2d(size_t r, size_t c, size_t width) {
     return r*width + c;
 }
 
-inline int8_t comb_xi(
-    const std::vector<int8_t>& x1, const std::vector<int8_t>& x2,
-    size_t idx, size_t x1_size
-) {
-    return idx < x1_size ? x1[idx] : x2[idx - x1_size];
-}
-
 std::vector<int8_t> count_modes(const std::vector<int8_t>& x, const int N, const int L, const int K);
 
 double parse_double(char *s);

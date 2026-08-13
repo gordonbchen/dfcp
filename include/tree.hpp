@@ -2,12 +2,12 @@
 
 #include <cstddef>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 
 std::vector<int> parse_pos_file_idx(const char *fname, int start_idx, int L);
-
 
 struct CoalNode {
     int left;
@@ -20,23 +20,23 @@ std::pair<std::vector<std::unordered_map<int, CoalNode>>, std::vector<int>> pars
     const char *fname
 );
 
+std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::vector<int>& recomb_pos);
 
-int count_observed_labels(const std::vector<int>& labels, size_t max_size);
 
 int calc_excess_parsimony(
     const std::unordered_map<int, CoalNode>& coal_tree,
-    const std::vector<int>& cluster_assignments,
-    int n_clusters
+    const std::vector<int>& cluster_assign,
+    int n_clusters,
+    const std::unordered_set<size_t>& train_idxs
 );
 
-
-std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::vector<int>& recomb_pos);
 
 std::pair<double, int> calc_max_clade_iou(
     const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assign,
     int cluster_idx,
-    int cluster_size
+    int cluster_size,
+    const std::unordered_set<size_t>& train_idxs
 );
 
 double calc_node_height(const std::unordered_map<int, CoalNode>& coal_tree, int idx);
@@ -45,9 +45,9 @@ double calc_node_height(const std::unordered_map<int, CoalNode>& coal_tree, int 
 void tree_to_dot(
     const char *file,
     const std::unordered_map<int, CoalNode>& coal_tree,
-    const std::vector<int>& cluster_assignments,
+    const std::vector<int>& cluster_assign,
     const std::vector<int>& emissions,
+    const std::unordered_set<size_t>& train_idxs,
     int l,
     int L
 );
-

@@ -182,7 +182,7 @@ Important invariants:
 - Use `idx2d` for flat indexing rather than reproducing index arithmetic.
 
 `Clusters` stores a reference to `HyperParams`. `HP.N` is deliberately changed
-during sequential initialization and validation insertion, so understand the
+during sequential initialization and validation splitting, so understand the
 current value before using it.
 
 ## Runtime Data Flow
@@ -193,19 +193,19 @@ current value before using it.
 2. Infer `N`, `L`, and `K` from the input.
 3. Parse all optional arguments as option/value pairs.
 4. Optionally split whole sequences into training and validation groups, then
-   mask alleles only within held-out sequences.
+   mask loci across all held-out sequences.
 5. Initialize parameters and clusters, either as one block or by adding
    sequences through Viterbi.
 6. Run Maximization-Expectation until early stopping.
-7. Optionally insert held-out sequences and score imputation.
-8. Restore masked values for evaluation.
-9. Optionally align loci to reference trees and compute tree metrics.
-10. Compute adjacent-locus co-clustering IoU, mean cluster count, and purity.
-11. Write diagnostics to stderr and one JSON object to stdout.
+7. Evaluate clusters and optionally align loci to reference trees. Tree metrics
+   prune held-out leaves and evaluate only the fitted training partition.
+8. Optionally score held-out imputation against the frozen training fit;
+   held-out sequences are not inserted into the cluster graph.
+9. Write diagnostics to stderr and one JSON object to stdout.
 
-Validation reorders sequences internally. `raw_to_split_idxs` maps each leaf
-index in the original input/tree order to its current row in `x` and
-`r_assign`. Every reference-tree metric must apply this map.
+Validation compacts training sequences into `x_train`. `train_idxs` maps each
+training row back to its leaf index in the original input/tree order. Reference
+tree metrics must apply this map and treat every other leaf as pruned.
 
 ## Input Formats
 
@@ -348,13 +348,11 @@ downweight singleton and full-sample clusters. Shapes below `1` are rejected
 because their density is infinite at those endpoints. If every cluster has
 zero weight, the executable reports `-1` to mark the aggregate as undefined.
 
-The clade maximization is computed for all clusters in one postorder traversal
-per locus. Each subtree carries counts by cluster label and child maps are
-merged small-to-large. A leaf initializes the singleton-clade score. At an
-internal node, a cluster is evaluated only if it occurs in both children. If
-it occurs in one child only, the parent has the same intersection and extra
-non-cluster leaves, so its IoU cannot beat that child. This avoids explicitly
-evaluating every cluster at every clade while remaining exact.
+The clade maximization uses a postorder traversal for each cluster. With
+validation enabled, held-out leaves contribute neither intersections nor clade
+sizes, which is equivalent to evaluating descendant-leaf sets on the tree
+induced by training leaves. Unary ancestors created by pruning are dominated
+by their retained child.
 
 ### Adjacent-locus IoU
 
@@ -410,7 +408,8 @@ cases are:
   by that child.
 - Random small binary trees and partitions checked against every explicit
   descendant-leaf set.
-- Validation-enabled runs, to exercise `raw_to_split_idxs`.
+- Validation-enabled runs, to exercise `train_idxs` and pruning of held-out
+  tree leaves.
 
 There is no deterministic seed option, so validation runs are smoke tests
 unless the input or executable is extended to control the RNG.
@@ -429,8 +428,6 @@ unless the input or executable is extended to control the RNG.
   Newick trees.
 - DOT output is written as a 16-locus graph. Inputs shorter than 16 loci
   do not reach the expected closing-locus condition.
-- Soft purity after validation insertion includes inserted clusters/counts in
-  the numerator but uses `n_train_seqs` in the denominator.
 - `Json` rejects NaN and infinity, so metrics must define finite edge-case
   behavior.
 - `notes.typ` contains both current soft-model work and superseded hard-model
@@ -498,7 +495,7 @@ Active scripts are small command-line programs rather than a package.
 Before editing:
 
 - Identify whether the behavior is hard mode, soft mode, or shared.
-- Trace sequence indexing through validation and `raw_to_split_idxs`.
+- Trace sequence indexing through validation and `train_idxs`.
 - Check graph ownership and deletion if cluster pointers are involved.
 - Check `notes.typ` for a correction near the relevant derivation.
 

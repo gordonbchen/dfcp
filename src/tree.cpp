@@ -7,11 +7,12 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 #include <cstring>
-#include <bit>
 #include <format>
 #include "tree.hpp"
 
@@ -112,6 +113,19 @@ std::pair<std::vector<std::unordered_map<int, CoalNode>>, std::vector<int>> pars
     return {std::move(trees), std::move(recomb_pos)};
 }
 
+std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::vector<int>& recomb_pos) {
+    int L = variant_pos.size();
+    std::vector<int> tree_idxs(L);
+    int tree_idx = 0;
+    for (int l = 0; l < L; ++l) {
+        while ((tree_idx < static_cast<int>(recomb_pos.size()) - 1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
+            ++tree_idx;
+        }
+        tree_idxs[l] = tree_idx;
+    }
+    return tree_idxs;
+}
+
 
 struct BitSet {
     size_t size;
@@ -125,6 +139,12 @@ struct BitSet {
             throw std::invalid_argument("idx is too large for bit set.");
         }
         bm[idx >> 6] |= 1ULL << (((1 << 6) - 1) & idx);
+    }
+
+    void set_all() {
+        for (size_t i = 0; i < n_words; ++i) {
+            bm[i] = -1;
+        }
     }
 
     bool is_empty() {
@@ -153,26 +173,7 @@ struct BitSet {
             bm[i] = l.bm[i] | r.bm[i];
         }
     }
-
-    size_t count1s() {
-        size_t n = 0;
-        for (size_t i = 0; i < n_words; ++i) {
-            n += std::popcount(bm[i]);
-        }
-        return n;
-    }
 };
-
-int count_observed_labels(const std::vector<int>& labels, size_t max_size) {
-    BitSet bm{max_size};
-    for (int x : labels) {
-        if (x < 0 || static_cast<size_t>(x) >= max_size) {
-            throw std::runtime_error("label not b/t 0, max_size.");
-        }
-        bm.set(x);
-    }
-    return bm.count1s();
-}
 
 struct ParsimonyMsg {
     int score;
@@ -182,18 +183,23 @@ struct ParsimonyMsg {
 ParsimonyMsg calc_parsimony(
     int idx,
     const std::unordered_map<int, CoalNode>& coal_tree,
-    const std::vector<int>& cluster_assignments,
-    const size_t n_clusters
+    const std::vector<int>& cluster_assign,
+    const size_t n_clusters,
+    const std::unordered_set<size_t>& train_idxs
 ) {
     BitSet cluster_bm{n_clusters};
     if (!coal_tree.contains(idx)) {
-        cluster_bm.set(cluster_assignments[idx]);
+        if (train_idxs.contains(idx)) {
+            cluster_bm.set(cluster_assign[idx]);
+            return ParsimonyMsg{0, std::move(cluster_bm)};
+        }
+        cluster_bm.set_all();
         return ParsimonyMsg{0, std::move(cluster_bm)};
     }
 
     const auto& coal_node = coal_tree.at(idx);
-    ParsimonyMsg lp = calc_parsimony(coal_node.left, coal_tree, cluster_assignments, n_clusters);
-    ParsimonyMsg rp = calc_parsimony(coal_node.right, coal_tree, cluster_assignments, n_clusters);
+    ParsimonyMsg lp = calc_parsimony(coal_node.left, coal_tree, cluster_assign, n_clusters, train_idxs);
+    ParsimonyMsg rp = calc_parsimony(coal_node.right, coal_tree, cluster_assign, n_clusters, train_idxs);
 
     cluster_bm.intersect(lp.cluster_bm, rp.cluster_bm);
     if (!cluster_bm.is_empty()) {
@@ -205,26 +211,14 @@ ParsimonyMsg calc_parsimony(
 
 int calc_excess_parsimony(
     const std::unordered_map<int, CoalNode>& coal_tree,
-    const std::vector<int>& cluster_assignments,
-    int n_clusters
+    const std::vector<int>& cluster_assign,
+    int n_clusters,
+    const std::unordered_set<size_t>& train_idxs
 ) {
-    int parsimony = calc_parsimony(-1, coal_tree, cluster_assignments, n_clusters).score;
+    int parsimony = calc_parsimony(-1, coal_tree, cluster_assign, n_clusters, train_idxs).score;
     int excess_parsimony = parsimony - (n_clusters - 1);
     if (excess_parsimony < 0) { throw std::runtime_error("Negative excess parsimony."); }
     return excess_parsimony;
-}
-
-std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::vector<int>& recomb_pos) {
-    int L = variant_pos.size();
-    std::vector<int> tree_idxs(L);
-    int tree_idx = 0;
-    for (int l = 0; l < L; ++l) {
-        while ((tree_idx < static_cast<int>(recomb_pos.size()) - 1) && (recomb_pos[tree_idx+1] <= variant_pos[l])) {
-            ++tree_idx;
-        }
-        tree_idxs[l] = tree_idx;
-    }
-    return tree_idxs;
 }
 
 
@@ -240,27 +234,33 @@ CladeIOUMsg calc_max_clade_iou_dfs(
     const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assign,
     int cluster_idx,
-    int cluster_size
+    int cluster_size,
+    const std::unordered_set<size_t>& train_idxs
 ) {
     if (v < 0) {
         const auto& coal_node = coal_tree.at(v);
-        CladeIOUMsg l_msg{calc_max_clade_iou_dfs(coal_node.left, coal_tree, cluster_assign, cluster_idx, cluster_size)};
-        CladeIOUMsg r_msg{calc_max_clade_iou_dfs(coal_node.right, coal_tree, cluster_assign, cluster_idx, cluster_size)};
+        CladeIOUMsg l_msg{calc_max_clade_iou_dfs(coal_node.left, coal_tree, cluster_assign,
+                                                 cluster_idx, cluster_size, train_idxs)};
+        CladeIOUMsg r_msg{calc_max_clade_iou_dfs(coal_node.right, coal_tree, cluster_assign,
+                                                 cluster_idx, cluster_size, train_idxs)};
 
         CladeIOUMsg msg;
         msg.leaves = l_msg.leaves + r_msg.leaves;
         msg.isect = l_msg.isect + r_msg.isect;
 
-        double iou = static_cast<double>(msg.isect) / (msg.leaves + cluster_size - msg.isect);
+        double iou = msg.leaves == 0 ? -std::numeric_limits<double>::infinity()
+            : static_cast<double>(msg.isect) / (msg.leaves + cluster_size - msg.isect);
         msg.iou = std::max(iou, std::max(l_msg.iou, r_msg.iou));
         msg.root = (iou > std::max(l_msg.iou, r_msg.iou)) ? v : ((l_msg.iou > r_msg.iou) ? l_msg.root : r_msg.root);
         return msg;
     }
 
     CladeIOUMsg msg;
-    msg.leaves = 1;
-    msg.isect = cluster_assign[v] == cluster_idx ? 1 : 0;
-    msg.iou = static_cast<double>(msg.isect) / (msg.leaves + cluster_size - msg.isect);
+    bool is_train = train_idxs.contains(v);
+    msg.leaves = is_train;
+    msg.isect = is_train && (cluster_assign[v] == cluster_idx);
+    msg.iou = is_train ? static_cast<double>(msg.isect) / (1 + cluster_size - msg.isect)
+                       : -std::numeric_limits<double>::infinity();
     msg.root = v;
     return msg;
 }
@@ -269,9 +269,10 @@ std::pair<double, int> calc_max_clade_iou(
     const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assign,
     int cluster_idx,
-    int cluster_size
+    int cluster_size,
+    const std::unordered_set<size_t>& train_idxs
 ) {
-    CladeIOUMsg msg = calc_max_clade_iou_dfs(-1, coal_tree, cluster_assign, cluster_idx, cluster_size);
+    CladeIOUMsg msg = calc_max_clade_iou_dfs(-1, coal_tree, cluster_assign, cluster_idx, cluster_size, train_idxs);
     return {msg.iou, msg.root};
 }
 
@@ -347,26 +348,30 @@ std::string cluster_color(size_t cluster_idx) {
     return rgb_to_hex(hsl_to_rgb(h, s, l));
 }
 
-const std::vector<std::string>shapes = {"oval", "box", "polygon", "triangle", "egg"};
+const std::vector<std::string>shapes = {"oval", "box", "polygon", "house"};
 
 void label_leaf(
     const std::string& name,
     int idx,
-    const std::vector<int>& cluster_assignments,
+    const std::vector<int>& cluster_assign,
     const std::vector<int>& emissions,
+    const std::unordered_set<size_t>& train_idxs,
     const std::string& indent,
     std::ofstream& s
 ) {
-    const std::string& color = cluster_color(cluster_assignments[idx]);
-    const std::string& shape = shapes[emissions[idx] % shapes.size()];
-    s << indent << name << " [label=\"" << idx << "\", fillcolor=\"" << color << "\", shape=" << shape << "];\n";
+    const std::string& color = train_idxs.contains(idx) ? cluster_color(cluster_assign[idx]) : "black";
+    const std::string& fontcolor = train_idxs.contains(idx) ? "black" : "white";
+    const std::string& shape = train_idxs.contains(idx) ? shapes[emissions[idx] % shapes.size()] : "diamond";
+    s << indent << name << " [label=\"" << idx << "\", fillcolor=\"" << color
+        << "\", fontcolor=\"" << fontcolor << "\", shape=" << shape << "];\n";
 }
 
 void tree_to_dot(
     const char *file,
     const std::unordered_map<int, CoalNode>& coal_tree,
-    const std::vector<int>& cluster_assignments,
+    const std::vector<int>& cluster_assign,
     const std::vector<int>& emissions,
+    const std::unordered_set<size_t>& train_idxs,
     int l, int L
 ) {
     std::ofstream s = (l == 0) ? std::ofstream{file} : std::ofstream{file, std::ios::app};
@@ -389,8 +394,12 @@ void tree_to_dot(
         s << indent << n_str << " -> " << l_str << ";\n";
         s << indent << n_str << " -> " << r_str << ";\n";
 
-        if (coal_node.left >= 0) { label_leaf(l_str, coal_node.left, cluster_assignments, emissions, indent, s); }
-        if (coal_node.right >= 0) { label_leaf(r_str, coal_node.right, cluster_assignments, emissions, indent, s); }
+        if (coal_node.left >= 0) {
+            label_leaf(l_str, coal_node.left, cluster_assign, emissions, train_idxs, indent, s);
+        }
+        if (coal_node.right >= 0) {
+            label_leaf(r_str, coal_node.right, cluster_assign, emissions, train_idxs, indent, s);
+        }
     }
     s << "    }\n";
 
