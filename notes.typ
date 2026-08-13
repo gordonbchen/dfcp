@@ -1906,18 +1906,6 @@ metrics
 
 - phasing
 
-= tuning results
-- block vs pbwt vs viterbi init
-  - imputation acc: pbwt > block and viterbi, pbwt match len 20 is a good default
-  - tree matching: higher pbwt match len is worse
-  - loc iou: higher pbwt match len is better
-  - time: block < pbwt < viterbi
-  - pbwt mismatch: not much difference. pbwt is too hard, should tolerate more mismatching.
-
-- hard vs soft vs noisy
-   - seq files: imputation acc drops to %80 at 0.1 bit flip, 0.05 switch
-   - need to tune HP across datasets and dfcp modes
-
 == model changes
 - $alpha$ per location
 - $epsilon$ per location for noisy
@@ -1925,16 +1913,5 @@ metrics
 - $d_l$ depending on genetic map (how far away the variant sites are),
   or the other way, estimating dist via $d_l$
 
-== ideas
-- methylation (cancer data)
-- arg model: "The Effect of Single Recombination Events on Coalescent Tree Height and Shape"
-- nucleotide transformer
-
-
 == done
-- refactoring main in preparation for vs beagle (with vcf format)
-- fix noisy maximization step: consider matches and mismatches when creating new cluster
-- forward backward (also fixing viterbi)
-- sporadic -> untyped imputation
-- ancestral tree sampling time
 
