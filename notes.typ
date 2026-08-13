@@ -1891,16 +1891,14 @@ metrics
 
 #pagebreak()
 = TODO
-- beagle compute
 - (noisy, soft, hard), (block, pbwt, viterbi) enums
-- viterbi imputation shouldn't actually add to clusters (return clusters or *probs*)?
+- beagle compute
 
 = evals
 - dfcp vs beagle imputation
+  - *$r^2$ b/t p(minor) and minor*
   - saving dfcp after training, loading for inference
-  - forward backward on frozen, trained dfcp
-  - viterbi probabilities instead of hard accuracy (also viterbi vs forward backward)
-  - windowing
+  - windowing?
 
 - ancestral tree time sampling: density plot of best clade time for each cluster
 
