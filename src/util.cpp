@@ -2,10 +2,22 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iterator>
+#include <random>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 #include "util.hpp"
+
+
+std::vector<int> sample_without_replacement(std::vector<int> population, int sample_size, std::mt19937& gen) {
+    if ((sample_size < 0) || (sample_size > static_cast<int>(population.size()))) {
+        throw std::invalid_argument("sample size exceeds population.");
+    }
+    std::shuffle(population.begin(), population.end(), gen);
+    population.resize(sample_size);
+    std::sort(population.begin(), population.end());
+    return population;
+}
 
 
 std::vector<size_t> count_emissions(const std::vector<int8_t>& x, const int N, const int L, const int K) {

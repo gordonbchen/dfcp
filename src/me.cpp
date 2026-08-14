@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <iostream>
 #include <fstream>
+#include <numeric>
 #include <string>
 #include <utility>
 #include <vector>
@@ -182,16 +183,18 @@ void tree_eval(
 
     double weighted_clade_iou_sum = 0.0;
     double clade_weight_sum = 0.0;
-    std::vector<double> dfcp_clade_heights;
-    dfcp_clade_heights.reserve(clusters.nR);
+    std::vector<std::vector<double>> dfcp_clade_heights(HP.L);
     double emission_weighted_clade_iou_sum = 0.0;
     double emission_clade_weight_sum = 0.0;
-    std::vector<double> emission_clade_heights;
-    emission_clade_heights.reserve(HP.L * HP.K);
+    std::vector<std::vector<double>> emission_clade_heights(HP.L);
+    std::vector<double> coal_root_heights(HP.L);
     std::chrono::steady_clock::duration t_clade_iou_dur{};
 
     for (int l = 0; l < HP.L; ++l) {
         const std::unordered_map<int, CoalNode>& coal_tree{coal_trees[tree_idxs[l]]};
+        coal_root_heights[l] = calc_node_height(coal_tree, -1);
+        dfcp_clade_heights[l].reserve(clusters.rs[l].size());
+        emission_clade_heights[l].reserve(HP.K);
 
         // Parismony.
         auto t_parsimony0 = std::chrono::steady_clock::now();
@@ -226,7 +229,7 @@ void tree_eval(
         for (const auto& [c, cluster_idx] : cluster_idxs) {
             auto [max_clade_iou, clade_root] = calc_max_clade_iou(coal_tree, cluster_assign,
                                                                   cluster_idx, c->n, train_idxs_set);
-            dfcp_clade_heights.emplace_back(calc_node_height(coal_tree, clade_root));
+            dfcp_clade_heights[l].emplace_back(calc_node_height(coal_tree, clade_root));
 
             double z = static_cast<double>(c->n - 1) / (HP.N - 1);
             double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
@@ -240,7 +243,7 @@ void tree_eval(
             }
             auto [max_clade_iou, clade_root] = calc_max_clade_iou(coal_tree, emission_clusters,
                                                                   k, emission_counts[k], train_idxs_set);
-            emission_clade_heights.emplace_back(calc_node_height(coal_tree, clade_root));
+            emission_clade_heights[l].emplace_back(calc_node_height(coal_tree, clade_root));
 
             double z = static_cast<double>(emission_counts[k] - 1) / (HP.N - 1);
             double weight = std::pow(z * (1.0 - z), clade_beta - 1.0);
@@ -275,7 +278,9 @@ void tree_eval(
         .add("t_parsimony", t_parsimony)
         .add("clade_iou", clade_iou).add("emission_clade_iou", emission_clade_iou)
         .add("clade_beta", clade_beta).add("t_clade_iou", t_clade_iou)
-        .add("dfcp_clade_heights", dfcp_clade_heights).add("emission_clade_heights", emission_clade_heights);
+        .add("dfcp_clade_heights", dfcp_clade_heights)
+        .add("emission_clade_heights", emission_clade_heights)
+        .add("coal_root_heights", coal_root_heights);
 }
 
 
@@ -490,8 +495,14 @@ int main(int argc, char *argv[]) {
         else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
 
         else if (arg == "--seed") { seed = parse_int(argv[i+1]); }
-        else if (arg == "--val") { val = parse_double(argv[i+1]); }
-        else if (arg == "--mask") { mask = parse_double(argv[i+1]); }
+        else if (arg == "--val") {
+            val = parse_double(argv[i+1]);
+            if ((val < 0.0) || (val >= 1.0)) { throw std::invalid_argument("val must be in [0, 1)."); }
+        }
+        else if (arg == "--mask") {
+            mask = parse_double(argv[i+1]);
+            if ((mask < 0.0) || (mask > 1.0)) { throw std::invalid_argument("mask must be in [0, 1]."); }
+        }
 
         else if (arg == "--tree") { tree_fname = argv[i+1]; }
         else if (arg == "--variant_pos_fname") { variant_pos_fname = argv[i+1]; }
@@ -522,18 +533,13 @@ int main(int argc, char *argv[]) {
     };
     std::vector<int8_t> x_train;
     std::vector<size_t> train_idxs;
-    x_train.reserve(static_cast<size_t>(HP.N*HP.L * (1.0-val)));
-    train_idxs.reserve(static_cast<size_t>(HP.N * (1.0-val)));
 
     int n_val_seqs = 0;
     std::vector<int8_t> x_val;
-    x_val.reserve(static_cast<size_t>(HP.N*HP.L * val));
 
     int n_masked_ls = 0;
     std::vector<int> masked_ls;
     std::vector<int8_t> x_val_true;
-    masked_ls.reserve(static_cast<size_t>(mask * HP.L));
-    x_val_true.reserve(static_cast<size_t>(HP.N*HP.L * val*mask));
 
     if (val > 0.0) {
         std::random_device rd;
@@ -541,30 +547,55 @@ int main(int argc, char *argv[]) {
         std::cerr << "seed=" << seed << '\n';
         json.add("seed", seed);
         std::mt19937 gen(seed);
-        std::bernoulli_distribution val_dist(val);
-        std::bernoulli_distribution mask_dist(mask);
 
-        for (int i = 0; i < HP.N; ++i) {
+        n_val_seqs = static_cast<int>(std::lround(N * val));
+        if (n_val_seqs == 0) { throw std::invalid_argument("no val seqs."); }
+        if (n_val_seqs == N) { throw std::invalid_argument("all val seqs."); }
+        std::vector<int> seq_idxs(N);
+        std::iota(seq_idxs.begin(), seq_idxs.end(), 0);
+        std::vector<int> val_idxs{sample_without_replacement(std::move(seq_idxs), n_val_seqs, gen)};
+        std::vector<bool> is_val(N, false);
+        for (int i : val_idxs) {
+            is_val[i] = true;
+        }
+
+        int n_train_seqs = N - n_val_seqs;
+        x_train.reserve(n_train_seqs * HP.L);
+        train_idxs.reserve(n_train_seqs);
+        x_val.reserve(n_val_seqs * HP.L);
+
+        for (int i = 0; i < N; ++i) {
             auto line = x_raw.begin() + i*HP.L;
-            if (!val_dist(gen)) {
+            if (is_val[i]) {
+                x_val.insert(x_val.end(), line, line+HP.L);
+            }
+            else {
                 x_train.insert(x_train.end(), line, line+HP.L);
                 train_idxs.emplace_back(i);
-                continue;
             }
-            x_val.insert(x_val.end(), line, line+HP.L);
-            ++n_val_seqs;
         }
-        HP.N = static_cast<int>(train_idxs.size());
-        if (HP.N == 0) { throw std::runtime_error("no train seqs."); }
-        if (n_val_seqs == 0) { throw std::runtime_error("no val seqs."); }
 
+        HP.N = n_train_seqs;
+        std::vector<size_t> train_emission_counts{count_emissions(x_train, HP.N, HP.L, HP.K)};
+        std::vector<int> mask_eligible_ls;
+        mask_eligible_ls.reserve(HP.L);
         for (int l = 0; l < HP.L; ++l) {
-            if (!mask_dist(gen)) { continue; }
-            masked_ls.emplace_back(l);
-            ++n_masked_ls;
+            auto l_counts = train_emission_counts.begin() + l*HP.K;
+            int n_observed_alleles = std::count_if(
+                l_counts, l_counts + HP.K, [](size_t count) { return count > 0; }
+            );
+            if (n_observed_alleles >= 2) {
+                mask_eligible_ls.emplace_back(l);
+            }
         }
-        if (n_masked_ls == 0) { throw std::runtime_error("no masked ls."); }
+        n_masked_ls = static_cast<int>(std::lround(HP.L * mask));
+        if (n_masked_ls == 0) { throw std::invalid_argument("no masked ls."); }
+        if (n_masked_ls > static_cast<int>(mask_eligible_ls.size())) {
+            throw std::invalid_argument("not enough training-polymorphic loci for requested mask fraction.");
+        }
+        masked_ls = sample_without_replacement(std::move(mask_eligible_ls), n_masked_ls, gen);
 
+        x_val_true.reserve(n_val_seqs * n_masked_ls);
         for (int i = 0; i < n_val_seqs; ++i) {
             for (int l : masked_ls) {
                 x_val_true.emplace_back(x_val[idx2d(i, l, HP.L)]);

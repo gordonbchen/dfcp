@@ -29,6 +29,8 @@ DISPLAY_NAMES = {
     "viterbi_impute_acc": "Viterbi",
     "fwd_bkwd_impute_acc": "Forward-backward",
     "mode_impute_acc": "Locus mode",
+    "viterbi_r2_mean": "Viterbi mean r²",
+    "fwd_bkwd_r2_mean": "Forward-backward mean r²",
     "mean_iou": "DFCP adjacent-locus IoU",
     "mean_emission_iou": "Emission adjacent-locus IoU",
     "clade_iou": "DFCP clade IoU",
@@ -211,6 +213,165 @@ def imputation_figure(result: dict[str, Any]) -> go.Figure | None:
     return style_figure(fig)
 
 
+def minor_count_bins(max_count: int) -> list[tuple[int, int]]:
+    bins = [(1, 1), (2, 2)]
+    lower = 3
+    upper = 4
+    while lower <= max_count:
+        bins.append((lower, min(upper, max_count)))
+        lower = upper + 1
+        upper *= 2
+    return [bounds for bounds in bins if bounds[0] <= max_count]
+
+
+def imputation_r2_data(
+    result: dict[str, Any],
+) -> tuple[list[str], list[dict[str, Any]]] | None:
+    minor_counts = result.get("minor_allele_counts")
+    if not isinstance(minor_counts, list) or not minor_counts:
+        return None
+    available = [
+        ("Forward-backward", result.get("fwd_bkwd_r2s"), COLORS["green"]),
+        ("Viterbi", result.get("viterbi_r2s"), COLORS["dfcp"]),
+    ]
+    available = [
+        (name, values, color) for name, values, color in available
+        if isinstance(values, list) and len(values) == len(minor_counts)
+    ]
+    if not available:
+        return None
+
+    bins = minor_count_bins(max(minor_counts))
+    labels = {
+        bounds: str(bounds[0]) if bounds[0] == bounds[1] else f"{bounds[0]}–{bounds[1]}"
+        for bounds in bins
+    }
+    category_order = [labels[bounds] for bounds in bins]
+    series = []
+    for name, values, color in available:
+        values_by_bin = {label: [] for label in category_order}
+        for count, r2 in zip(minor_counts, values, strict=True):
+            if r2 < 0:
+                continue
+            bounds = next((bounds for bounds in bins if bounds[0] <= count <= bounds[1]), None)
+            if bounds is None:
+                continue
+            values_by_bin[labels[bounds]].append((count, r2))
+        if any(values_by_bin.values()):
+            series.append({"name": name, "color": color, "bins": values_by_bin})
+    if not series:
+        return None
+    return category_order, series
+
+
+def imputation_r2_mean_figure(result: dict[str, Any]) -> go.Figure | None:
+    data = imputation_r2_data(result)
+    if data is None:
+        return None
+    category_order, series = data
+    fig = go.Figure()
+    for item in series:
+        mean_x = []
+        means = []
+        two_standard_deviations = []
+        mean_customdata = []
+        for label in category_order:
+            points = item["bins"][label]
+            if not points:
+                continue
+            bin_values = [r2 for _, r2 in points]
+            mean = sum(bin_values) / len(bin_values)
+            if len(bin_values) > 1:
+                variance = sum(
+                    (value - mean) ** 2 for value in bin_values
+                ) / (len(bin_values) - 1)
+                standard_deviation = math.sqrt(variance)
+            else:
+                standard_deviation = 0.0
+            mean_x.append(label)
+            means.append(mean)
+            two_standard_deviations.append(2.0 * standard_deviation)
+            mean_customdata.append((len(bin_values), standard_deviation))
+        fig.add_trace(go.Scatter(
+            x=mean_x, y=means, customdata=mean_customdata,
+            name=item["name"], mode="lines+markers",
+            line={"color": item["color"], "width": 3},
+            marker={
+                "color": "white", "size": 9,
+                "line": {"color": item["color"], "width": 2.5},
+            },
+            error_y={
+                "type": "data", "array": two_standard_deviations,
+                "visible": True, "color": item["color"], "thickness": 1.7,
+                "width": 5,
+            },
+            hovertemplate=(
+                f"{item['name']}<br>training minor-allele count %{{x}}"
+                "<br>mean r² %{y:.4f}<br>loci %{customdata[0]}"
+                "<br>SD %{customdata[1]:.4f}<extra></extra>"
+            ),
+        ))
+    style_figure(fig, 540)
+    fig.update_layout(
+        title="Mean imputation r² by training minor-allele count",
+        legend={
+            "orientation": "h", "x": 0, "xanchor": "left",
+            "y": 1.08, "yanchor": "bottom",
+        },
+        margin={"l": 58, "r": 24, "t": 112, "b": 50},
+    )
+    fig.update_xaxes(
+        title_text="training minor-allele count (binned)",
+        categoryorder="array", categoryarray=category_order,
+    )
+    fig.update_yaxes(title_text="mean r² ± 2 SD", range=[0, 1.03])
+    return fig
+
+
+def imputation_r2_box_figure(result: dict[str, Any]) -> go.Figure | None:
+    data = imputation_r2_data(result)
+    if data is None:
+        return None
+    category_order, series = data
+    fig = go.Figure()
+    for item in series:
+        x = []
+        y = []
+        minor_counts = []
+        for label in category_order:
+            for count, r2 in item["bins"][label]:
+                x.append(label)
+                y.append(r2)
+                minor_counts.append(count)
+        fig.add_trace(go.Box(
+            x=x, y=y, customdata=minor_counts, name=item["name"],
+            marker={"color": item["color"], "size": 6, "opacity": 0.72},
+            line={"color": item["color"], "width": 2},
+            fillcolor=rgba(item["color"], 0.18),
+            boxpoints="all", jitter=0.28, pointpos=0,
+            hovertemplate=(
+                f"{item['name']}<br>training minor-allele count %{{customdata}}"
+                "<br>r² %{y:.4f}<extra></extra>"
+            ),
+        ))
+    style_figure(fig, 560)
+    fig.update_layout(
+        title="Imputation r² distribution by training minor-allele count",
+        boxmode="group",
+        legend={
+            "orientation": "h", "x": 0, "xanchor": "left",
+            "y": 1.08, "yanchor": "bottom",
+        },
+        margin={"l": 58, "r": 24, "t": 112, "b": 50},
+    )
+    fig.update_xaxes(
+        title_text="training minor-allele count (binned)",
+        categoryorder="array", categoryarray=category_order,
+    )
+    fig.update_yaxes(title_text="r²", range=[0, 1.03])
+    return fig
+
+
 def metric_figure(result: dict[str, Any]) -> go.Figure | None:
     specs = (
         ("mean_iou", COLORS["dfcp"]),
@@ -283,30 +444,66 @@ def rgba(color: str, alpha: float) -> str:
     )
 
 
+def log_height_scale(
+    values: list[float],
+) -> tuple[list[float], list[float], list[float], list[float], list[str]]:
+    transformed = [math.log10(1.0 + max(0.0, value)) for value in values]
+    upper = max(transformed)
+    upper += max(upper * 0.025, 0.04)
+    grid = [upper * i / 399 for i in range(400)]
+    heights = [10.0 ** value - 1.0 for value in grid]
+    tick_generations = (0, 10, 100, 1_000, 10_000, 100_000)
+    tick_values = [
+        1.0 + value for value in tick_generations
+        if math.log10(1.0 + value) <= upper
+    ]
+    tick_text = [
+        "0" if value == 0 else f"{value // 1000}k" if value >= 1000 else str(value)
+        for value in tick_generations[:len(tick_values)]
+    ]
+    return transformed, grid, heights, tick_values, tick_text
+
+
 def height_figure(result: dict[str, Any]) -> go.Figure | None:
+    root_heights = result.get("coal_root_heights")
+    if (
+        not isinstance(root_heights, list) or not root_heights
+        or any(root_height <= 0 for root_height in root_heights)
+    ):
+        return None
     series = (
         ("DFCP clusters", result.get("dfcp_clade_heights"), COLORS["dfcp"]),
         ("Emissions", result.get("emission_clade_heights"), COLORS["emission"]),
     )
-    available = [(name, values, color) for name, values, color in series if values]
+    available = []
+    for name, loci, color in series:
+        if (
+            not isinstance(loci, list) or len(loci) != len(root_heights)
+            or any(not isinstance(values, list) for values in loci)
+        ):
+            continue
+        values = [value for locus_values in loci for value in locus_values]
+        fractions = [
+            value / root_height
+            for locus_values, root_height in zip(loci, root_heights, strict=True)
+            for value in locus_values
+        ]
+        if values:
+            available.append((name, values, fractions, color))
     if not available:
         return None
-    transformed = [
+
+    all_heights = [value for _, values, _, _ in available for value in values]
+    _, raw_grid, heights, tick_values, tick_text = log_height_scale(all_heights)
+    raw_values = [
         (name, [math.log10(1.0 + max(0.0, value)) for value in values], color)
-        for name, values, color in available
+        for name, values, _, color in available
     ]
-    all_values = [value for _, values, _ in transformed for value in values]
-    lower = 0.0
-    upper = max(all_values)
-    padding = max((upper - lower) * 0.025, 0.04)
-    upper += padding
-    grid = [lower + (upper - lower) * i / 399 for i in range(400)]
-    heights = [10.0 ** value - 1.0 for value in grid]
     fig = go.Figure()
-    for name, values, color in transformed:
+    for name, values, color in raw_values:
         fig.add_trace(go.Scatter(
             x=[height + 1.0 for height in heights],
-            y=kde(values, grid),
+            y=kde(values, raw_grid),
             customdata=heights,
             name=name,
             mode="lines",
@@ -318,25 +515,113 @@ def height_figure(result: dict[str, Any]) -> go.Figure | None:
                 "density %{y:.4f}<extra>" + name + "</extra>"
             ),
         ))
+
+    normalized_values = [
+        (name, fractions, color) for name, _, fractions, color in available
+    ]
+    fraction_upper = max(1.0, max(
+        value for _, values, _ in normalized_values for value in values
+    ))
+    fraction_grid = [fraction_upper * i / 399 for i in range(400)]
+    for name, values, color in normalized_values:
+        fig.add_trace(go.Scatter(
+            x=fraction_grid,
+            y=kde(values, fraction_grid),
+            name=name,
+            mode="lines",
+            fill="tozeroy",
+            visible=False,
+            line={"color": color, "width": 3},
+            fillcolor=rgba(color, 0.24),
+            hovertemplate=(
+                "fraction of root height %{x:.2%}<br>"
+                "density %{y:.4f}<extra>" + name + "</extra>"
+            ),
+        ))
+
     style_figure(fig, 540)
     fig.update_layout(
         title="Best-matching clade height density",
         hovermode="x",
-        legend={"orientation": "h", "x": 1.0, "xanchor": "right", "y": 1.18},
-        margin={"l": 58, "r": 24, "t": 92, "b": 50},
+        legend={
+            "orientation": "h", "x": 1.0, "xanchor": "right",
+            "y": 1.08, "yanchor": "bottom",
+        },
+        margin={"l": 58, "r": 24, "t": 128, "b": 50},
     )
-    tick_generations = (0, 10, 100, 1_000, 10_000, 100_000)
-    tick_values = [1 + value for value in tick_generations if math.log10(1 + value) <= upper]
-    tick_text = [
-        "0" if value == 0 else f"{value // 1000}k" if value >= 1000 else str(value)
-        for value in tick_generations[:len(tick_values)]
-    ]
+    n_series = len(raw_values)
+    fig.update_layout(updatemenus=[{
+        "type": "buttons", "direction": "right", "showactive": True,
+        "x": 0.0, "xanchor": "left", "y": 1.08, "yanchor": "bottom",
+        "buttons": [
+            {
+                "label": "Generations", "method": "update",
+                "args": [
+                    {"visible": [True] * n_series + [False] * n_series},
+                    {
+                        "xaxis.type": "log",
+                        "xaxis.title.text": "coalescent height (generations before present, log scale)",
+                        "xaxis.tickmode": "array",
+                        "xaxis.tickvals": tick_values,
+                        "xaxis.ticktext": tick_text,
+                        "xaxis.tickformat": None,
+                        "xaxis.range": None,
+                        "xaxis.autorange": True,
+                    },
+                ],
+            },
+            {
+                "label": "Fraction of root", "method": "update",
+                "args": [
+                    {"visible": [False] * n_series + [True] * n_series},
+                    {
+                        "xaxis.type": "linear",
+                        "xaxis.title.text": "fraction of marginal-tree root height",
+                        "xaxis.tickmode": "auto",
+                        "xaxis.tickvals": None,
+                        "xaxis.ticktext": None,
+                        "xaxis.tickformat": ".0%",
+                        "xaxis.range": [0, fraction_upper],
+                        "xaxis.autorange": False,
+                    },
+                ],
+            },
+        ],
+    }])
     fig.update_xaxes(
         title_text="coalescent height (generations before present, log scale)",
         type="log", tickmode="array", tickvals=tick_values, ticktext=tick_text,
     )
     fig.update_yaxes(title_text="density")
     return fig
+
+
+def tree_height_figure(result: dict[str, Any]) -> go.Figure | None:
+    root_heights = result.get("coal_root_heights")
+    if not isinstance(root_heights, list) or not root_heights:
+        return None
+    transformed, grid, heights, tick_values, tick_text = log_height_scale(root_heights)
+    fig = go.Figure(go.Scatter(
+        x=[height + 1.0 for height in heights],
+        y=kde(transformed, grid),
+        customdata=heights,
+        mode="lines",
+        fill="tozeroy",
+        showlegend=False,
+        line={"color": COLORS["ink"], "width": 3},
+        fillcolor=rgba(COLORS["ink"], 0.18),
+        hovertemplate=(
+            "marginal-tree height %{customdata:.4g} generations<br>"
+            "density %{y:.4f}<extra></extra>"
+        ),
+    ))
+    fig.update_layout(title="Marginal-tree root height density")
+    fig.update_xaxes(
+        title_text="root height (generations before present, log scale)",
+        type="log", tickmode="array", tickvals=tick_values, ticktext=tick_text,
+    )
+    fig.update_yaxes(title_text="density")
+    return style_figure(fig, 500)
 
 
 def figure_html(fig: go.Figure | None, div_id: str) -> str:
@@ -560,9 +845,16 @@ def write_report(result: dict[str, Any], output: Path, tree_dot: Path | None) ->
         "iteration-time": figure_html(iteration_time_figure(result), "dfcp-iteration-time"),
         "parameters": figure_html(parameter_figure(result), "dfcp-parameters"),
         "imputation": figure_html(imputation_figure(result), "dfcp-imputation"),
+        "imputation-r2-mean": figure_html(
+            imputation_r2_mean_figure(result), "dfcp-imputation-r2-mean",
+        ),
+        "imputation-r2-box": figure_html(
+            imputation_r2_box_figure(result), "dfcp-imputation-r2-box",
+        ),
         "metrics": figure_html(metric_figure(result), "dfcp-metrics"),
         "timing": figure_html(timing_figure(result), "dfcp-timing"),
         "heights": figure_html(height_figure(result), "dfcp-heights"),
+        "tree-heights": figure_html(tree_height_figure(result), "dfcp-tree-heights"),
     }
     panels = []
     for key in ("elbo", "iteration-time"):
@@ -573,8 +865,12 @@ def write_report(result: dict[str, Any], output: Path, tree_dot: Path | None) ->
     for key in ("imputation", "metrics", "timing"):
         if plots[key]:
             panels.append(f'<section class="plot-section">{plots[key]}</section>')
-    if plots["heights"]:
-        panels.append(f'<section class="plot-section wide">{plots["heights"]}</section>')
+    for key in ("imputation-r2-mean", "imputation-r2-box"):
+        if plots[key]:
+            panels.append(f'<section class="plot-section wide">{plots[key]}</section>')
+    for key in ("heights", "tree-heights"):
+        if plots[key]:
+            panels.append(f'<section class="plot-section wide">{plots[key]}</section>')
 
     scalars = scalar_table(result)
     scalar_sidebar = (

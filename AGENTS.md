@@ -260,8 +260,12 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--tau_1`, `--tau_2`: Gamma shape/rate for `alpha`.
 - `--v_1`, `--v_2`: Beta shapes for each `d_l`.
 - `--phi_1`, `--phi_2`: Gamma shape/rate for each `gamma_l`.
-- `--val`: probability of holding out a whole sequence.
-- `--mask`: probability of masking each allele in held-out sequences.
+- `--seed`: validation/masking RNG seed; `0` draws and reports a random seed.
+- `--val`: fraction of whole sequences to hold out. The rounded target count is
+  sampled without replacement.
+- `--mask`: fraction of all loci to mask across every held-out sequence. The
+  rounded target count is sampled without replacement from loci having at
+  least two alleles represented in the training panel.
 - `--tree`: fastsimcoal marginal-tree file.
 - `--variant_pos_fname`: variant-position file.
 - `--variant_start_pos`: starting index in the position list.
@@ -283,7 +287,9 @@ A representative hard-mode run is:
 ```
 
 Validation uses `--seed` when supplied and otherwise draws a seed through
-`std::random_device`. The selected seed is written to stderr and JSON.
+`std::random_device`. The selected seed is written to stderr and JSON. Sequence
+and locus sample sizes are rounded from `N * val` and `L * mask`; a requested
+mask count larger than the eligible training-polymorphic set is rejected.
 
 ## Output
 
@@ -304,10 +310,13 @@ For binary data it also adds per-locus and mean squared correlations between
 the held-out minor-allele indicators and DFCP's predicted minor-allele
 probabilities. A per-locus value of `-1` means the correlation is undefined
 because the indicator or predicted probability is constant at that locus;
-undefined loci are excluded from the means.
+undefined loci are excluded from the means. Minor-allele identity and count are
+computed from training sequences only, and loci with training minor-allele
+count zero are never masked.
 Tree evaluation adds mean excess parsimony, emission excess parsimony,
 `clade_beta`, importance-weighted `clade_iou` and `emission_clade_iou`, their
-best-clade height samples, `t_parsimony`, and `t_clade_iou`.
+best-clade height samples grouped by locus, marginal-tree root heights by locus,
+`t_parsimony`, and `t_clade_iou`.
 
 Cluster assignments are not currently serialized.
 
@@ -372,6 +381,14 @@ Hard clusters are emission-pure by construction, so hard-mode purity is `1`.
 Soft-mode purity sums each cluster's majority observed allele count and divides
 by `L * n_train_seqs`.
 
+### Minor-allele imputation r²
+
+For binary data, the minor allele at each masked locus is defined from the
+training panel. DFCP reports the squared Pearson correlation between its
+predicted minor-allele probabilities and the held-out minor-allele indicators.
+The online covariance calculation returns `-1` when either variable is
+constant. Per-method means exclude these undefined loci.
+
 ## Build And Dependencies
 
 Required for the executable:
@@ -416,8 +433,7 @@ cases are:
 - Validation-enabled runs, to exercise `train_idxs` and pruning of held-out
   tree leaves.
 
-There is no deterministic seed option, so validation runs are smoke tests
-unless the input or executable is extended to control the RNG.
+Use a fixed nonzero `--seed` for deterministic validation and mask selection.
 
 ## Known Caveats
 
@@ -425,7 +441,6 @@ unless the input or executable is extended to control the RNG.
   indexing operations.
 - The executable assumes `L >= 2`; adjacent-locus metrics divide by `L-1`.
 - Numeric argument parsing accepts a valid numeric prefix followed by junk.
-- Validation fractions are not range-checked.
 - The transformed Laplace searches use fixed bounds `[-10,10]` and fixed
   precision.
 - Unordered containers and exact score ties can make fitting nondeterministic.
