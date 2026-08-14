@@ -151,6 +151,18 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
     return a_msgs;
 }
 
+void normalize_ll(std::vector<double>& ll, int L, int K) {
+    for (int l = 0; l < L; ++l) {
+        double sum_ll = ll[idx2d(l,0,K)];
+        for (int k = 1; k < K; ++k) {
+            sum_ll = log_sum_exp(sum_ll, ll[idx2d(l,k,K)]);
+        }
+        for (int k = 0; k < K; ++k) {
+            ll[idx2d(l,k,K)] = std::exp(ll[idx2d(l,k,K)] - sum_ll);
+        }
+    }
+}
+
 std::vector<double> fwd_bkwd(
     std::vector<int8_t>::const_iterator xi, const std::vector<int>& prob_idxs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
@@ -175,16 +187,8 @@ std::vector<double> fwd_bkwd(
                 probs[idx2d(i,k,HP.K)] = log_sum_exp(probs[idx2d(i,k,HP.K)], ll + emission_ll);
             }
         }
-
-        // Normalize.
-        double sum_ll = probs[idx2d(i,0,HP.K)];
-        for (int k = 1; k < HP.K; ++k) {
-            sum_ll = log_sum_exp(sum_ll, probs[idx2d(i,k,HP.K)]);
-        }
-        for (int k = 0; k < HP.K; ++k) {
-            probs[idx2d(i,k,HP.K)] = std::exp(probs[idx2d(i,k,HP.K)] - sum_ll);
-        }
     }
+    normalize_ll(probs, prob_idxs.size(), HP.K);
     return probs;
 }
 

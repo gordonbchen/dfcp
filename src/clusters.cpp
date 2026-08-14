@@ -54,7 +54,7 @@ void Clusters::block_init(const std::vector<int8_t>& x) {
         seqs.push_back(i);
     }
 
-    std::vector<int8_t> modes{count_modes(x, HP.N, HP.L, HP.K)};
+    std::vector<int8_t> modes{get_emission_modes(count_emissions(x, HP.N, HP.L, HP.K), HP.L, HP.K)};
 
     Cluster* r = create_cluster(seqs, x, true, 0, modes[0]);
     Cluster* q = nullptr;

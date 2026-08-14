@@ -184,10 +184,10 @@ ParsimonyMsg calc_parsimony(
     int idx,
     const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assign,
-    const size_t n_clusters,
+    const int max_cluster_idx,
     const std::unordered_set<size_t>& train_idxs
 ) {
-    BitSet cluster_bm{n_clusters};
+    BitSet cluster_bm{static_cast<size_t>(max_cluster_idx)};
     if (!coal_tree.contains(idx)) {
         if (train_idxs.contains(idx)) {
             cluster_bm.set(cluster_assign[idx]);
@@ -198,8 +198,8 @@ ParsimonyMsg calc_parsimony(
     }
 
     const auto& coal_node = coal_tree.at(idx);
-    ParsimonyMsg lp = calc_parsimony(coal_node.left, coal_tree, cluster_assign, n_clusters, train_idxs);
-    ParsimonyMsg rp = calc_parsimony(coal_node.right, coal_tree, cluster_assign, n_clusters, train_idxs);
+    ParsimonyMsg lp = calc_parsimony(coal_node.left, coal_tree, cluster_assign, max_cluster_idx, train_idxs);
+    ParsimonyMsg rp = calc_parsimony(coal_node.right, coal_tree, cluster_assign, max_cluster_idx, train_idxs);
 
     cluster_bm.intersect(lp.cluster_bm, rp.cluster_bm);
     if (!cluster_bm.is_empty()) {
@@ -212,10 +212,10 @@ ParsimonyMsg calc_parsimony(
 int calc_excess_parsimony(
     const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assign,
-    int n_clusters,
+    int n_clusters, int max_cluster_idx,
     const std::unordered_set<size_t>& train_idxs
 ) {
-    int parsimony = calc_parsimony(-1, coal_tree, cluster_assign, n_clusters, train_idxs).score;
+    int parsimony = calc_parsimony(-1, coal_tree, cluster_assign, max_cluster_idx, train_idxs).score;
     int excess_parsimony = parsimony - (n_clusters - 1);
     if (excess_parsimony < 0) { throw std::runtime_error("Negative excess parsimony."); }
     return excess_parsimony;

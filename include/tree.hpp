@@ -26,7 +26,7 @@ std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::v
 int calc_excess_parsimony(
     const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& cluster_assign,
-    int n_clusters,
+    int n_clusters, int max_cluster_idx,
     const std::unordered_set<size_t>& train_idxs
 );
 

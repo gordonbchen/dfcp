@@ -4,6 +4,7 @@
 #include <limits>
 #include <vector>
 #include <cstdint>
+#include <utility>
 
 
 class EarlyStopping {
@@ -43,7 +44,11 @@ inline size_t idx2d(size_t r, size_t c, size_t width) {
     return r*width + c;
 }
 
-std::vector<int8_t> count_modes(const std::vector<int8_t>& x, const int N, const int L, const int K);
+std::vector<size_t> count_emissions(const std::vector<int8_t>& x, const int N, const int L, const int K);
+std::vector<int8_t> get_emission_modes(const std::vector<size_t>& emission_counts, const int L, const int K);
+std::pair<std::vector<int8_t>, std::vector<size_t>> count_minor_alleles(
+    const std::vector<size_t>& emission_counts, const std::vector<int>& masked_ls, const int n_masked_ls, const int K
+);
 
 double parse_double(char *s);
 int parse_int(char *s);

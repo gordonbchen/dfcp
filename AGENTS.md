@@ -282,8 +282,8 @@ A representative hard-mode run is:
   --mask 0.2 --val 0.2
 ```
 
-Validation is randomized through `std::random_device`; repeated runs need not
-produce identical partitions or metrics.
+Validation uses `--seed` when supplied and otherwise draws a seed through
+`std::random_device`. The selected seed is written to stderr and JSON.
 
 ## Output
 
@@ -300,6 +300,11 @@ Always-present fields include:
 - `cluster_purity`
 
 Validation adds held-out counts, DFCP and mode imputation accuracy, and timing.
+For binary data it also adds per-locus and mean squared correlations between
+the held-out minor-allele indicators and DFCP's predicted minor-allele
+probabilities. A per-locus value of `-1` means the correlation is undefined
+because the indicator or predicted probability is constant at that locus;
+undefined loci are excluded from the means.
 Tree evaluation adds mean excess parsimony, emission excess parsimony,
 `clade_beta`, importance-weighted `clade_iou` and `emission_clade_iou`, their
 best-clade height samples, `t_parsimony`, and `t_clade_iou`.
