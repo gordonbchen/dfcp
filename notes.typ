@@ -1887,6 +1887,61 @@ metrics
 
 
 
+#pagebreak()
+= Welford's method for computing $r^2$ online
+https://jonisalonen.com/2013/deriving-welfords-method-for-computing-variance/
+
+$
+overline(x)_n =& 1/n sum_(i=1)^n x_i \
+  =& (n-1)/n overline(x)_(n-1) + 1/n x_n \
+  =& overline(x)_(n-1) + 1/n (x_n - overline(x)_(n-1))
+$
+
+$
+sum_(i=1)^n (x_i - overline(x)_n)^2 - sum_(i=1)^(n-1) (x_i - overline(x)_(n-1))^2
+
+  =& (x_n - overline(x)_n)^2 + sum_(i=1)^(n-1) [
+        (x_i - overline(x)_n)^2 - (x_i - overline(x)_(n-1))^2
+  ] \
+
+  =& (x_n - overline(x)_n)^2 + sum_(i=1)^(n-1) [
+        -2 x_i overline(x)_n + overline(x)_n^2 + 2 x_i overline(x)_(n-1) - overline(x)_(n-1)^2
+  ] \
+
+  =& (x_n - overline(x)_n)^2 + sum_(i=1)^(n-1) [
+        2 x_i (overline(x)_(n-1) - overline(x)_n) + overline(x)_n^2 - overline(x)_(n-1)^2
+  ] \
+
+  =& (x_n - overline(x)_n)^2 + (overline(x)_(n-1) - overline(x)_n) sum_(i=1)^(n-1) [
+        2 x_i - overline(x)_n - overline(x)_(n-1)
+  ] \
+
+  =& (x_n - overline(x)_n)^2 + (overline(x)_(n-1) - overline(x)_n) sum_(i=1)^(n-1) [
+        x_i - overline(x)_n
+  ] \
+
+  =& (x_n - overline(x)_n)^2 + (overline(x)_(n-1) - overline(x)_n) (overline(x)_n - x_n) \
+
+  =& (x_n - overline(x)_n) (x_n - overline(x)_n - overline(x)_(n-1) + overline(x)_n) \
+
+  =& (x_n - overline(x)_n) (x_n - overline(x)_(n-1))
+$
+
+$
+sum_(i=1)^n (x_i - overline(x)_n) (y_i - overline(y)_n) -& sum_(i=1)^(n-1) (x_i - overline(x)_(n-1)) (y_i - overline(y)_(n-1)) \
+
+=& (x_n - overline(x)_n)(y_n - overline(y)_n) + sum_(i=1)^(n-1) [(x_i - overline(x)_n) (y_i - overline(y)_n) - (x_i - overline(x)_(n-1)) (y_i - overline(y)_(n-1))] \
+
+=& (x_n - overline(x)_n)(y_n - overline(y)_n) + (n-1)(overline(x)_n - overline(x)_(n-1))(overline(y)_n - overline(y)_(n-1)) \
+
+=& ((n-1)/n)^2 delta_x delta_y + (n-1)/n^2 delta_x delta_y \
+
+=& (n-1)/n delta_x delta_y \
+
+=& (x_n - overline(x)_n) (y_n - overline(y)_(n-1))\
+$
+
+
 
 
 #pagebreak()
