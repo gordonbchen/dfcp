@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <cstddef>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
@@ -36,26 +35,28 @@ double log_sum_exp(double x1, double x2) {
 }
 
 std::vector<std::unordered_map<Cluster*, double>> get_bkwd_msgs(
-    std::vector<int8_t>::const_iterator xi, const Clusters& clusters, const Params& params, const HyperParams& HP
+    std::vector<int8_t>::const_iterator xi, const std::unordered_map<int, int>& unmasked_ls,
+    const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
     std::vector<std::unordered_map<Cluster*, double>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, double>> b_msgs(HP.L-1);
     for (int l = HP.L-1; l >= 0; --l) {
-        double new_a_ll = get_cluster_emission_ll(nullptr, xi[l], l, clusters, params, HP);
+        int xil = get_xil(xi, l, &unmasked_ls);
+        double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xi[l] == -1) ?
-            clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xi[l], HP.K)];
+        const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xil == -1) ?
+            clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xil, HP.K)];
         if (l == HP.L-1) {
             a_msgs[l][nullptr] = new_a_ll;
             for (Cluster *a : matching_as) {
-                a_msgs[l][a] = get_cluster_emission_ll(a, xi[l], l, clusters, params, HP);
+                a_msgs[l][a] = get_cluster_emission_ll(a, xil, l, clusters, params, HP);
             }
             continue;
         }
 
         // b messages.
         for (Cluster* b : clusters.qs[l]) {
-            if (b->children.size() != 1) { throw std::runtime_error("b clusters should only have 1 child."); };
+            if (b->children.size() != 1) { throw std::runtime_error("b clusters can only have 1 child."); };
             Cluster* next_a = *b->children.begin();
             b_msgs[l][b] = get_msg_ll(a_msgs[l+1], next_a, clusters.noisy, clusters.soft);
         }
@@ -66,11 +67,13 @@ std::vector<std::unordered_map<Cluster*, double>> get_bkwd_msgs(
         double elogy = delta_Elogx(mu_y, sigma2_y, 1.0, 0.0);
 
         double new_b_ll = -elogy + params.mu_log_alpha + a_msgs[l+1].at(nullptr);
-        const std::unordered_set<Cluster*>& matching_next_as = clusters.noisy || clusters.soft || (xi[l+1] == -1) ?
-            clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xi[l+1], HP.K)];
+        int xil1 = get_xil(xi, l+1, &unmasked_ls);
+        const std::unordered_set<Cluster*>& matching_next_as = clusters.noisy || clusters.soft || (xil1 == -1)
+            ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xil1, HP.K)];
         for (Cluster *a : matching_next_as) {
             double nCl = a->parents.size();
-            double ll = params.mu_log_d[l] + std::log(nCl) + get_msg_ll(a_msgs[l+1], a, clusters.noisy, clusters.soft);
+            double ll = params.mu_log_d[l] + std::log(nCl)
+                + get_msg_ll(a_msgs[l+1], a, clusters.noisy, clusters.soft);
             new_b_ll = log_sum_exp(new_b_ll, -elogy + ll);
         }
         b_msgs[l][nullptr] = new_b_ll;
@@ -86,26 +89,28 @@ std::vector<std::unordered_map<Cluster*, double>> get_bkwd_msgs(
                     + get_msg_ll(b_msgs[l], b, clusters.noisy, clusters.soft);
                 a_ll = log_sum_exp(a_ll, ll);
             }
-            a_msgs[l][a] = get_cluster_emission_ll(a, xi[l], l, clusters, params, HP) + a_ll;
+            a_msgs[l][a] = get_cluster_emission_ll(a, xil, l, clusters, params, HP) + a_ll;
         }
     }
     return a_msgs;
 }
 
 std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
-    std::vector<int8_t>::const_iterator xi, const Clusters& clusters, const Params& params, const HyperParams& HP
+    std::vector<int8_t>::const_iterator xi, const std::unordered_map<int, int>& unmasked_ls,
+    const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
     std::vector<std::unordered_map<Cluster*, double>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, double>> b_msgs(HP.L-1);
     for (int l = 0; l < HP.L; ++l) {
-        double new_a_ll = get_cluster_emission_ll(nullptr, xi[l], l, clusters, params, HP);
+        int xil = get_xil(xi, l, &unmasked_ls);
+        double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xi[l] == -1) ?
-            clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xi[l], HP.K)];
+        const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xil == -1) ?
+            clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xil, HP.K)];
         if (l == 0) {
             a_msgs[l][nullptr] = new_a_ll + params.mu_log_alpha;
             for (Cluster *a : matching_as) {
-                a_msgs[l][a] = get_cluster_emission_ll(a, xi[l], l, clusters, params, HP)
+                a_msgs[l][a] = get_cluster_emission_ll(a, xil, l, clusters, params, HP)
                     + std::log(static_cast<double>(a->n));
             }
             continue;
@@ -113,7 +118,7 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
 
         // b messages.
         for (Cluster* b : clusters.qs[l-1]) {
-            if (b->parents.size() != 1) { throw std::runtime_error("b clusters should only have 1 parent."); };
+            if (b->parents.size() != 1) { throw std::runtime_error("b clusters can only have 1 parent."); };
             Cluster* prev_a = *b->parents.begin();
             double log_na = std::log(static_cast<double>(prev_a->n));
             double ab_ll = -log_na + delta_Elogx(params.mu_d[l-1], params.sigma2_d[l-1], -1.0, b->n);
@@ -121,13 +126,14 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
         }
 
         double new_b_ll = a_msgs[l-1].at(nullptr);
-        const std::unordered_set<Cluster*>& matching_prev_as = clusters.noisy || clusters.soft || (xi[l-1] == -1) ?
-            clusters.rs[l-1] : clusters.rs_by_emit[idx2d(l-1, xi[l-1], HP.K)];
+        int xilm1 = get_xil(xi, l-1, &unmasked_ls);
+        const std::unordered_set<Cluster*>& matching_prev_as = clusters.noisy || clusters.soft || (xilm1==-1)
+            ? clusters.rs[l-1] : clusters.rs_by_emit[idx2d(l-1, xilm1, HP.K)];
         for (Cluster *a : matching_prev_as) {
             double log_na = std::log(static_cast<double>(a->n));
             double nFl = a->children.size();
             double ab_ll = -log_na + std::log(nFl) + params.mu_log_d[l-1];
-            new_b_ll = log_sum_exp(new_b_ll, get_msg_ll(a_msgs[l-1], a, clusters.noisy, clusters.soft) + ab_ll);
+            new_b_ll = log_sum_exp(new_b_ll, get_msg_ll(a_msgs[l-1], a, clusters.noisy, clusters.soft)+ab_ll);
         }
         b_msgs[l-1][nullptr] = new_b_ll;
 
@@ -145,7 +151,7 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
             for (Cluster* b : a->parents) {
                 a_ll = log_sum_exp(a_ll, get_msg_ll(b_msgs[l-1], b, clusters.noisy, clusters.soft));
             }
-            a_msgs[l][a] = get_cluster_emission_ll(a, xi[l], l, clusters, params, HP) + a_ll;
+            a_msgs[l][a] = get_cluster_emission_ll(a, xil, l, clusters, params, HP) + a_ll;
         }
     }
     return a_msgs;
@@ -164,31 +170,34 @@ void normalize_ll(std::vector<double>& ll, int L, int K) {
 }
 
 std::vector<double> fwd_bkwd(
-    std::vector<int8_t>::const_iterator xi, const std::vector<int>& prob_idxs,
+    std::vector<int8_t>::const_iterator xi, const std::unordered_map<int, int>& unmasked_ls,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<std::unordered_map<Cluster*, double>> a_msgs = get_bkwd_msgs(xi, clusters, params, HP);
-    std::vector<std::unordered_map<Cluster*, double>> fwd_a_msgs = get_fwd_msgs(xi, clusters, params, HP);
+    auto a_msgs = get_bkwd_msgs(xi, unmasked_ls, clusters, params, HP);
+    auto fwd_a_msgs = get_fwd_msgs(xi, unmasked_ls, clusters, params, HP);
 
     for (int l = 0; l < HP.L; ++l) {
         for (const auto& [a, ll] : fwd_a_msgs[l]) {
             a_msgs[l][a] = get_msg_ll(a_msgs[l], a, clusters.noisy, clusters.soft) + ll;
+
             // Emission probs are double counted.
-            a_msgs[l][a] -= get_cluster_emission_ll(a, xi[l], l, clusters, params, HP);
+            int xil = get_xil(xi, l, &unmasked_ls);
+            a_msgs[l][a] -= get_cluster_emission_ll(a, xil, l, clusters, params, HP);
         }
     }
 
-    std::vector<double> probs(prob_idxs.size() * HP.K, -std::numeric_limits<double>::infinity());
-    for (size_t i = 0; i < prob_idxs.size(); ++i) {
-        int l = prob_idxs[i];
+    int n_masked_ls = HP.L - unmasked_ls.size();
+    std::vector<double> probs(n_masked_ls * HP.K, -std::numeric_limits<double>::infinity());
+    for (int l = 0; l < HP.L; ++l) {
+        if (unmasked_ls.contains(l)) { continue; }
         for (const auto& [a, ll] : a_msgs[l]) {
             for (int k = 0; k < HP.K; ++k) {
                 double emission_ll = get_cluster_emission_ll(a, k, l, clusters, params, HP);
-                probs[idx2d(i,k,HP.K)] = log_sum_exp(probs[idx2d(i,k,HP.K)], ll + emission_ll);
+                probs[idx2d(l,k,HP.K)] = log_sum_exp(probs[idx2d(l,k,HP.K)], ll + emission_ll);
             }
         }
     }
-    normalize_ll(probs, prob_idxs.size(), HP.K);
+    normalize_ll(probs, unmasked_ls.size(), HP.K);
     return probs;
 }
 

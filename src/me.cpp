@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <chrono>
 #include <limits>
+#include <unordered_map>
 #include "hyperparams.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
@@ -76,7 +77,7 @@ void train_dfcp(
     else {
         int N = HP.N;
         HP.N = 0;
-        add_seqs(clusters, x_train.begin(), N, HP, params);
+        add_seqs(x_train.begin(), N, clusters, params, HP);
     }
     auto t1 = std::chrono::steady_clock::now();
     auto t_init = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
@@ -92,9 +93,9 @@ void train_dfcp(
     std::vector<Json> train_log;
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
-        max_step(clusters, x_train, HP, params);
+        max_step(x_train, clusters, params, HP);
         if (clusters.noisy) {
-            max_cluster_emissions(clusters, HP, params);
+            max_cluster_emissions(clusters, params, HP);
         }
         auto t1 = std::chrono::steady_clock::now();
         expect_step(HP, params, clusters);
@@ -124,24 +125,26 @@ void train_dfcp(
 
 
 std::vector<double> get_viterbi_impute_probs(
-    std::vector<int8_t>::const_iterator xi, const std::vector<int>& prob_idxs,
+    std::vector<int8_t>::const_iterator xi, const std::unordered_map<int, int>& unmasked_ls,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(clusters, xi, HP, params)};
+    std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(xi, &unmasked_ls, clusters, params, HP)};
     std::vector<double> viterbi_probs;
-    viterbi_probs.reserve(prob_idxs.size() * HP.K);
-    for (int l : prob_idxs) {
+    int n_masked_ls = HP.L - unmasked_ls.size();
+    viterbi_probs.reserve(n_masked_ls * HP.K);
+    for (int l = 0; l < HP.L; ++l) {
+        if (unmasked_ls.contains(l)) { continue; }
         for (int k = 0; k < HP.K; ++k) {
             double p = get_cluster_emission_ll(viterbi_clusters[2*l], k, l, clusters, params, HP);
             viterbi_probs.emplace_back(p);
         }
     }
-    normalize_ll(viterbi_probs, prob_idxs.size(), HP.K);
+    normalize_ll(viterbi_probs, n_masked_ls, HP.K);
     return viterbi_probs;
 }
 
 void impute(
-    const std::vector<int8_t>& x_val, int n_val_seqs, const std::vector<int>& masked_ls,
+    const std::vector<int8_t>& x_val, int n_val_seqs, const std::unordered_map<int, int>& unmasked_ls,
     bool viterbi,
     const Clusters& clusters, const Params& params, const HyperParams& HP,
     Json& json
@@ -155,8 +158,8 @@ void impute(
         auto xi = x_val.begin() + i*HP.L;
         auto t0 = std::chrono::steady_clock::now();
         std::vector<double> seq_probs = viterbi ?
-            get_viterbi_impute_probs(xi, masked_ls, clusters, params, HP)
-            : fwd_bkwd(xi, masked_ls, clusters, params, HP);
+            get_viterbi_impute_probs(xi, unmasked_ls, clusters, params, HP)
+            : fwd_bkwd(xi, unmasked_ls, clusters, params, HP);
         impute_dur += std::chrono::steady_clock::now() - t0;
 
         probs.emplace_back(std::move(seq_probs));
@@ -169,30 +172,21 @@ void impute(
 }
 
 
-std::pair<std::vector<int8_t>, std::vector<int>> read_seq_file(
-    char *filename, int& N, int *L, int & K, bool allow_missing
-) {
+std::vector<int8_t> read_seq_file(char *filename, int& N, int& L, int& K) {
     std::ifstream file(filename);
     if (!file.is_open()) { throw std::runtime_error("Failed to open seq file."); };
 
     std::vector<int8_t> x;
-    std::vector<int> masked_ls;
 
     std::string line;
     N = 0;
     while (std::getline(file, line)) {
-        if ((L == nullptr) && (N == 0)) {
-            *L = line.size();
+        if (N == 0) {
+            L = line.size();
         }
 
-        for (size_t l = 0; l < line.size(); ++l) {
-            if (allow_missing && (line[l] == '.')) {
-                x.push_back(-1);
-                if (N == 0) {
-                    masked_ls.push_back(l);
-                }
-            }
-            else if ((line[l] >= '0') && (line[l] <= '9')) {
+        for (int l = 0; l < L; ++l) {
+            if ((line[l] >= '0') && (line[l] <= '9')) {
                 x.push_back(line[l] - '0');
                 K = std::max(K, (line[l] - '0') + 1);
             }
@@ -202,7 +196,27 @@ std::pair<std::vector<int8_t>, std::vector<int>> read_seq_file(
         }
         ++N;
     }
-    return {std::move(x), std::move(masked_ls)};
+    return x;
+}
+
+std::unordered_map<int, int> read_unmasked_ls(char *filename, int n_unmasked_ls) {
+    std::ifstream file(filename);
+    if (!file.is_open()) { throw std::runtime_error("Failed to open unmasked ls file."); };
+
+    std::unordered_map<int, int> unmasked_ls;
+    unmasked_ls.reserve(n_unmasked_ls);
+
+    int i = 0;
+    int l;
+    while (file >> l) {
+        unmasked_ls[l] = i;
+        ++i;
+        if (i > n_unmasked_ls) { break; }
+    }
+    if (unmasked_ls.size() != static_cast<size_t>(n_unmasked_ls)) {
+        throw std::runtime_error("did not read n_unmasked_ls from file.");
+    }
+    return unmasked_ls;
 }
 
 double parse_double(char *s) {
@@ -223,17 +237,21 @@ int main(int argc, char *argv[]) {
     Json json;
 
     // Read ref and target files.
-    if (argc < 3) { throw std::invalid_argument("Requires reference and target seq files."); }
-    std::cerr << "ref_file=" << argv[1] << " target_file=" << argv[2] << '\n';
-    json.add("ref_file", argv[1]).add("target_file", argv[2]);
+    if (argc < 4) { throw std::invalid_argument("Requires ref and target seq files, and masked ls file."); }
+    std::cerr << "ref_file=" << argv[1] << " target_file=" << argv[2]
+        << " unmasked_ls_file=" << argv[3] << '\n';
+    json.add("ref_file", argv[1]).add("target_file", argv[2]).add("unmasked_ls_file", argv[3]);
 
     int n_train_seqs;
     int L;
     int K = 2;
-    std::vector<int8_t> x_train{read_seq_file(argv[1], n_train_seqs, &L, K, false).first};
+    std::vector<int8_t> x_train{read_seq_file(argv[1], n_train_seqs, L, K)};
 
     int n_val_seqs;
-    auto [x_val, masked_ls] = read_seq_file(argv[2], n_val_seqs, nullptr, K, true);
+    int n_unmasked_ls;
+    std::vector<int8_t> x_val{read_seq_file(argv[2], n_val_seqs, n_unmasked_ls, K)};
+
+    std::unordered_map<int, int> unmasked_ls{read_unmasked_ls(argv[3], n_unmasked_ls)};
 
     HyperParams HP{.N=n_train_seqs, .L=L, .K=K};
 
@@ -298,7 +316,7 @@ int main(int argc, char *argv[]) {
     );
 
     impute(
-        x_val, n_val_seqs, masked_ls,
+        x_val, n_val_seqs, unmasked_ls,
         viterbi_impute,
         clusters, params, HP,
         json
