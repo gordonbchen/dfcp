@@ -40,6 +40,8 @@ current executable.
 
 - `include/hyperparams.hpp`: dimensions and prior hyperparameters.
 - `include/params.hpp`: moments for the continuous variational approximation.
+- `include/seq_array.hpp`: sequence-major bitpacked observations and the binary
+  sequence-file reader.
 - `include/clusters.hpp`: `R`/`Q` graph nodes, ownership, assignments, and
   cluster mutation interface.
 - `include/max.hpp`: sequence reassignment and insertion entry points.
@@ -54,7 +56,9 @@ current executable.
 ### C++ sources
 
 - `src/me.cpp`: executable orchestration, input and argument parsing, fitting,
-  imputation, evaluation, timings, and JSON output.
+  imputation, timings, and JSON output.
+- `src/seq_array.cpp`: binary sequence loading and the 64-by-64 bit transpose
+  from locus-major file words to sequence-major memory words.
 - `src/clusters.cpp`: cluster creation/deletion, graph links, assignments,
   hard-emission indexes, and soft-emission counts.
 - `src/max.cpp`: hard and soft sequencewise Viterbi maximization.
@@ -63,7 +67,7 @@ current executable.
 - `src/math.cpp`: reusable delta approximations.
 - `src/tree.cpp`: fastsimcoal tree parsing, Fitch parsimony, clade metrics,
   coordinate alignment, and DOT output.
-- `src/util.cpp`: locus modes and numeric CLI parsers.
+- `src/util.cpp`: emission counts and locus modes.
 
 ### Scripts
 
@@ -178,6 +182,7 @@ Important invariants:
 - In soft mode, `n_obs` excludes missing values and `nk[k]` counts observed
   allele `k` values only.
 - In hard mode, only `R` clusters have emissions; `Q` emissions are `-1`.
+- `SeqArray::x` is bitpacked sequence-major `[N][ceil(L/64)]`.
 - `r_assign` is flat `[N][L]`; `q_assign` is flat `[N][L-1]`.
 - Use `idx2d` for flat indexing rather than reproducing index arithmetic.
 
@@ -189,38 +194,48 @@ current value before using it.
 
 `src/me.cpp` performs these steps:
 
-1. Read one haplotype per line into a flat row-major `int8_t` vector.
-2. Infer `N`, `L`, and `K` from the input.
+1. Read locus-major bitpacked reference and target files and transpose each
+   into an in-memory sequence-major `SeqArray`.
+2. Read the map from full reference loci to compact observed-target columns.
 3. Parse all optional arguments as option/value pairs.
-4. Optionally split whole sequences into training and validation groups, then
-   mask loci across all held-out sequences.
-5. Initialize parameters and clusters, either as one block or by adding
-   sequences through Viterbi.
-6. Run Maximization-Expectation until early stopping.
-7. Evaluate clusters and optionally align loci to reference trees. Tree metrics
-   prune held-out leaves and evaluate only the fitted training partition.
-8. Optionally score held-out imputation against the frozen training fit;
-   held-out sequences are not inserted into the cluster graph.
-9. Write diagnostics to stderr and one JSON object to stdout.
-
-Validation compacts training sequences into `x_train`. `train_idxs` maps each
-training row back to its leaf index in the original input/tree order. Reference
-tree metrics must apply this map and treat every other leaf as pruned.
+4. Initialize parameters and clusters, either as one block, with PBWT groups,
+   or by adding sequences through Viterbi.
+5. Unless `--init_only 1` is set, run Maximization-Expectation until early
+   stopping.
+6. Impute target loci absent from the observed-target map without inserting
+   target sequences into the fitted reference cluster graph.
+7. Write diagnostics to stderr and one JSON object to stdout.
 
 ## Input Formats
 
 ### Haplotype sequence file
 
-- One sequence per line.
-- One ASCII digit per allele.
-- All lines are expected to have the same nonzero length.
-- Alleles are limited to categories `0` through `9`.
-- `K` is `max_observed_digit + 1`; labels need not be contiguous.
-- The executable reads plain text. A filename containing `.gz` does not imply
-  decompression and the supplied examples with such names are plain text.
-- Internal missing values use `-1`, but `-1` is not accepted in input files.
+- Sequence files are binary and begin with the four ASCII magic bytes `DFCP`,
+  equivalent to the little-endian 32-bit integer `0x50434644`.
+- The magic is followed by little-endian 32-bit `N` and `L` values.
+- The payload is locus-major `[L][ceil(N/64)]` little-endian 64-bit words.
+  Allele `(i,l)` is bit `i%64` of payload word
+  `l*ceil(N/64)+i/64`, with the least-significant bit first.
+- Every locus begins at a 64-bit boundary. Unused high bits in its final word
+  must be zero, and trailing bytes are rejected.
+- The reader transposes 64-by-64 bit tiles into sequence-major
+  `[N][ceil(L/64)]` `SeqArray` storage. Every in-memory sequence therefore also
+  begins at a 64-bit boundary.
+- The file format supports only alleles `0` and `1`; missing values are not
+  represented. `N` and `L` must both be nonzero and fit in a positive `int`.
+
+### Unmasked loci file
+
+- The file contains one zero-based reference-locus index per observed target
+  column, in the same order as columns in the target sequence file.
+- It must contain exactly `target.L` unique indexes, each in `[0, reference.L)`.
+- `dfcp_prep.sh` creates it by matching `CHROM`, `POS`, `REF`, and `ALT` and
+  rejects missing, duplicate, or reordered target variants.
 
 ### Variant position file
+
+This format is used by the currently inactive evaluation sources, not by
+`dfcp`'s active command line.
 
 The parser expects an integer count followed by comma-separated integer
 positions. `--variant_start_pos` is a zero-based index into this list, not a
@@ -252,7 +267,7 @@ Build and run from the repository root:
 
 ```bash
 ./build.sh
-./build/dfcp SEQUENCE_FILE [OPTION VALUE]...
+./build/dfcp REF_FILE TARGET_FILE UNMASKED_LOCI_FILE [OPTION VALUE]...
 ```
 
 Every option requires a value, including booleans. There is no `--help` path.
@@ -260,36 +275,27 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--tau_1`, `--tau_2`: Gamma shape/rate for `alpha`.
 - `--v_1`, `--v_2`: Beta shapes for each `d_l`.
 - `--phi_1`, `--phi_2`: Gamma shape/rate for each `gamma_l`.
-- `--seed`: validation/masking RNG seed; `0` draws and reports a random seed.
-- `--val`: fraction of whole sequences to hold out. The rounded target count is
-  sampled without replacement.
-- `--mask`: fraction of all loci to mask across every held-out sequence. The
-  rounded target count is sampled without replacement from loci having at
-  least two alleles represented in the training panel.
-- `--tree`: fastsimcoal marginal-tree file.
-- `--variant_pos_fname`: variant-position file.
-- `--variant_start_pos`: starting index in the position list.
-- `--tree_vis`: DOT output path for the first 16 loci.
-- `--clade_beta`: symmetric Beta shape for cluster-to-clade importance
-  weights; defaults to `2` and must be at least `1`.
+- `--noisy`: enable noisy hard emissions only when the value is exactly `1`.
+- `--lambda_1`, `--lambda_2`: Beta shapes for the noisy-emission error rate.
 - `--soft`: enabled only when the value is exactly `1`.
 - `--block_init`: enabled only when the value is exactly `1`.
+- `--pbwt_init`: enabled only when the value is exactly `1`.
+- `--pbwt_match_len`: PBWT initialization match length; defaults to `5`.
+- `--pbwt_match_curr`: include the current locus in PBWT matching only when the
+  value is exactly `1`; defaults to enabled.
+- `--init_only`: skip ME training only when the value is exactly `1`.
+- `--viterbi_impute`: use the Viterbi path rather than forward-backward
+  imputation only when the value is exactly `1`.
 
-A representative hard-mode run is:
+A prepared 1000 Genomes invocation is:
 
 ```bash
 ./build.sh && ./build/dfcp \
-  data/examples/simulated/SIM1_LEN500_NHAPS100/haps_SIMOUT_1.txt.gz_SIMOUT_14572-15071.txt \
-  --tree data/examples/simulated/SIM1_LEN500_NHAPS100/ex_0_pop_1_1_true_trees.trees_1_14572_500.trees \
-  --variant_pos_fname data/examples/simulated/SIM1_LEN500_NHAPS100/variant_pos.txt \
-  --variant_start_pos 14572 \
-  --mask 0.2 --val 0.2
+  data/1000g_phase3_v5b/dfcp_prep/ref.bin \
+  data/1000g_phase3_v5b/dfcp_prep/target_masked.bin \
+  data/1000g_phase3_v5b/dfcp_prep/target_masked.unmasked_loci.txt \
+  --pbwt_init 1 --viterbi_impute 1
 ```
-
-Validation uses `--seed` when supplied and otherwise draws a seed through
-`std::random_device`. The selected seed is written to stderr and JSON. Sequence
-and locus sample sizes are rounded from `N * val` and `L * mask`; a requested
-mask count larger than the eligible training-polymorphic set is rejected.
 
 ## Output
 
@@ -298,27 +304,14 @@ one JSON object suitable for scripts.
 
 Always-present fields include:
 
-- `seq_file`
-- `train_log`
-- `params.mu_alpha`, `params.mu_gamma`, `params.mu_d`
-- `mean_iou`, `mean_emission_iou`, `t_iou`
-- `mean_clusters`
-- `cluster_purity`
+- `ref_file`, `target_file`, and `unmasked_ls_file`
+- `t_init`, `probs`, and `t_impute`
 
-Validation adds held-out counts, DFCP and mode imputation accuracy, and timing.
-For binary data it also adds per-locus and mean squared correlations between
-the held-out minor-allele indicators and DFCP's predicted minor-allele
-probabilities. A per-locus value of `-1` means the correlation is undefined
-because the indicator or predicted probability is constant at that locus;
-undefined loci are excluded from the means. Minor-allele identity and count are
-computed from training sequences only, and loci with training minor-allele
-count zero are never masked.
-Tree evaluation adds mean excess parsimony, emission excess parsimony,
-`clade_beta`, importance-weighted `clade_iou` and `emission_clade_iou`, their
-best-clade height samples grouped by locus, marginal-tree root heights by locus,
-`t_parsimony`, and `t_clade_iou`.
+Unless `--init_only 1` is set, output also includes `train_log` and the fitted
+parameter moments under `params`. Cluster assignments are not serialized.
 
-Cluster assignments are not currently serialized.
+The evaluation metrics below describe the intended behavior in the inactive
+evaluation sources. They are not currently emitted by `dfcp`.
 
 ## Evaluation Metrics
 
@@ -437,8 +430,9 @@ Use a fixed nonzero `--seed` for deterministic validation and mask selection.
 
 ## Known Caveats
 
-- Empty input and ragged input lines are not explicitly validated before all
-  indexing operations.
+- The bitpacked sequence format does not represent missing or multiallelic
+  observations. Missing target loci are represented by the separate mapping
+  from full reference loci to columns in the compact target `SeqArray`.
 - The executable assumes `L >= 2`; adjacent-locus metrics divide by `L-1`.
 - Numeric argument parsing accepts a valid numeric prefix followed by junk.
 - The transformed Laplace searches use fixed bounds `[-10,10]` and fixed

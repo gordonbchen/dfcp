@@ -1,20 +1,18 @@
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <iterator>
 #include <stdexcept>
 #include <vector>
 #include "util.hpp"
+#include "seq_array.hpp"
 
 
-std::vector<size_t> count_emissions(const std::vector<int8_t>& x, const int N, const int L, const int K) {
-    std::vector<size_t> counts(L*K, 0);
-    for (int i = 0; i < N; ++i) {
-        for (int l = 0; l < L; ++l) {
-            int emission = x[idx2d(i, l, L)];
-            if (emission != -1) {
-                ++counts[idx2d(l, emission, K)];
-            }
+std::vector<size_t> count_emissions(const SeqArray& x, int K) {
+    std::vector<size_t> counts(x.L * K, 0);
+    for (int i = 0; i < x.N; ++i) {
+        for (int l = 0; l < x.L; ++l) {
+            ++counts[idx2d(l, x(i, l), K)];
         }
     }
     return counts;
@@ -30,4 +28,3 @@ std::vector<int8_t> get_emission_modes(const std::vector<size_t>& emission_count
     }
     return modes;
 }
-

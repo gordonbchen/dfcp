@@ -13,7 +13,7 @@ raw file again, use:
 THREADS=8 scripts/1000g_phase3_v5b/run.sh --force
 ```
 
-The four stages and their outputs are:
+The five stages and their outputs are:
 
 1. `download.sh` downloads the Phase 3 v5b VCF, its index, the population
    panel, and the Illumina Omni2.5 BED into `data/1000g_phase3_v5b/`.
@@ -24,6 +24,10 @@ The four stages and their outputs are:
    `ref_target/`.
 4. `mask_target.sh` writes the chromosome 20 Omni BED, observed target VCF,
    withheld target truth VCF, and indexes into `mask_target/`.
+5. `dfcp_prep.sh` streams each VCF directly into locus-major, 64-bit-padded
+   DFCP inputs in `dfcp_prep/`. It also writes
+   `target_masked.unmasked_loci.txt`, which maps observed target columns to
+   reference loci. The C++ reader performs the packed transpose.
 
 Run stages individually with their defaults if needed:
 
@@ -32,6 +36,7 @@ scripts/1000g_phase3_v5b/download.sh
 scripts/1000g_phase3_v5b/biallelic_snps.sh
 python3 scripts/1000g_phase3_v5b/split_ref_target.py --seed 0 --threads 8
 THREADS=8 scripts/1000g_phase3_v5b/mask_target.sh
+scripts/1000g_phase3_v5b/dfcp_prep.sh
 ```
 
 `biallelic_snps.sh` deliberately does not apply a minor-allele-count or

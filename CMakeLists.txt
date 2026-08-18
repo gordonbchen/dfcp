@@ -11,6 +11,7 @@ find_package(OpenMP REQUIRED)
 
 add_executable(dfcp
     src/me.cpp
+    src/seq_array.cpp
     src/clusters.cpp
     src/max.cpp
     src/expect.cpp
@@ -36,4 +37,3 @@ target_compile_options(dfcp PRIVATE
 target_link_libraries(dfcp PRIVATE
     OpenMP::OpenMP_CXX
 )
-

@@ -1,16 +1,15 @@
 #pragma once
-#include <cstdint>
 #include <unordered_map>
 #include <vector>
 #include "clusters.hpp"
 #include "params.hpp"
 #include "hyperparams.hpp"
+#include "seq_array.hpp"
 
 
 void normalize_ll(std::vector<double>& ll, int L, int K);
 
 std::vector<double> fwd_bkwd(
-    std::vector<int8_t>::const_iterator xi, const std::unordered_map<int, int>& unmasked_ls,
+    const SeqArray& x, int i, const std::unordered_map<int, int>& unmasked_ls,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
-

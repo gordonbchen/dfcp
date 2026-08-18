@@ -1,12 +1,14 @@
-#include <vector>
-#include <cstdint>
 #include <algorithm>
 #include <utility>
+#include <vector>
 #include "pbwt.hpp"
+#include "seq_array.hpp"
 #include "util.hpp"
 
 
-std::pair<std::vector<int>, std::vector<int>> pbwt(const std::vector<int8_t>& x, int N, int L) {
+std::pair<std::vector<int>, std::vector<int>> pbwt(const SeqArray& x) {
+    int N = x.N;
+    int L = x.L;
     std::vector<int> a(N*(L+1), 0);
     std::vector<int> d(N*(L+1), 0);
     for (int i = 0; i < N; ++i) {
@@ -32,7 +34,7 @@ std::pair<std::vector<int>, std::vector<int>> pbwt(const std::vector<int8_t>& x,
             q = std::max(q, d[idx2d(i,l,L+1)]);
 
             int ai = a[idx2d(i,l,L+1)];
-            if (x[idx2d(ai,l,L)] == 0) {
+            if (x(ai, l) == 0) {
                 zeros[zeros_idx] = ai;
                 zeros_d[zeros_idx] = p;
                 p = 0;
@@ -59,7 +61,9 @@ std::pair<std::vector<int>, std::vector<int>> pbwt(const std::vector<int8_t>& x,
 }
 
 
-std::pair<std::vector<int>, std::vector<int>> reverse_pbwt(const std::vector<int8_t>& x, int N, int L) {
+std::pair<std::vector<int>, std::vector<int>> reverse_pbwt(const SeqArray& x) {
+    int N = x.N;
+    int L = x.L;
     std::vector<int> a(N*(L+1), 0);
     std::vector<int> d(N*(L+1), L);
     for (int i = 0; i < N; ++i) {
@@ -85,7 +89,7 @@ std::pair<std::vector<int>, std::vector<int>> reverse_pbwt(const std::vector<int
             q = std::min(q, d[idx2d(i,l+1,L+1)]);
 
             int ai = a[idx2d(i,l+1,L+1)];
-            if (x[idx2d(ai,l,L)] == 0) {
+            if (x(ai, l) == 0) {
                 zeros[zeros_idx] = ai;
                 zeros_d[zeros_idx] = p;
                 p = L;
@@ -110,4 +114,3 @@ std::pair<std::vector<int>, std::vector<int>> reverse_pbwt(const std::vector<int
     }
     return {std::move(a), std::move(d)};
 }
-

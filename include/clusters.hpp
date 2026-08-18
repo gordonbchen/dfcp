@@ -1,12 +1,12 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include "hyperparams.hpp"
+#include "seq_array.hpp"
 
 
 struct Mode {
@@ -56,12 +56,10 @@ struct Clusters {
 
     Clusters(const HyperParams& HP_, bool soft_, bool noisy_);
 
-    void block_init(const std::vector<int8_t>& x);
-    void pbwt_init(const std::vector<int8_t>& x, int match_len, bool match_curr);
+    void block_init(const SeqArray& x);
+    void pbwt_init(const SeqArray& x, int match_len, bool match_curr);
 
-    Cluster* create_cluster(
-        const std::vector<int>& seqs, const std::vector<int8_t>& x, bool is_r, int l, int emission
-    );
+    Cluster* create_cluster(const std::vector<int>& seqs, const SeqArray& x, bool is_r, int l, int emission);
 
     Cluster* create_empty_cluster(bool is_r, int l, int emission);
 
@@ -73,4 +71,3 @@ struct Clusters {
 
     int cluster_mode(int l) const;
 };
-

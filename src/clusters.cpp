@@ -8,6 +8,7 @@
 #include <functional>
 #include <stdexcept>
 #include "clusters.hpp"
+#include "seq_array.hpp"
 #include "hyperparams.hpp"
 #include "pbwt.hpp"
 #include "util.hpp"
@@ -43,7 +44,7 @@ Clusters::Clusters(const HyperParams& HP_, bool soft_, bool noisy_) :
     n_matches(0), n_obs(0)
 {}
 
-void Clusters::block_init(const std::vector<int8_t>& x) {
+void Clusters::block_init(const SeqArray& x) {
     r_assign.resize(HP.N * HP.L, nullptr);
     q_assign.resize(HP.N * (HP.L-1), nullptr);
 
@@ -54,7 +55,7 @@ void Clusters::block_init(const std::vector<int8_t>& x) {
         seqs.push_back(i);
     }
 
-    std::vector<int8_t> modes{get_emission_modes(count_emissions(x, HP.N, HP.L, HP.K), HP.L, HP.K)};
+    std::vector<int8_t> modes{get_emission_modes(count_emissions(x, HP.K), HP.L, HP.K)};
 
     Cluster* r = create_cluster(seqs, x, true, 0, modes[0]);
     Cluster* q = nullptr;
@@ -76,12 +77,12 @@ struct PairPointerHash {
     }
 };
 
-void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len, bool match_curr) {
+void Clusters::pbwt_init(const SeqArray& x, int match_len, bool match_curr) {
     r_assign.resize(HP.N * HP.L, nullptr);
     q_assign.resize(HP.N * (HP.L-1), nullptr);
 
-    auto [a, d] = pbwt(x, HP.N, HP.L);
-    auto [a_rev, d_rev] = reverse_pbwt(x, HP.N, HP.L);
+    auto [a, d] = pbwt(x);
+    auto [a_rev, d_rev] = reverse_pbwt(x);
 
     std::vector<int> forward_group(HP.N, 0);
     std::vector<int> backward_group(HP.N, 0);
@@ -98,7 +99,8 @@ void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len, bool match
             }
             forward_group[a[idx2d(i,l+match_curr,HP.L+1)]] = forward_group_idx;
 
-            if ((i != 0) && (d_rev[idx2d(i,l+1-match_curr,HP.L+1)] < std::min(l+1-match_curr+match_len, HP.L))) {
+            if ((i != 0) && (d_rev[idx2d(i,l+1-match_curr,HP.L+1)]
+                             < std::min(l+1-match_curr+match_len, HP.L))) {
                 ++backward_group_idx;
             }
             backward_group[a_rev[idx2d(i,l+1-match_curr,HP.L+1)]] = backward_group_idx;
@@ -113,10 +115,10 @@ void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len, bool match
                 c = r_map.at(r_key);
             }
             else {
-                c = create_empty_cluster(true, l, x[idx2d(i,l,HP.L)]);
+                c = create_empty_cluster(true, l, x(i, l));
                 r_map.emplace(r_key, c);
             }
-            cluster_add(c, i, x[idx2d(i,l,HP.L)]);
+            cluster_add(c, i, x(i, l));
         }
     }
 
@@ -144,11 +146,11 @@ void Clusters::pbwt_init(const std::vector<int8_t>& x, int match_len, bool match
 }
 
 Cluster* Clusters::create_cluster(
-    const std::vector<int>& seqs, const std::vector<int8_t>& x, bool is_r, int l, int emission
+    const std::vector<int>& seqs, const SeqArray& x, bool is_r, int l, int emission
 ) {
     Cluster* c = create_empty_cluster(is_r, l, emission);
     for (const int& i : seqs) {
-        cluster_add(c, i, x[idx2d(i, l, HP.L)]);
+        cluster_add(c, i, x(i, l));
     }
     return c;
 }
@@ -278,4 +280,3 @@ int Clusters::cluster_mode(int l) const {
     }
     return max_k;
 }
-
