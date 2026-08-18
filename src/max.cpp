@@ -71,13 +71,13 @@ double get_cluster_emission_ll(
 }
 
 std::vector<Cluster*> get_viterbi_clusters(
-    const SeqArray& x, int i, const std::unordered_map<int, int> *unmasked_ls,
+    const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
     std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
     std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
     for (int l = HP.L-1; l >= 0; --l) {
-        int xil = get_xil(x, i, l, unmasked_ls);
+        int xil = get_xil(x, i, l, obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
         const std::unordered_set<Cluster*>& matching_as =
@@ -105,7 +105,7 @@ std::vector<Cluster*> get_viterbi_clusters(
 
         Cluster* best_a = nullptr;
         double best_a_ll = params.mu_log_alpha + a_msgs[l+1].at(nullptr).ll;
-        int xil1 = get_xil(x, i, l+1, unmasked_ls);
+        int xil1 = get_xil(x, i, l+1, obs_ls);
         const std::unordered_set<Cluster*>& matching_next_as =
             (clusters.emit_mode != EmitMode::hard || xil1 == -1)
             ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xil1, HP.K)];

@@ -45,4 +45,27 @@ download \
     'https://webdata.illumina.com/downloads/productfiles/humanomni25/v1-2/SupportFiles/HumanOmni2-5-8-v1-2-A.bed' \
     "$data_dir/HumanOmni2-5-8-v1-2-A.bed"
 
+# Download GRCh37 map.
+map_archive="$data_dir/plink.GRCh37.map.zip"
+map_file="$data_dir/plink.chr20.GRCh37.map"
+download \
+    'https://bochet.gcc.biostat.washington.edu/beagle/genetic_maps/plink.GRCh37.map.zip' \
+    "$map_archive"
+
+expected_map_sha256='8e88141345844571bc63efac6c043ee29e8ca41f26087dc51b7f1918943a077b'
+actual_map_sha256=$(sha256sum "$map_archive" | cut -d ' ' -f 1)
+if [[ $actual_map_sha256 != "$expected_map_sha256" ]]; then
+    echo "Unexpected SHA-256 for $map_archive" >&2
+    exit 1
+fi
+
+if [[ ! -e "$map_file" || $force -eq 1 ]]; then
+    map_partial="$map_file.part"
+    echo "Extracting chr20 GRCh37 genetic map"
+    unzip -p "$map_archive" plink.chr20.GRCh37.map > "$map_partial"
+    mv -- "$map_partial" "$map_file"
+else
+    echo "Skipping existing file: $map_file"
+fi
+
 echo "Downloads available in $data_dir"

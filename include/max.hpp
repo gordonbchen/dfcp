@@ -15,7 +15,7 @@ double get_cluster_emission_ll(
 );
 
 std::vector<Cluster*> get_viterbi_clusters(
-    const SeqArray& x, int i, const std::unordered_map<int, int> *unmasked_ls,
+    const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 

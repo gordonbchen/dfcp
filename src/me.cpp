@@ -125,17 +125,17 @@ void train_dfcp(
 
 
 std::vector<double> get_viterbi_impute_probs(
-    const SeqArray& x, int i, const std::unordered_map<int, int>& unmasked_ls,
+    const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
     std::vector<Cluster*> viterbi_clusters{
-        get_viterbi_clusters(x, i, &unmasked_ls, clusters, params, HP)
+        get_viterbi_clusters(x, i, &obs_ls, clusters, params, HP)
     };
     std::vector<double> viterbi_probs;
-    int n_masked_ls = HP.L - unmasked_ls.size();
+    int n_masked_ls = HP.L - obs_ls.size();
     viterbi_probs.reserve(n_masked_ls * HP.K);
     for (int l = 0; l < HP.L; ++l) {
-        if (unmasked_ls.contains(l)) { continue; }
+        if (obs_ls.contains(l)) { continue; }
         for (int k = 0; k < HP.K; ++k) {
             double p = get_cluster_emission_ll(viterbi_clusters[2*l], k, l, clusters, params, HP);
             viterbi_probs.emplace_back(p);
@@ -146,7 +146,7 @@ std::vector<double> get_viterbi_impute_probs(
 }
 
 void impute(
-    const SeqArray& x_val, const std::unordered_map<int, int>& unmasked_ls,
+    const SeqArray& x_val, const std::unordered_map<int, int>& obs_ls,
     bool viterbi,
     const Clusters& clusters, const Params& params, const HyperParams& HP,
     Json& json
@@ -158,8 +158,8 @@ void impute(
     for (int i = 0; i < x_val.N; ++i) {
         auto t0 = std::chrono::steady_clock::now();
         std::vector<double> seq_probs = viterbi ?
-            get_viterbi_impute_probs(x_val, i, unmasked_ls, clusters, params, HP)
-            : fwd_bkwd(x_val, i, unmasked_ls, clusters, params, HP);
+            get_viterbi_impute_probs(x_val, i, obs_ls, clusters, params, HP)
+            : fwd_bkwd(x_val, i, obs_ls, clusters, params, HP);
         impute_dur += std::chrono::steady_clock::now() - t0;
 
         probs.emplace_back(std::move(seq_probs));
@@ -172,35 +172,35 @@ void impute(
 }
 
 
-std::unordered_map<int, int> read_unmasked_ls(
-    const char *filename, int n_unmasked_ls, int n_total_loci
+std::unordered_map<int, int> read_obs_ls(
+    const char *filename, int n_obs_ls, int n_total_loci
 ) {
     std::ifstream file(filename);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open unmasked ls file.");
+        throw std::runtime_error("Failed to open observed loci file.");
     }
 
-    std::unordered_map<int, int> unmasked_ls;
-    unmasked_ls.reserve(n_unmasked_ls);
+    std::unordered_map<int, int> obs_ls;
+    obs_ls.reserve(n_obs_ls);
 
     int i = 0;
     int l;
     while (file >> l) {
-        if (i >= n_unmasked_ls) {
-            throw std::runtime_error("Unmasked loci file has too many rows.");
+        if (i >= n_obs_ls) {
+            throw std::runtime_error("Observed loci file has too many rows.");
         }
         if (l < 0 || l >= n_total_loci) {
-            throw std::runtime_error("Unmasked locus is outside the reference sequence.");
+            throw std::runtime_error("Observed locus is outside the reference sequence.");
         }
-        if (!unmasked_ls.emplace(l, i).second) {
-            throw std::runtime_error("Unmasked loci file contains a duplicate locus.");
+        if (!obs_ls.emplace(l, i).second) {
+            throw std::runtime_error("Observed loci file contains a duplicate locus.");
         }
         ++i;
     }
-    if (i != n_unmasked_ls) {
-        throw std::runtime_error("Unmasked loci file has the wrong number of rows.");
+    if (i != n_obs_ls) {
+        throw std::runtime_error("Observed loci file has the wrong number of rows.");
     }
-    return unmasked_ls;
+    return obs_ls;
 }
 
 double parse_double(char *s) {
@@ -222,15 +222,15 @@ int main(int argc, char *argv[]) {
 
     // Read ref and target files.
     if (argc < 4) {
-        throw std::invalid_argument("Requires ref and target seq files, and an unmasked loci file.");
+        throw std::invalid_argument("Requires ref and target sequence files, and an observed loci file.");
     }
     std::cerr << "ref_file=" << argv[1] << " target_file=" << argv[2]
-        << " unmasked_ls_file=" << argv[3] << '\n';
-    json.add("ref_file", argv[1]).add("target_file", argv[2]).add("unmasked_ls_file", argv[3]);
+        << " observed_loci_file=" << argv[3] << '\n';
+    json.add("ref_file", argv[1]).add("target_file", argv[2]).add("observed_loci_file", argv[3]);
 
     SeqArray x_train{read_seq_file(argv[1])};
     SeqArray x_val{read_seq_file(argv[2])};
-    std::unordered_map<int, int> unmasked_ls{read_unmasked_ls(argv[3], x_val.L, x_train.L)};
+    std::unordered_map<int, int> obs_ls{read_obs_ls(argv[3], x_val.L, x_train.L)};
 
     HyperParams HP{.N=x_train.N, .L=x_train.L, .K=2};
 
@@ -300,7 +300,7 @@ int main(int argc, char *argv[]) {
     );
 
     impute(
-        x_val, unmasked_ls,
+        x_val, obs_ls,
         viterbi_impute,
         clusters, params, HP,
         json

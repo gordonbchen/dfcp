@@ -224,7 +224,7 @@ current value before using it.
 - The file format supports only alleles `0` and `1`; missing values are not
   represented. `N` and `L` must both be nonzero and fit in a positive `int`.
 
-### Unmasked loci file
+### Observed loci file
 
 - The file contains one zero-based reference-locus index per observed target
   column, in the same order as columns in the target sequence file.
@@ -267,7 +267,7 @@ Build and run from the repository root:
 
 ```bash
 ./build.sh
-./build/dfcp REF_FILE TARGET_FILE UNMASKED_LOCI_FILE [OPTION VALUE]...
+./build/dfcp REF_FILE TARGET_FILE OBSERVED_LOCI_FILE [OPTION VALUE]...
 ```
 
 Every option requires a value, including booleans. There is no `--help` path.
@@ -293,7 +293,7 @@ A prepared 1000 Genomes invocation is:
 ./build.sh && ./build/dfcp \
   data/1000g_phase3_v5b/dfcp_prep/ref.bin \
   data/1000g_phase3_v5b/dfcp_prep/target_masked.bin \
-  data/1000g_phase3_v5b/dfcp_prep/target_masked.unmasked_loci.txt \
+  data/1000g_phase3_v5b/dfcp_prep/target_masked.observed_loci.txt \
   --init pbwt --viterbi_impute 1
 ```
 
@@ -304,7 +304,7 @@ one JSON object suitable for scripts.
 
 Always-present fields include:
 
-- `ref_file`, `target_file`, and `unmasked_ls_file`
+- `ref_file`, `target_file`, and `observed_loci_file`
 - `t_init`, `probs`, and `t_impute`
 
 Unless `--init_only 1` is set, output also includes `train_log` and the fitted

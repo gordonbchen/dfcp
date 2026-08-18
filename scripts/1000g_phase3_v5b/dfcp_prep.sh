@@ -54,7 +54,7 @@ to_bitpacked() {
     mv -- "$tmp" "$output"
 }
 
-write_unmasked_loci() {
+write_obs_ls() {
     local ref_vcf=$1
     local target_vcf=$2
     local n_target_loci
@@ -63,8 +63,8 @@ write_unmasked_loci() {
     local tmp
     n_target_loci=$(bcftools index --nrecords "$target_vcf")
     target_positions=$(mktemp "$out_dir/.target_positions.XXXXXX")
-    output="$out_dir/target_masked.unmasked_loci.txt"
-    tmp=$(mktemp "$out_dir/.unmasked_loci.XXXXXX")
+    output="$out_dir/target_masked.observed_loci.txt"
+    tmp=$(mktemp "$out_dir/.observed_loci.XXXXXX")
 
     if ! bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\n' "$target_vcf" > "$target_positions"
     then
@@ -113,4 +113,4 @@ ref_vcf="$data_dir/ref_target/ref.vcf.gz"
 to_bitpacked "$data_dir/mask_target/target_masked_true.vcf.gz"
 to_bitpacked "$target_masked_vcf"
 to_bitpacked "$ref_vcf"
-write_unmasked_loci "$ref_vcf" "$target_masked_vcf"
+write_obs_ls "$ref_vcf" "$target_masked_vcf"
