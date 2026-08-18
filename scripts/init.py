@@ -16,11 +16,7 @@ from seq_file_name import get_seq_label, get_seq_sort_key
 
 DEFAULT_SEQ_DIR = Path("data/examples/simulated/SIM1_LEN500_NHAPS100")
 MASKS = (0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
-MODES = {
-    "hard": {"noisy": 0, "soft": 0},
-    "noisy": {"noisy": 1, "soft": 0},
-    "soft": {"noisy": 0, "soft": 1},
-}
+MODES = ("hard", "noisy", "soft")
 PHASES = {"pre": 1, "post": 0}
 SHARED_METRICS = (
     "t_init",
@@ -129,7 +125,7 @@ def collect_experiment(args: argparse.Namespace, seq_files: list[Path]) -> dict:
             "seq_file": str(seq_file),
             "series": [],
         }
-        for mode, mode_flags in MODES.items():
+        for mode in MODES:
             for method in INIT_METHODS:
                 print(f"{seq_file} {mode} {method.label}", flush=True)
                 phase_series = {
@@ -154,10 +150,8 @@ def collect_experiment(args: argparse.Namespace, seq_files: list[Path]) -> dict:
                             variant_pos_fname=args.variant_pos_fname,
                             variant_start_pos=args.variant_start_pos,
                             clade_beta=args.clade_beta,
-                            noisy=mode_flags["noisy"],
-                            soft=mode_flags["soft"],
-                            block_init=int(method.name == "block"),
-                            pbwt_init=int(method.name == "pbwt"),
+                            mode=mode,
+                            init=method.name,
                             pbwt_match_len=method.match_len,
                             pbwt_match_curr=(
                                 int(method.match_curr) if method.name == "pbwt" else None

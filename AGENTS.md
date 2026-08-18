@@ -43,7 +43,7 @@ current executable.
 - `include/seq_array.hpp`: sequence-major bitpacked observations and the binary
   sequence-file reader.
 - `include/clusters.hpp`: `R`/`Q` graph nodes, ownership, assignments, and
-  cluster mutation interface.
+  cluster mutation interface, including the emission-mode enum.
 - `include/max.hpp`: sequence reassignment and insertion entry points.
 - `include/expect.hpp`: continuous-parameter update entry point.
 - `include/elbo.hpp`: approximate ELBO entry point.
@@ -275,11 +275,11 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--tau_1`, `--tau_2`: Gamma shape/rate for `alpha`.
 - `--v_1`, `--v_2`: Beta shapes for each `d_l`.
 - `--phi_1`, `--phi_2`: Gamma shape/rate for each `gamma_l`.
-- `--noisy`: enable noisy hard emissions only when the value is exactly `1`.
+- `--mode`: emission model, one of `hard`, `noisy`, or `soft`; defaults to
+  `hard`.
 - `--lambda_1`, `--lambda_2`: Beta shapes for the noisy-emission error rate.
-- `--soft`: enabled only when the value is exactly `1`.
-- `--block_init`: enabled only when the value is exactly `1`.
-- `--pbwt_init`: enabled only when the value is exactly `1`.
+- `--init`: initialization method, one of `viterbi`, `block`, or `pbwt`;
+  defaults to `pbwt`.
 - `--pbwt_match_len`: PBWT initialization match length; defaults to `5`.
 - `--pbwt_match_curr`: include the current locus in PBWT matching only when the
   value is exactly `1`; defaults to enabled.
@@ -294,7 +294,7 @@ A prepared 1000 Genomes invocation is:
   data/1000g_phase3_v5b/dfcp_prep/ref.bin \
   data/1000g_phase3_v5b/dfcp_prep/target_masked.bin \
   data/1000g_phase3_v5b/dfcp_prep/target_masked.unmasked_loci.txt \
-  --pbwt_init 1 --viterbi_impute 1
+  --init pbwt --viterbi_impute 1
 ```
 
 ## Output

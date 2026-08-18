@@ -16,10 +16,12 @@
 #include "util.hpp"
 
 
-double get_msg_ll(const std::unordered_map<Cluster*, double>& msgs, Cluster* c, bool noisy, bool soft) {
+double get_msg_ll(const std::unordered_map<Cluster*, double>& msgs, Cluster* c, EmitMode emit_mode) {
     auto it = msgs.find(c);
     if (it == msgs.end()) {
-        if (noisy || soft) { throw std::runtime_error("All msgs should be present if noisy or soft."); }
+        if (emit_mode != EmitMode::hard) {
+            throw std::runtime_error("All msgs should be present unless emissions are hard.");
+        }
         return -std::numeric_limits<double>::infinity();
     }
     return it->second;
@@ -46,7 +48,8 @@ std::vector<std::unordered_map<Cluster*, double>> get_bkwd_msgs(
         int xil = get_xil(x, i, l, &unmasked_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xil == -1) ?
+        const std::unordered_set<Cluster*>& matching_as =
+            (clusters.emit_mode != EmitMode::hard || xil == -1) ?
             clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xil, HP.K)];
         if (l == HP.L-1) {
             a_msgs[l][nullptr] = new_a_ll;
@@ -60,7 +63,7 @@ std::vector<std::unordered_map<Cluster*, double>> get_bkwd_msgs(
         for (Cluster* b : clusters.qs[l]) {
             if (b->children.size() != 1) { throw std::runtime_error("b clusters can only have 1 child."); };
             Cluster* next_a = *b->children.begin();
-            b_msgs[l][b] = get_msg_ll(a_msgs[l+1], next_a, clusters.noisy, clusters.soft);
+            b_msgs[l][b] = get_msg_ll(a_msgs[l+1], next_a, clusters.emit_mode);
         }
 
         int nQl = clusters.qs[l].size();
@@ -70,12 +73,12 @@ std::vector<std::unordered_map<Cluster*, double>> get_bkwd_msgs(
 
         double new_b_ll = -elogy + params.mu_log_alpha + a_msgs[l+1].at(nullptr);
         int xil1 = get_xil(x, i, l+1, &unmasked_ls);
-        const std::unordered_set<Cluster*>& matching_next_as = clusters.noisy || clusters.soft || (xil1 == -1)
+        const std::unordered_set<Cluster*>& matching_next_as =
+            (clusters.emit_mode != EmitMode::hard || xil1 == -1)
             ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xil1, HP.K)];
         for (Cluster *a : matching_next_as) {
             double nCl = a->parents.size();
-            double ll = params.mu_log_d[l] + std::log(nCl)
-                + get_msg_ll(a_msgs[l+1], a, clusters.noisy, clusters.soft);
+            double ll = params.mu_log_d[l] + std::log(nCl) + get_msg_ll(a_msgs[l+1], a, clusters.emit_mode);
             new_b_ll = log_sum_exp(new_b_ll, -elogy + ll);
         }
         b_msgs[l][nullptr] = new_b_ll;
@@ -88,7 +91,7 @@ std::vector<std::unordered_map<Cluster*, double>> get_bkwd_msgs(
             double a_ll = -log_na + std::log(nFl) + params.mu_log_d[l] + b_msgs[l][nullptr];
             for (Cluster* b : a->children) {
                 double ll = -log_na + delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->n)
-                    + get_msg_ll(b_msgs[l], b, clusters.noisy, clusters.soft);
+                    + get_msg_ll(b_msgs[l], b, clusters.emit_mode);
                 a_ll = log_sum_exp(a_ll, ll);
             }
             a_msgs[l][a] = get_cluster_emission_ll(a, xil, l, clusters, params, HP) + a_ll;
@@ -107,7 +110,8 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
         int xil = get_xil(x, i, l, &unmasked_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xil == -1) ?
+        const std::unordered_set<Cluster*>& matching_as =
+            (clusters.emit_mode != EmitMode::hard || xil == -1) ?
             clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xil, HP.K)];
         if (l == 0) {
             a_msgs[l][nullptr] = new_a_ll + params.mu_log_alpha;
@@ -124,18 +128,19 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
             Cluster* prev_a = *b->parents.begin();
             double log_na = std::log(static_cast<double>(prev_a->n));
             double ab_ll = -log_na + delta_Elogx(params.mu_d[l-1], params.sigma2_d[l-1], -1.0, b->n);
-            b_msgs[l-1][b] = get_msg_ll(a_msgs[l-1], prev_a, clusters.noisy, clusters.soft) + ab_ll;
+            b_msgs[l-1][b] = get_msg_ll(a_msgs[l-1], prev_a, clusters.emit_mode) + ab_ll;
         }
 
         double new_b_ll = a_msgs[l-1].at(nullptr);
         int xilm1 = get_xil(x, i, l-1, &unmasked_ls);
-        const std::unordered_set<Cluster*>& matching_prev_as = clusters.noisy || clusters.soft || (xilm1==-1)
+        const std::unordered_set<Cluster*>& matching_prev_as =
+            (clusters.emit_mode != EmitMode::hard || xilm1 == -1)
             ? clusters.rs[l-1] : clusters.rs_by_emit[idx2d(l-1, xilm1, HP.K)];
         for (Cluster *a : matching_prev_as) {
             double log_na = std::log(static_cast<double>(a->n));
             double nFl = a->children.size();
             double ab_ll = -log_na + std::log(nFl) + params.mu_log_d[l-1];
-            new_b_ll = log_sum_exp(new_b_ll, get_msg_ll(a_msgs[l-1], a, clusters.noisy, clusters.soft)+ab_ll);
+            new_b_ll = log_sum_exp(new_b_ll, get_msg_ll(a_msgs[l-1], a, clusters.emit_mode) + ab_ll);
         }
         b_msgs[l-1][nullptr] = new_b_ll;
 
@@ -148,10 +153,10 @@ std::vector<std::unordered_map<Cluster*, double>> get_fwd_msgs(
 
         for (Cluster* a : matching_as) {
             double nCl = a->parents.size();
-            double a_ll = get_msg_ll(b_msgs[l-1], nullptr, clusters.noisy, clusters.soft)
+            double a_ll = get_msg_ll(b_msgs[l-1], nullptr, clusters.emit_mode)
                 -elogy + params.mu_log_d[l-1] + std::log(nCl);
             for (Cluster* b : a->parents) {
-                a_ll = log_sum_exp(a_ll, get_msg_ll(b_msgs[l-1], b, clusters.noisy, clusters.soft));
+                a_ll = log_sum_exp(a_ll, get_msg_ll(b_msgs[l-1], b, clusters.emit_mode));
             }
             a_msgs[l][a] = get_cluster_emission_ll(a, xil, l, clusters, params, HP) + a_ll;
         }
@@ -180,7 +185,7 @@ std::vector<double> fwd_bkwd(
 
     for (int l = 0; l < HP.L; ++l) {
         for (const auto& [a, ll] : fwd_a_msgs[l]) {
-            a_msgs[l][a] = get_msg_ll(a_msgs[l], a, clusters.noisy, clusters.soft) + ll;
+            a_msgs[l][a] = get_msg_ll(a_msgs[l], a, clusters.emit_mode) + ll;
 
             // Emission probs are double counted.
             int xil = get_xil(x, i, l, &unmasked_ls);

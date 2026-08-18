@@ -163,9 +163,9 @@ def evaluate_point(
     dfcp_params = cpp_params(search_params, mode)
     output = run_dfcp(
         seq_file, retries=1,
-        pbwt_init=1, pbwt_match_len=PBWT_MATCH_LEN,
+        init="pbwt", pbwt_match_len=PBWT_MATCH_LEN,
         mask=mask, val=val,
-        soft=int(mode == "soft"), noisy=int(mode == "noisy"),
+        mode=mode,
         **dfcp_params,
     )
     record = {

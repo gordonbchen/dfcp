@@ -64,7 +64,7 @@ void eval_clusters(const Clusters& clusters, const HyperParams& HP, const std::v
 
     // Purity.
     double cluster_purity = 1.0;
-    if (clusters.soft) {
+    if (clusters.emit_mode == EmitMode::soft) {
         cluster_purity = 0.0;
         for (int l = 0; l < HP.L; ++l) {
             for (Cluster *c : clusters.rs[l]) {
@@ -73,7 +73,7 @@ void eval_clusters(const Clusters& clusters, const HyperParams& HP, const std::v
         }
         cluster_purity /= HP.N*HP.L;
     }
-    else if (clusters.noisy) {
+    else if (clusters.emit_mode == EmitMode::noisy) {
         cluster_purity = clusters.n_matches / static_cast<double>(clusters.n_obs);
     }
     std::cerr << "cluster_purity=" << cluster_purity << '\n';
@@ -265,8 +265,7 @@ int main(int argc, char *argv[]) {
     char *tree_vis_fname = nullptr;
     double clade_beta = 2.0;
 
-    bool noisy = false;
-    bool soft = false;
+    EmitMode emit_mode = EmitMode::hard;
     bool block_init = false;
     bool pbwt_init = false;
     int pbwt_match_len = 5;
@@ -285,7 +284,13 @@ int main(int argc, char *argv[]) {
         else if (arg == "--phi_1") { HP.phi_1 = parse_double(argv[i+1]); }
         else if (arg == "--phi_2") { HP.phi_2 = parse_double(argv[i+1]); }
 
-        else if (arg == "--noisy") { noisy = parse_int(argv[i+1]) == 1; }
+        else if (arg == "--mode") {
+            std::string_view value{argv[i+1]};
+            if (value == "hard") { emit_mode = EmitMode::hard; }
+            else if (value == "noisy") { emit_mode = EmitMode::noisy; }
+            else if (value == "soft") { emit_mode = EmitMode::soft; }
+            else { throw std::invalid_argument("mode must be hard, noisy, or soft."); }
+        }
         else if (arg == "--lambda_1") { HP.lambda_1 = parse_double(argv[i+1]); }
         else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
 
@@ -298,7 +303,6 @@ int main(int argc, char *argv[]) {
             if (clade_beta < 1.0) { throw std::invalid_argument("clade_beta must be at least 1."); }
         }
 
-        else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--pbwt_init") { pbwt_init = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
@@ -308,13 +312,12 @@ int main(int argc, char *argv[]) {
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
     }
-    if (noisy && soft) { throw std::invalid_argument("noisy is only for hard dfcp."); }
     if (block_init && pbwt_init) { throw std::invalid_argument("cannot do block and pbwt init."); }
     std::cerr << HP << '\n';
 
     // Init params and clusters.
     Params params{HP};
-    Clusters clusters{HP, soft, noisy};
+    Clusters clusters{HP, emit_mode};
 
     train_dfcp(
         clusters, params, HP,

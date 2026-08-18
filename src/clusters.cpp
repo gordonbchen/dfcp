@@ -35,12 +35,12 @@ Mode Cluster::mode() const {
 }
 
 
-Clusters::Clusters(const HyperParams& HP_, bool soft_, bool noisy_) :
+Clusters::Clusters(const HyperParams& HP_, EmitMode emit_mode_) :
     HP(HP_),
-    soft(soft_), noisy(noisy_),
+    emit_mode(emit_mode_),
     nR(0),
     rs(HP.L), qs(HP.L-1),
-    rs_by_emit(soft_ ? 0 : HP_.L * HP_.K),
+    rs_by_emit(emit_mode == EmitMode::soft ? 0 : HP_.L * HP_.K),
     n_matches(0), n_obs(0)
 {}
 
@@ -156,7 +156,7 @@ Cluster* Clusters::create_cluster(
 }
 
 Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
-    if (!soft && (is_r != (emission != -1))) {
+    if (emit_mode != EmitMode::soft && (is_r != (emission != -1))) {
         throw std::invalid_argument("only r cluster can have emissions.");
     }
 
@@ -171,7 +171,7 @@ Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
 
     rs[l].insert(ptr);
     ++nR;
-    if (!soft) {
+    if (emit_mode != EmitMode::soft) {
         rs_by_emit[idx2d(l, emission, HP.K)].insert(ptr);
     }
     return ptr;
@@ -185,11 +185,11 @@ void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
             throw std::runtime_error("seq already assigned to r cluster");
         };
         r_assign[idx2d(idx, cluster->l, HP.L)] = cluster;
-        if ((soft || noisy) && (emission != -1)) {
+        if (emit_mode != EmitMode::hard && (emission != -1)) {
             ++cluster->nk[emission];
             ++cluster->n_obs;
         }
-        if (noisy && (emission != -1)) {
+        if (emit_mode == EmitMode::noisy && (emission != -1)) {
             ++n_obs;
             if (emission == cluster->emission) {
                 ++n_matches;
@@ -208,11 +208,11 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
 
     if (cluster->is_r) {
         r_assign[idx2d(idx, cluster->l, HP.L)] = nullptr;
-        if ((soft || noisy) && (emission != -1)) {
+        if (emit_mode != EmitMode::hard && (emission != -1)) {
             --cluster->nk[emission];
             --cluster->n_obs;
         }
-        if (noisy && (emission != -1)) {
+        if (emit_mode == EmitMode::noisy && (emission != -1)) {
             --n_obs;
             if (emission == cluster->emission) {
                 --n_matches;
@@ -243,7 +243,7 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
     if (cluster->is_r) {
         rs[cluster->l].erase(cluster);
         --nR;
-        if (!soft) {
+        if (emit_mode != EmitMode::soft) {
             rs_by_emit[idx2d(cluster->l, cluster->emission, HP.K)].erase(cluster);
         }
     }
@@ -255,7 +255,7 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
 }
 
 void Clusters::set_emission(Cluster* c, int new_emission) {
-    if (!noisy || !c->is_r) {
+    if (emit_mode != EmitMode::noisy || !c->is_r) {
         throw std::runtime_error("set_emission can only be called for noisy R clusters.");
     }
     if (c->emission == new_emission) {
@@ -269,7 +269,9 @@ void Clusters::set_emission(Cluster* c, int new_emission) {
 }
 
 int Clusters::cluster_mode(int l) const {
-    if (soft) { throw std::runtime_error("Soft clusters don't have emissions, no cluster emission mode"); }
+    if (emit_mode == EmitMode::soft) {
+        throw std::runtime_error("Soft clusters don't have emissions, no cluster emission mode");
+    }
     int max_k = 0;
     size_t max_nk = rs_by_emit[idx2d(l, 0, HP.K)].size();
     for (int k = 1; k < HP.K; ++k) {

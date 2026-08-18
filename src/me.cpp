@@ -19,6 +19,8 @@
 #include "seq_array.hpp"
 
 
+enum class InitMode { viterbi, block, pbwt };
+
 class EarlyStopping {
     private:
         double min_val = std::numeric_limits<double>::infinity();
@@ -55,8 +57,7 @@ class EarlyStopping {
 void train_dfcp(
     Clusters& clusters, Params& params, HyperParams& HP,
 
-    bool block_init,
-    bool pbwt_init, int pbwt_match_len, bool pbwt_match_curr,
+    InitMode init_mode, int pbwt_match_len, bool pbwt_match_curr,
     bool init_only,
 
     const SeqArray& x_train,
@@ -65,16 +66,18 @@ void train_dfcp(
 ) {
     // Init clusters.
     auto t0 = std::chrono::steady_clock::now();
-    if (block_init) {
-        clusters.block_init(x_train);
-    }
-    else if (pbwt_init) {
-        if (HP.K != 2) { throw std::invalid_argument("pbwt_init only supported for K=2."); }
-        clusters.pbwt_init(x_train, pbwt_match_len, pbwt_match_curr);
-    }
-    else {
-        HP.N = 0;
-        add_seqs(x_train, clusters, params, HP);
+    switch (init_mode) {
+        case InitMode::block:
+            clusters.block_init(x_train);
+            break;
+        case InitMode::pbwt:
+            if (HP.K != 2) { throw std::invalid_argument("PBWT init only supported for K=2."); }
+            clusters.pbwt_init(x_train, pbwt_match_len, pbwt_match_curr);
+            break;
+        case InitMode::viterbi:
+            HP.N = 0;
+            add_seqs(x_train, clusters, params, HP);
+            break;
     }
     auto t1 = std::chrono::steady_clock::now();
     auto t_init = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
@@ -91,7 +94,7 @@ void train_dfcp(
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
         max_step(x_train, clusters, params, HP);
-        if (clusters.noisy) {
+        if (clusters.emit_mode == EmitMode::noisy) {
             max_cluster_emissions(clusters, params, HP);
         }
         auto t1 = std::chrono::steady_clock::now();
@@ -232,11 +235,9 @@ int main(int argc, char *argv[]) {
     HyperParams HP{.N=x_train.N, .L=x_train.L, .K=2};
 
     // Parse optional args.
-    bool noisy = false;
-    bool soft = false;
+    EmitMode emit_mode = EmitMode::hard;
 
-    bool block_init = false;
-    bool pbwt_init = false;
+    InitMode init_mode = InitMode::pbwt;
     int pbwt_match_len = 5;
     bool pbwt_match_curr = true;
     bool init_only = false;
@@ -255,13 +256,23 @@ int main(int argc, char *argv[]) {
         else if (arg == "--phi_1") { HP.phi_1 = parse_double(argv[i+1]); }
         else if (arg == "--phi_2") { HP.phi_2 = parse_double(argv[i+1]); }
 
-        else if (arg == "--noisy") { noisy = parse_int(argv[i+1]) == 1; }
+        else if (arg == "--mode") {
+            std::string_view value{argv[i+1]};
+            if (value == "hard") { emit_mode = EmitMode::hard; }
+            else if (value == "noisy") { emit_mode = EmitMode::noisy; }
+            else if (value == "soft") { emit_mode = EmitMode::soft; }
+            else { throw std::invalid_argument("mode must be hard, noisy, or soft."); }
+        }
         else if (arg == "--lambda_1") { HP.lambda_1 = parse_double(argv[i+1]); }
         else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
 
-        else if (arg == "--soft") { soft = (parse_int(argv[i+1]) == 1); }
-        else if (arg == "--block_init") { block_init = (parse_int(argv[i+1]) == 1); }
-        else if (arg == "--pbwt_init") { pbwt_init = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--init") {
+            std::string_view value{argv[i+1]};
+            if (value == "viterbi") { init_mode = InitMode::viterbi; }
+            else if (value == "block") { init_mode = InitMode::block; }
+            else if (value == "pbwt") { init_mode = InitMode::pbwt; }
+            else { throw std::invalid_argument("init must be viterbi, block, or pbwt."); }
+        }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
         else if (arg == "--pbwt_match_curr") { pbwt_match_curr = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
@@ -271,19 +282,16 @@ int main(int argc, char *argv[]) {
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
     }
-    if (noisy && soft) { throw std::invalid_argument("noisy cannot be combined with soft."); }
-    if (block_init && pbwt_init) { throw std::invalid_argument("cannot do block and pbwt init."); }
     std::cerr << HP << '\n';
 
     // Init params and clusters.
     Params params{HP};
-    Clusters clusters{HP, soft, noisy};
+    Clusters clusters{HP, emit_mode};
 
     train_dfcp(
         clusters, params, HP,
 
-        block_init,
-        pbwt_init, pbwt_match_len, pbwt_match_curr,
+        init_mode, pbwt_match_len, pbwt_match_curr,
         init_only,
 
         x_train,

@@ -50,14 +50,11 @@ def get_dfcp_parser() -> ArgumentParser:
     p.add_argument("--clade_beta", type=float, default=None)
     p.add_argument("--tree_vis", type=str, default=None)
 
-    p.add_argument("--noisy", type=int, default=None)
+    p.add_argument("--mode", choices=("hard", "noisy", "soft"), default=None)
     p.add_argument("--lambda_1", type=float, default=None)
     p.add_argument("--lambda_2", type=float, default=None)
 
-    p.add_argument("--soft", type=int, default=None)
-
-    p.add_argument("--block_init", type=int, default=None)
-    p.add_argument("--pbwt_init", type=int, default=None)
+    p.add_argument("--init", choices=("viterbi", "block", "pbwt"), default=None)
     p.add_argument("--pbwt_match_len", type=int, default=None)
     p.add_argument("--init_only", type=int, default=None)
 
@@ -82,13 +79,10 @@ if __name__ == "__main__":
         tree_vis=args.tree_vis,
         clade_beta=args.clade_beta,
 
-        noisy=args.noisy,
+        mode=args.mode,
         lambda_1=args.lambda_1, lambda_2=args.lambda_2,
 
-        soft=args.soft,
-
-        block_init=args.block_init,
-        pbwt_init=args.pbwt_init, pbwt_match_len=args.pbwt_match_len,
+        init=args.init, pbwt_match_len=args.pbwt_match_len,
         init_only=args.init_only,
 
         tau_1=args.tau_1, tau_2=args.tau_2,

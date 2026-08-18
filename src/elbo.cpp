@@ -16,7 +16,7 @@ double betaln(double a, double b) {
 }
 
 double calc_gammal_elbo_Ell(const HyperParams& HP, const Params& params, const Clusters& clusters, int l) {
-    if (clusters.soft) {
+    if (clusters.emit_mode == EmitMode::soft) {
         double Ell = clusters.rs[l].size() * (
             delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, 0.0)
             - HP.K * delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, 0.0)
@@ -113,11 +113,10 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
         elbo += normal_entropy(params.sigma2_logit_d[l]);
     }
 
-    if (clusters.noisy) {
+    if (clusters.emit_mode == EmitMode::noisy) {
         // eps.
         elbo += betaln(params.alpha_eps, params.beta_eps) - betaln(HP.lambda_1, HP.lambda_2)
             - (clusters.n_obs - clusters.n_matches) * std::log(HP.K-1.0);
     }
     return elbo;
 }
-

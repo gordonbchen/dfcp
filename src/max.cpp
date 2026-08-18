@@ -20,10 +20,12 @@ struct Msg {
     Cluster* next;
 };
 
-double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, bool noisy, bool soft) {
+double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, EmitMode emit_mode) {
     auto it = msgs.find(c);
     if (it == msgs.end()) {
-        if (noisy || soft) { throw std::runtime_error("All msgs should be present if noisy or soft."); }
+        if (emit_mode != EmitMode::hard) {
+            throw std::runtime_error("All msgs should be present unless emissions are hard.");
+        }
         return -std::numeric_limits<double>::infinity();
     }
     return it->second.ll;
@@ -33,20 +35,19 @@ double get_cluster_emission_ll(
     Cluster* a, int8_t xil, int l,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    // TODO: noisy, soft, hard enum.
     if (xil == -1) {
         return 0.0;
     }
 
     if (a == nullptr) {
-        if (clusters.soft) {
+        if (clusters.emit_mode == EmitMode::soft) {
             return -std::log(static_cast<double>(HP.K));
         }
 
         int nkl = clusters.rs_by_emit[idx2d(l,xil,HP.K)].size();
         double ll = -delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K,
                                  clusters.rs[l].size(), params.mu_log_gamma[l]);
-        if (clusters.noisy) {
+        if (clusters.emit_mode == EmitMode::noisy) {
             double c = (static_cast<double>(clusters.rs[l].size()) - HP.K*nkl) / (HP.K-1.0);
             double mu_y = params.mu_gamma[l] + nkl + c*params.mu_eps;
             double sigma2_y = params.sigma2_gamma[l] + c*c*params.sigma2_eps;
@@ -58,12 +59,12 @@ double get_cluster_emission_ll(
         return ll;
     }
 
-    if (clusters.soft) {
+    if (clusters.emit_mode == EmitMode::soft) {
         return delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], 1.0,
                            a->nk[xil], params.mu_log_gamma[l])
             - delta_Elogx(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs, params.mu_log_gamma[l]);
     }
-    if (clusters.noisy) {
+    if (clusters.emit_mode == EmitMode::noisy) {
         return xil == a->emission ? params.Eeps_log_match : params.Eeps_log_mismatch;
     }
     return xil == a->emission ? 0.0 : -std::numeric_limits<double>::infinity();
@@ -79,7 +80,8 @@ std::vector<Cluster*> get_viterbi_clusters(
         int xil = get_xil(x, i, l, unmasked_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as = clusters.noisy || clusters.soft || (xil == -1) ?
+        const std::unordered_set<Cluster*>& matching_as =
+            (clusters.emit_mode != EmitMode::hard || xil == -1) ?
             clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xil, HP.K)];
         if (l == HP.L-1) {
             a_msgs[l][nullptr] = Msg{new_a_ll, nullptr};
@@ -93,7 +95,7 @@ std::vector<Cluster*> get_viterbi_clusters(
         for (Cluster* b : clusters.qs[l]) {
             if (b->children.size() != 1) { throw std::runtime_error("b clusters can only have 1 child."); };
             Cluster* next_a = *b->children.begin();
-            b_msgs[l][b] = Msg{get_msg_ll(a_msgs[l+1], next_a, clusters.noisy, clusters.soft), next_a};
+            b_msgs[l][b] = Msg{get_msg_ll(a_msgs[l+1], next_a, clusters.emit_mode), next_a};
         }
 
         int nQl = clusters.qs[l].size();
@@ -104,12 +106,12 @@ std::vector<Cluster*> get_viterbi_clusters(
         Cluster* best_a = nullptr;
         double best_a_ll = params.mu_log_alpha + a_msgs[l+1].at(nullptr).ll;
         int xil1 = get_xil(x, i, l+1, unmasked_ls);
-        const std::unordered_set<Cluster*>& matching_next_as = clusters.noisy || clusters.soft || (xil1 == -1)
+        const std::unordered_set<Cluster*>& matching_next_as =
+            (clusters.emit_mode != EmitMode::hard || xil1 == -1)
             ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xil1, HP.K)];
         for (Cluster *a : matching_next_as) {
             double nCl = a->parents.size();
-            double ll = params.mu_log_d[l] + std::log(nCl)
-                + get_msg_ll(a_msgs[l+1], a, clusters.noisy, clusters.soft);
+            double ll = params.mu_log_d[l] + std::log(nCl) + get_msg_ll(a_msgs[l+1], a, clusters.emit_mode);
             if (ll > best_a_ll) {
                 best_a = a;
                 best_a_ll = ll;
@@ -126,7 +128,7 @@ std::vector<Cluster*> get_viterbi_clusters(
             double best_b_ll = std::log(nFl) + params.mu_log_d[l] + b_msgs[l][nullptr].ll;
             for (Cluster* b : a->children) {
                 double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->n)
-                    + get_msg_ll(b_msgs[l], b, clusters.noisy, clusters.soft);
+                    + get_msg_ll(b_msgs[l], b, clusters.emit_mode);
                 if (ll > best_b_ll) {
                     best_b = b;
                     best_b_ll = ll;
@@ -167,13 +169,13 @@ int get_new_cluster_emission(
     int8_t xil, int l,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    if (clusters.soft) {
+    if (clusters.emit_mode == EmitMode::soft) {
         return -1;
     }
     if (xil == -1) {
         return clusters.cluster_mode(l);
     }
-    if (!clusters.noisy) {
+    if (clusters.emit_mode != EmitMode::noisy) {
         return xil;
     }
 
@@ -254,7 +256,9 @@ void add_seqs(const SeqArray& x_new, Clusters& clusters, const Params& params, H
 
 
 void max_cluster_emissions(Clusters& clusters, const Params& params, const HyperParams& HP) {
-    if (!clusters.noisy) { throw std::runtime_error("Only need to maximize cluster emissions if noisy."); }
+    if (clusters.emit_mode != EmitMode::noisy) {
+        throw std::runtime_error("Only need to maximize cluster emissions if noisy.");
+    }
     for (int l = 0; l < HP.L; ++l) {
         for (Cluster* a : clusters.rs[l]) {
             int best_k = 0;

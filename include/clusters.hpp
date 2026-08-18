@@ -14,7 +14,6 @@ struct Mode {
     size_t count;
 };
 
-
 struct Cluster {
     const bool is_r;
     const int l;
@@ -36,12 +35,13 @@ struct Cluster {
 };
 
 
+enum class EmitMode { hard, noisy, soft };
+
 struct Clusters {
     std::unordered_map<Cluster*, std::unique_ptr<Cluster>> all_clusters;
 
     const HyperParams& HP;
-    const bool soft;
-    const bool noisy;
+    const EmitMode emit_mode;
     int nR;
 
     std::vector<Cluster*> r_assign;
@@ -54,7 +54,7 @@ struct Clusters {
     size_t n_obs;
 
 
-    Clusters(const HyperParams& HP_, bool soft_, bool noisy_);
+    Clusters(const HyperParams& HP_, EmitMode emit_mode_);
 
     void block_init(const SeqArray& x);
     void pbwt_init(const SeqArray& x, int match_len, bool match_curr);
