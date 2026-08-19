@@ -1869,25 +1869,6 @@ then do forward backward on $exp EE_q log p$. This is justified.
 
 
 #pagebreak()
-= Imputation Eval
-- phased data to dfcp vs beagle (and minimac4, impute5)
-- datasets: reference (phased, non-missing), target (need imputation), imputed
-- masking: *untyped* (mask all alleles at that loc in target) vs sporadic (mask some alleles in target)
-- *fixed reference imputation* (train on reference, freeze, then impute)
-  vs joint reference-target imputation (batch train on reference, target)
-
-vcf outputs
-- GT: imputed genotype value
-- HDS: haplotype dosages (prob of 1)
-- DS: genotype dosage (sum of hds probs)
-- IMP: imputed 1 or 0
-
-metrics
-- $r^2$ correltation b/t \# minor alleles and dosage $EE[G]$, binned by minor allele count
-
-
-
-#pagebreak()
 = Welford's method for computing $r^2$ online
 https://jonisalonen.com/2013/deriving-welfords-method-for-computing-variance/
 
@@ -1944,16 +1925,45 @@ $
 
 
 
+
+#pagebreak()
+= Imputation Eval
+- phased data to dfcp vs beagle (and minimac4, impute5)
+- datasets: reference (phased, non-missing), target (need imputation), imputed
+- masking: *untyped* (mask all alleles at that loc in target) vs sporadic (mask some alleles in target)
+- *fixed reference imputation* (train on reference, freeze, then impute)
+  vs joint reference-target imputation (batch train on reference, target)
+
+vcf outputs
+- GT: imputed genotype value
+- HDS: haplotype dosages (prob of 1)
+- DS: genotype dosage (sum of hds probs)
+- IMP: imputed 1 or 0
+
+metrics
+- $r^2$ correltation b/t \# minor alleles and dosage $EE[G]$, binned by minor allele count
+- accuracy
+
+
+= = 1000 Genomes data preparation
+- chromosome 20: (~1.8M variant locs)
+- variant vs polymorphism (variant w/ >1% freq, ~1.7M)
+- indel: short insertion / deletion variant
+- structural variant: large (> 50 base) indel
+- vcf (variant call format) is wrt reference genome (only variants)
+- 2 target individuals from each of 26 populations (52 target / 2452 ref)
+- mask variants not in illumina omni 2.5 (52k in, impute 1.6M)
+
+
+
+
 #pagebreak()
 = TODO
-- (noisy, soft, hard), (block, pbwt, viterbi) enums
-- beagle compute
 
 = evals
 - dfcp vs beagle imputation
   - *$r^2$ b/t p(minor) and minor*
   - saving dfcp after training, loading for inference
-  - windowing?
 
 - ancestral tree time sampling: density plot of best clade time for each cluster
 
@@ -1965,6 +1975,10 @@ $
 - multiple sequences taken out during maximization / stochastic updates
 - $d_l$ depending on genetic map (how far away the variant sites are),
   or the other way, estimating dist via $d_l$
+- K at each position
 
 == done
+
+== ideas
+- beagle-like composite / best weighted subset to compress reference
 
