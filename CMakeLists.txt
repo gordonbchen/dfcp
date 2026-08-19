@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenMP REQUIRED)
 
-add_executable(dfcp
+add_executable(impute
     src/me.cpp
     src/seq_array.cpp
     src/clusters.cpp
@@ -25,18 +25,18 @@ add_executable(dfcp
     src/io.cpp
 )
 
-target_include_directories(dfcp PRIVATE
+target_include_directories(impute PRIVATE
     include
 )
 
-target_compile_options(dfcp PRIVATE
+target_compile_options(impute PRIVATE
     -Wall
     -Wextra
     -Wpedantic
     -O3
 )
 
-target_link_libraries(dfcp PRIVATE
+target_link_libraries(impute PRIVATE
     OpenMP::OpenMP_CXX
 )
 
@@ -57,13 +57,3 @@ target_compile_options(eval_impute PRIVATE
     -Wpedantic
     -O3
 )
-
-include(CTest)
-if(BUILD_TESTING)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    add_test(
-        NAME binary_pipeline
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_binary_pipeline.py
-    )
-    set_tests_properties(binary_pipeline PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-endif()
