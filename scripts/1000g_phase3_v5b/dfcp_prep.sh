@@ -54,19 +54,19 @@ to_bitpacked() {
     mv -- "$tmp" "$output"
 }
 
-write_obs_ls() {
+write_observed_loci() {
     local ref_vcf=$1
-    local target_vcf=$2
+    local target_observed_vcf=$2
     local n_target_loci
     local target_positions
     local output
     local tmp
-    n_target_loci=$(bcftools index --nrecords "$target_vcf")
+    n_target_loci=$(bcftools index --nrecords "$target_observed_vcf")
     target_positions=$(mktemp "$out_dir/.target_positions.XXXXXX")
-    output="$out_dir/target_masked.observed_loci.txt"
+    output="$out_dir/observed_loci.txt"
     tmp=$(mktemp "$out_dir/.observed_loci.XXXXXX")
 
-    if ! bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\n' "$target_vcf" > "$target_positions"
+    if ! bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\n' "$target_observed_vcf" > "$target_positions"
     then
         rm -f -- "$target_positions" "$tmp"
         return 1
@@ -107,10 +107,11 @@ write_obs_ls() {
     mv -- "$tmp" "$output"
 }
 
-target_masked_vcf="$data_dir/mask_target/target_masked.vcf.gz"
 ref_vcf="$data_dir/ref_target/ref.vcf.gz"
+target_observed_vcf="$data_dir/mask_target/target_observed.vcf.gz"
+target_masked_true_vcf="$data_dir/mask_target/target_masked_true.vcf.gz"
 
-to_bitpacked "$data_dir/mask_target/target_masked_true.vcf.gz"
-to_bitpacked "$target_masked_vcf"
 to_bitpacked "$ref_vcf"
-write_obs_ls "$ref_vcf" "$target_masked_vcf"
+to_bitpacked "$target_observed_vcf"
+to_bitpacked "$target_masked_true_vcf"
+write_observed_loci "$ref_vcf" "$target_observed_vcf"

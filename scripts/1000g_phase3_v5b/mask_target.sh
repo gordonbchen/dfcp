@@ -13,20 +13,20 @@ echo 'Extracting chr20 Omni variant pos.'
 awk '$1=="chr20" {print 20, $2, $3}' OFS='\t' \
     "$data_dir/HumanOmni2-5-8-v1-2-A.bed" > "$output_dir/HumanOmni2-5-8-v1-2-A-chr20.bed"
 
-# create target_masked.vcf.gz
+# Create target_observed.vcf.gz from array positions.
 # -T keep target pos in file.
-echo 'Creating masked target.'
+echo 'Creating observed target.'
 bcftools view \
     "$input_dir/target.vcf.gz" \
     -T "$output_dir/HumanOmni2-5-8-v1-2-A-chr20.bed" \
-    -Oz -o "$output_dir/target_masked.vcf.gz" \
+    -Oz -o "$output_dir/target_observed.vcf.gz" \
     --threads "$threads"
 
-bcftools index --force "$output_dir/target_masked.vcf.gz"
+bcftools index --force "$output_dir/target_observed.vcf.gz"
 
-# create target_masked_true.vcf.gz
+# Create target_masked_true.vcf.gz from positions absent from the array.
 # -T ^file remove target pos in file.
-echo 'Creating masked target ground truth'
+echo 'Creating masked target truth.'
 bcftools view \
     "$input_dir/target.vcf.gz" \
     -T ^"$output_dir/HumanOmni2-5-8-v1-2-A-chr20.bed" \

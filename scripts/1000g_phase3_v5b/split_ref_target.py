@@ -21,7 +21,7 @@ def record_count(path: Path) -> int:
 
 def parse_args() -> argparse.Namespace:
     data_dir = Path("data/1000g_phase3_v5b")
-    default_vcf = data_dir / "biallelic_snps" / "chr20.phase3_v5b.biallelic_snvs.vcf.gz"
+    default_vcf = data_dir / "biallelic_snvs/biallelic_snvs.vcf.gz"
     default_panel = data_dir / "integrated_call_samples_v3.20130502.ALL.panel"
 
     parser = argparse.ArgumentParser(
