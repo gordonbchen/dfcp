@@ -1,33 +1,30 @@
 #!/usr/bin/env python3
 
 import argparse
-from array import array
 import base64
-from bisect import bisect_left, bisect_right
-from dataclasses import dataclass
 import gzip
 import html
 import json
-from pathlib import Path
-import struct
 import subprocess
 import sys
-from typing import Iterable, Iterator, TextIO
-
+from array import array
+from bisect import bisect_left, bisect_right
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TextIO
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
-from plotly_html import ensure_plotly_asset  # noqa: E402
-from window import make_windows  # noqa: E402
-
+from plotly_html import ensure_plotly_asset
+from window import make_windows
 
 DATA_DIR = REPO_ROOT / "data/1000g_phase3_v5b"
 DEFAULT_REF_VCF = DATA_DIR / "ref_target/ref.vcf.gz"
-DEFAULT_OBSERVED = DATA_DIR / "dfcp_prep/observed_loci.txt"
+DEFAULT_TARGET_OBSERVED_VCF = DATA_DIR / "mask_target/target_observed.vcf.gz"
 DEFAULT_MAP = DATA_DIR / "plink.chr20.GRCh37.map"
-DEFAULT_SEQ_FILE = DATA_DIR / "dfcp_prep/ref.bin"
 
 
 @dataclass(frozen=True)
@@ -42,9 +39,10 @@ def parse_args() -> argparse.Namespace:
         description="Build an interactive report for choosing overlapping DFCP chr20 windows.",
     )
     parser.add_argument("--ref-vcf", type=Path, default=DEFAULT_REF_VCF)
-    parser.add_argument("--observed-loci", type=Path, default=DEFAULT_OBSERVED)
+    parser.add_argument(
+        "--target-observed-vcf", type=Path, default=DEFAULT_TARGET_OBSERVED_VCF
+    )
     parser.add_argument("--genetic-map", type=Path, default=DEFAULT_MAP)
-    parser.add_argument("--seq-file", type=Path, default=DEFAULT_SEQ_FILE)
     parser.add_argument("--physical-only", action="store_true")
     parser.add_argument("--density-bins", type=int, default=240)
     parser.add_argument("--output", type=Path, default=Path("window.html"))
@@ -60,11 +58,27 @@ def open_text(path: Path) -> TextIO:
     return path.open()
 
 
-def read_variant_positions(vcf: Path) -> tuple[str, list[int]]:
+def read_observed_variants(vcf: Path) -> set[tuple[str, int, str, str]]:
+    command = ["bcftools", "query", "-f", "%CHROM\\t%POS\\t%REF\\t%ALT\\n", str(vcf)]
+    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    variants = set()
+    for row, line in enumerate(result.stdout.splitlines(), start=1):
+        fields = line.split("\t")
+        if len(fields) != 4:
+            raise ValueError(f"invalid observed VCF query row {row}: {line}")
+        variant = fields[0], int(fields[1]), fields[2], fields[3]
+        if variant in variants:
+            raise ValueError(f"duplicate observed target variant: {variant}")
+        variants.add(variant)
+    return variants
+
+
+def read_variant_positions(vcf: Path, observed_vcf: Path) -> tuple[str, list[int], list[int]]:
     if not vcf.is_file():
         raise FileNotFoundError(f"reference VCF not found: {vcf}")
+    observed_variants = read_observed_variants(observed_vcf)
 
-    command = ["bcftools", "query", "-f", "%CHROM\\t%POS\\n", str(vcf)]
+    command = ["bcftools", "query", "-f", "%CHROM\\t%POS\\t%REF\\t%ALT\\n", str(vcf)]
     try:
         process = subprocess.Popen(
             command,
@@ -78,9 +92,10 @@ def read_variant_positions(vcf: Path) -> tuple[str, list[int]]:
     assert process.stdout is not None
     chromosome = ""
     positions: list[int] = []
+    obs_ls: list[int] = []
     for row, line in enumerate(process.stdout, start=1):
-        fields = line.split()
-        if len(fields) != 2:
+        fields = line.rstrip().split("\t")
+        if len(fields) != 4:
             process.kill()
             raise ValueError(f"invalid bcftools output on row {row}: {line.rstrip()}")
         if not chromosome:
@@ -93,6 +108,10 @@ def read_variant_positions(vcf: Path) -> tuple[str, list[int]]:
             process.kill()
             raise ValueError(f"reference VCF positions are reordered at row {row}")
         positions.append(position)
+        variant = fields[0], position, fields[2], fields[3]
+        if variant in observed_variants:
+            obs_ls.append(row - 1)
+            observed_variants.remove(variant)
 
     assert process.stderr is not None
     stderr = process.stderr.read()
@@ -101,30 +120,9 @@ def read_variant_positions(vcf: Path) -> tuple[str, list[int]]:
         raise RuntimeError(f"bcftools query failed ({return_code}): {stderr.strip()}")
     if not positions:
         raise ValueError(f"reference VCF contains no variants: {vcf}")
-    return chromosome, positions
-
-
-def read_obs_ls(path: Path, n_loci: int) -> list[int]:
-    if not path.is_file():
-        raise FileNotFoundError(f"observed-loci file not found: {path}")
-    loci: list[int] = []
-    with path.open() as stream:
-        for row, line in enumerate(stream, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                locus = int(stripped)
-            except ValueError as error:
-                raise ValueError(f"invalid observed locus on row {row}: {stripped}") from error
-            if not 0 <= locus < n_loci:
-                raise ValueError(f"observed locus {locus} on row {row} is outside [0, {n_loci})")
-            if loci and locus <= loci[-1]:
-                raise ValueError("observed loci must be unique and strictly increasing")
-            loci.append(locus)
-    if not loci:
-        raise ValueError(f"observed-loci file is empty: {path}")
-    return loci
+    if observed_variants:
+        raise ValueError(f"observed target variant is absent from reference: {next(iter(observed_variants))}")
+    return chromosome, positions, obs_ls
 
 
 def normalized_chromosome(chromosome: str) -> str:
@@ -245,17 +243,17 @@ def packed_base64(typecode: str, values: Iterable[int | float]) -> str:
     return base64.b64encode(packed.tobytes()).decode()
 
 
-def read_n_sequences(path: Path) -> int | None:
-    if not path.is_file():
-        return None
-    with path.open("rb") as stream:
-        header = stream.read(12)
-    if len(header) != 12:
-        raise ValueError(f"DFCP sequence header is truncated: {path}")
-    magic, n_sequences, _ = struct.unpack("<4sII", header)
-    if magic != b"DFCP":
-        raise ValueError(f"invalid DFCP sequence magic in {path}")
-    return n_sequences
+def read_n_sequences(path: Path) -> int:
+    result = subprocess.run(
+        ["bcftools", "query", "-l", str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    n_samples = len(result.stdout.splitlines())
+    if not n_samples:
+        raise ValueError(f"reference VCF has no samples: {path}")
+    return 2 * n_samples
 
 
 CSS = r"""
@@ -777,15 +775,16 @@ is covered exactly once after duplicate overlaps are removed.</p></header><div c
 
 def main() -> None:
     args = parse_args()
-    chromosome, positions = read_variant_positions(args.ref_vcf)
-    obs_ls = read_obs_ls(args.observed_loci, len(positions))
+    chromosome, positions, obs_ls = read_variant_positions(
+        args.ref_vcf, args.target_observed_vcf
+    )
     genetic_map = None
     if not args.physical_only:
         if args.genetic_map.is_file():
             genetic_map = read_genetic_map(args.genetic_map, chromosome)
         else:
             print(f"warning: genetic map not found; using Mb only: {args.genetic_map}", file=sys.stderr)
-    n_sequences = read_n_sequences(args.seq_file)
+    n_sequences = read_n_sequences(args.ref_vcf)
     write_report(args, chromosome, positions, obs_ls, genetic_map, n_sequences)
     map_status = f"{len(genetic_map.positions):,} map rows" if genetic_map else "physical coordinates"
     print(
