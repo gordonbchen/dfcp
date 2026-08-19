@@ -1,14 +1,13 @@
 #include <chrono>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 #include "hyperparams.hpp"
+#include "impute_io.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
 #include "max.hpp"
@@ -17,6 +16,7 @@
 #include "elbo.hpp"
 #include "json.hpp"
 #include "seq_array.hpp"
+#include "util.hpp"
 
 
 enum class InitMode { viterbi, block, pbwt };
@@ -56,12 +56,8 @@ class EarlyStopping {
 
 void train_dfcp(
     Clusters& clusters, Params& params, HyperParams& HP,
-
-    InitMode init_mode, int pbwt_match_len, bool pbwt_match_curr,
-    bool init_only,
-
+    InitMode init_mode, int pbwt_match_len, bool pbwt_match_curr, bool init_only,
     const SeqArray& x_train,
-
     Json& json
 ) {
     // Init clusters.
@@ -149,10 +145,10 @@ void impute(
     const SeqArray& x_val, const std::unordered_map<int, int>& obs_ls,
     bool viterbi,
     const Clusters& clusters, const Params& params, const HyperParams& HP,
-    Json& json
+    const char* prob_file, Json& json
 ) {
-    std::vector<std::vector<double>> probs;
-    probs.reserve(x_val.N);
+    int n_masked_ls = HP.L - static_cast<int>(obs_ls.size());
+    ImputeProbWriter prob_writer(prob_file, x_val.N, n_masked_ls);
 
     std::chrono::steady_clock::duration impute_dur{};
     for (int i = 0; i < x_val.N; ++i) {
@@ -160,11 +156,10 @@ void impute(
         std::vector<double> seq_probs = viterbi ?
             get_viterbi_impute_probs(x_val, i, obs_ls, clusters, params, HP)
             : fwd_bkwd(x_val, i, obs_ls, clusters, params, HP);
+        prob_writer.write_row(seq_probs);
         impute_dur += std::chrono::steady_clock::now() - t0;
-
-        probs.emplace_back(std::move(seq_probs));
     }
-    json.add("probs", probs);
+    prob_writer.finish();
 
     auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(impute_dur).count();
     std::cerr << "t_impute=" << t_impute << "ms\n";
@@ -172,9 +167,7 @@ void impute(
 }
 
 
-std::unordered_map<int, int> read_obs_ls(
-    const char *filename, int n_obs_ls, int n_total_loci
-) {
+std::unordered_map<int, int> read_obs_ls(const char *filename, int n_obs_ls, int n_total_loci) {
     std::ifstream file(filename);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open observed loci file.");
@@ -184,18 +177,21 @@ std::unordered_map<int, int> read_obs_ls(
     obs_ls.reserve(n_obs_ls);
 
     int i = 0;
+    int previous_l = -1;
     int l;
     while (file >> l) {
-        if (i >= n_obs_ls) {
-            throw std::runtime_error("Observed loci file has too many rows.");
-        }
         if (l < 0 || l >= n_total_loci) {
             throw std::runtime_error("Observed locus is outside the reference sequence.");
         }
-        if (!obs_ls.emplace(l, i).second) {
-            throw std::runtime_error("Observed loci file contains a duplicate locus.");
+        if (l <= previous_l) {
+            throw std::runtime_error("Observed loci must be unique and strictly increasing.");
         }
+        obs_ls.emplace(l, i);
+        previous_l = l;
         ++i;
+    }
+    if (!file.eof()) {
+        throw std::runtime_error("Observed loci file contains a non-integer value.");
     }
     if (i != n_obs_ls) {
         throw std::runtime_error("Observed loci file has the wrong number of rows.");
@@ -203,29 +199,15 @@ std::unordered_map<int, int> read_obs_ls(
     return obs_ls;
 }
 
-double parse_double(char *s) {
-    char* end_ptr = nullptr;
-    double x = std::strtod(s, &end_ptr);
-    if (end_ptr == s) { throw std::invalid_argument("Failed to parse double arg value."); };
-    return x;
-}
-
-int parse_int(char *s) {
-    char* end_ptr = nullptr;
-    int x = std::strtol(s, &end_ptr, 10);
-    if (end_ptr == s) { throw std::invalid_argument("Failed to parse int arg value."); };
-    return x;
-}
-
 int main(int argc, char *argv[]) {
     Json json;
 
     // Read ref and target files.
-    if (argc < 4) {
-        throw std::invalid_argument("Requires ref and target sequence files, and an observed loci file.");
+    if (argc < 5) {
+        throw std::invalid_argument("Requires ref bin, target obs bin, observed loci, and prob output file.");
     }
     std::cerr << "ref_file=" << argv[1] << " target_file=" << argv[2]
-        << " observed_loci_file=" << argv[3] << '\n';
+        << " observed_loci_file=" << argv[3] << " prob_file=" << argv[4] << '\n';
     json.add("ref_file", argv[1]).add("target_file", argv[2]).add("observed_loci_file", argv[3]);
 
     SeqArray x_train{read_seq_file(argv[1])};
@@ -244,7 +226,7 @@ int main(int argc, char *argv[]) {
 
     bool viterbi_impute = false;
 
-    int i = 4;
+    int i = 5;
     while (i < argc) {
         if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
 
@@ -290,12 +272,8 @@ int main(int argc, char *argv[]) {
 
     train_dfcp(
         clusters, params, HP,
-
-        init_mode, pbwt_match_len, pbwt_match_curr,
-        init_only,
-
+        init_mode, pbwt_match_len, pbwt_match_curr, init_only,
         x_train,
-
         json
     );
 
@@ -303,7 +281,7 @@ int main(int argc, char *argv[]) {
         x_val, obs_ls,
         viterbi_impute,
         clusters, params, HP,
-        json
+        argv[4], json
     );
     std::cout << json.str() << '\n';
 }

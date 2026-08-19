@@ -19,6 +19,12 @@ Cluster::Cluster(bool is_r_, int l_, int emission_, int K)
       n(0), nk(K, 0), n_obs(0) {}
 
 void Cluster::add_child(Cluster *child) {
+    if (is_r && child->parents.size() != 0) {
+        throw std::runtime_error("Child q cluster has a parent already.");
+    }
+    if (!is_r && children.size() != 0) {
+        throw std::runtime_error("Parent q cluster has a child already.");
+    }
     children.push_back(child);
     child->parents.push_back(this);
 }

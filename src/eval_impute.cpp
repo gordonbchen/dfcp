@@ -1,148 +1,73 @@
-int get_max_prob_emission(std::vector<double>::const_iterator probs, int K) {
-    int best_k = 0;
-    double best_prob = probs[0];
-    for (int k = 1; k < K; ++k) {
-        if (probs[k] > best_prob) {
-            best_k = k;
-            best_prob = probs[k];
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iostream>
+#include <stdexcept>
+#include <vector>
+#include "impute_io.hpp"
+#include "seq_array.hpp"
+
+
+int main(int argc, char* argv[]) {
+    if (argc != 4) {
+        throw std::invalid_argument("Usage: eval_impute PROBS.bin MASKED_TRUTH.bin OUTPUT.bin");
+    }
+
+    ImputeProbReader prob_reader(argv[1]);
+    const ImputeProbHeader& header = prob_reader.header();
+
+    SeqArray x_val_true{read_seq_file(argv[2])};
+    if (header.n_sequences != static_cast<std::uint32_t>(x_val_true.N)
+        || header.n_loci != static_cast<std::uint32_t>(x_val_true.L)) {
+        throw std::runtime_error("Probability and truth dimensions do not match.");
+    }
+
+    std::size_t n_loci = header.n_loci;
+    std::vector<double> sum_q(n_loci, 0.0);
+    std::vector<double> sum_q2(n_loci, 0.0);
+    std::vector<double> sum_qy(n_loci, 0.0);
+    std::vector<std::uint32_t> sum_y(n_loci, 0);
+    std::vector<std::uint32_t> n_correct(n_loci, 0);
+    std::vector<std::uint16_t> prob_row(n_loci);
+
+    for (int i = 0; i < x_val_true.N; ++i) {
+        prob_reader.read_row(prob_row);
+        for (int l = 0; l < x_val_true.L; ++l) {
+            std::uint16_t q = prob_row[l];
+            int y = x_val_true(i, l);
+            sum_q[l] += q;
+            sum_q2[l] += static_cast<double>(q) * q;
+            sum_qy[l] += static_cast<double>(q) * y;
+            sum_y[l] += y;
+            n_correct[l] += (static_cast<int>(q >= std::uint16_t{1} << 15) == y);
         }
     }
-    return best_k;
+    std::vector<float> r2(n_loci, -1.0F);
+    std::vector<float> accuracy(n_loci);
+    double r2_sum = 0.0;
+    double accuracy_sum = 0.0;
+    std::size_t n_defined_r2 = 0;
+    double n = x_val_true.N;
+    for (std::size_t l = 0; l < n_loci; ++l) {
+        double centered_q = n * sum_q2[l] - sum_q[l] * sum_q[l];
+        double centered_y = n * sum_y[l] - static_cast<double>(sum_y[l]) * sum_y[l];
+        double covariance = n * sum_qy[l] - sum_q[l] * sum_y[l];
+        if (centered_q > 0.0 && centered_y > 0.0) {
+            r2[l] = static_cast<float>(std::clamp(
+                covariance * covariance / (centered_q * centered_y), 0.0, 1.0
+            ));
+            r2_sum += r2[l];
+            ++n_defined_r2;
+        }
+        accuracy[l] = static_cast<float>(n_correct[l] / n);
+        accuracy_sum += accuracy[l];
+    }
+
+    double mean_r2 = n_defined_r2 ? r2_sum / n_defined_r2 : -1.0;
+    double mean_accuracy = accuracy_sum / n_loci;
+    std::cerr << "n_sequences=" << x_val_true.N << " n_loci=" << x_val_true.L
+        << " mean_r2=" << mean_r2 << " mean_accuracy=" << mean_accuracy
+        << " undefined_r2=" << n_loci - n_defined_r2 << '\n';
+    write_impute_eval_file(argv[3], r2, accuracy);
+    return 0;
 }
-
-struct R2Calc {
-    int n = 0;
-    double mean_x = 0.0;
-    double mean_y = 0.0;
-    double var_x = 0.0;
-    double var_y = 0.0;
-    double cov = 0.0;
-
-    void update(double x, double y) {
-        ++n;
-        double delta_x = x - mean_x;
-        double delta_y = y - mean_y;
-        mean_x += delta_x / n;
-        mean_y += delta_y / n;
-        var_x += delta_x * (x - mean_x);
-        var_y += delta_y * (y - mean_y);
-        cov += delta_x * (y - mean_y);
-    }
-
-    double r2() const {
-        if ((var_x <= 0.0) || (var_y <= 0.0)) {
-            return -1.0;
-        }
-        return std::clamp((cov * cov) / (var_x * var_y), 0.0, 1.0);
-    }
-};
-
-void impute(
-    const Clusters& clusters, const Params& params, const HyperParams& HP,
-
-    const std::vector<int8_t>& x_train,
-    const std::vector<int8_t>& x_val, int n_val_seqs,
-    const std::vector<int8_t>& x_val_true, const std::vector<int>& masked_ls,
-
-    Json& json
-) {
-    std::vector<size_t> emission_counts{count_emissions(x_train, HP.N, HP.L, HP.K)};
-    std::vector<int8_t> modes{get_emission_modes(emission_counts, HP.L, HP.K)};
-
-    int n_viterbi_correct = 0;
-    int n_fwd_bkwd_correct = 0;
-    int n_mode_correct = 0;
-
-    int n_masked_ls = masked_ls.size();
-    int n_r2 = (HP.K == 2) ? n_masked_ls : 0;
-    std::vector<R2Calc> fwd_bkwd_correlations(n_r2);
-    std::vector<R2Calc> viterbi_correlations(n_r2);
-    auto [minor_alleles, minor_allele_counts] = count_minor_alleles(emission_counts, masked_ls, n_masked_ls, HP.K);
-
-    std::chrono::steady_clock::duration viterbi_impute_dur{};
-    std::chrono::steady_clock::duration fwd_bkwd_impute_dur{};
-    for (int i = 0; i < n_val_seqs; ++i) {
-        auto t0 = std::chrono::steady_clock::now();
-        std::vector<double> fwd_bkwd_probs{fwd_bkwd(x_val.begin() + i*HP.L, masked_ls, clusters, params, HP)};
-        fwd_bkwd_impute_dur += std::chrono::steady_clock::now() - t0;
-
-        t0 = std::chrono::steady_clock::now();
-        std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(clusters, x_val.begin() + i*HP.L, HP, params)};
-        std::vector<double> viterbi_probs;
-        viterbi_probs.reserve(n_masked_ls * HP.K);
-        for (int il = 0; il < n_masked_ls; ++il) {
-            int l = masked_ls[il];
-            for (int k = 0; k < HP.K; ++k) {
-                double p = get_cluster_emission_ll(viterbi_clusters[2*l], k, l, clusters, params, HP);
-                viterbi_probs.emplace_back(p);
-            }
-        }
-        normalize_ll(viterbi_probs, n_masked_ls, HP.K);
-        viterbi_impute_dur += std::chrono::steady_clock::now() - t0;
-
-        for (int il = 0; il < n_masked_ls; ++il) {
-            int l = masked_ls[il];
-            int x_true = x_val_true[idx2d(i,il,n_masked_ls)];
-
-            // Accuracy.
-            if (x_true == get_max_prob_emission(viterbi_probs.begin() + il*HP.K, HP.K)) {
-                ++n_viterbi_correct;
-            }
-            if (x_true == get_max_prob_emission(fwd_bkwd_probs.begin() + il*HP.K, HP.K)) {
-                ++n_fwd_bkwd_correct;
-            }
-            if (x_true == modes[l]) {
-                ++n_mode_correct;
-            }
-
-            // r^2 b/t minor allele and p(minor allele).
-            if (HP.K == 2) {
-                int minor_allele = minor_alleles[il];
-                int is_minor_allele = x_true == minor_allele;
-                fwd_bkwd_correlations[il].update(is_minor_allele, fwd_bkwd_probs[idx2d(il,minor_allele, HP.K)]);
-                viterbi_correlations[il].update(is_minor_allele, viterbi_probs[idx2d(il,minor_allele, HP.K)]);
-            }
-        }
-    }
-    double n_masked_alleles = n_val_seqs * n_masked_ls;
-    double viterbi_impute_acc = n_viterbi_correct / n_masked_alleles;
-    double mode_impute_acc = n_mode_correct / n_masked_alleles;
-    double fwd_bkwd_impute_acc = n_fwd_bkwd_correct / n_masked_alleles;
-
-    std::vector<double> fwd_bkwd_r2s(n_r2, -1.0);
-    std::vector<double> viterbi_r2s(n_r2, -1.0);
-    double fwd_bkwd_r2_mean = 0.0;
-    double viterbi_r2_mean = 0.0;
-    int n_fwd_bkwd_r2_locs = 0;
-    int n_viterbi_r2_locs = 0;
-    if (HP.K == 2) {
-        for (int il = 0; il < n_masked_ls; ++il) {
-            fwd_bkwd_r2s[il] = fwd_bkwd_correlations[il].r2();
-            viterbi_r2s[il] = viterbi_correlations[il].r2();
-            if (fwd_bkwd_r2s[il] >= 0.0) {
-                fwd_bkwd_r2_mean += fwd_bkwd_r2s[il];
-                ++n_fwd_bkwd_r2_locs;
-            }
-            if (viterbi_r2s[il] >= 0.0) {
-                viterbi_r2_mean += viterbi_r2s[il];
-                ++n_viterbi_r2_locs;
-            }
-        }
-        fwd_bkwd_r2_mean = (n_fwd_bkwd_r2_locs == 0) ? -1.0 : fwd_bkwd_r2_mean / n_fwd_bkwd_r2_locs;
-        viterbi_r2_mean = (n_viterbi_r2_locs == 0) ? -1.0 : viterbi_r2_mean / n_viterbi_r2_locs;
-        std::cerr << "fwd_bkwd_r2_mean=" << fwd_bkwd_r2_mean << " viterbi_r2_mean=" << viterbi_r2_mean << '\n';
-        json.add("fwd_bkwd_r2s", fwd_bkwd_r2s).add("viterbi_r2s", viterbi_r2s)
-            .add("fwd_bkwd_r2_mean", fwd_bkwd_r2_mean).add("viterbi_r2_mean", viterbi_r2_mean)
-            .add("minor_allele_counts", minor_allele_counts);
-    }
-
-    auto t_viterbi_impute = std::chrono::duration_cast<std::chrono::milliseconds>(viterbi_impute_dur).count();
-    auto t_fwd_bkwd_impute = std::chrono::duration_cast<std::chrono::milliseconds>(fwd_bkwd_impute_dur).count();
-    std::cerr << "viterbi_impute_acc=" << viterbi_impute_acc << " t_viterbi_impute=" << t_viterbi_impute << "ms\n"
-        << "fwd_bkwd_impute_acc=" << fwd_bkwd_impute_acc << " t_fwd_bkwd_impute=" << t_fwd_bkwd_impute << "ms\n"
-        << "mode_impute_acc=" << mode_impute_acc << '\n';
-    json.add("viterbi_impute_acc", viterbi_impute_acc).add("t_viterbi_impute", t_viterbi_impute)
-        .add("fwd_bkwd_impute_acc", fwd_bkwd_impute_acc).add("t_fwd_bkwd_impute", t_fwd_bkwd_impute)
-        .add("mode_impute_acc", mode_impute_acc);
-}
-

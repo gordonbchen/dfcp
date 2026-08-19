@@ -7,7 +7,6 @@
 #include "clusters.hpp"
 #include "math.hpp"
 #include "elbo.hpp"
-#include "math.hpp"
 #include "util.hpp"
 
 

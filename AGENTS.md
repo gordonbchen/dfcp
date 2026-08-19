@@ -27,7 +27,8 @@ current executable.
 ### Root files
 
 - `notes.typ`: model derivations, inference notes, metrics, and research TODOs.
-- `CMakeLists.txt`: builds the single `dfcp` C++20 executable with OpenMP.
+- `CMakeLists.txt`: builds the `dfcp` and `eval_impute` C++20 executables and
+  registers the binary-pipeline test.
 - `build.sh`: configures `build/`, links `compile_commands.json`, and builds.
 - `README.md`: short project title only; use this guide for operational docs.
 - `.clangd`: strict unused-include and missing-include diagnostics.
@@ -42,6 +43,9 @@ current executable.
 - `include/params.hpp`: moments for the continuous variational approximation.
 - `include/seq_array.hpp`: sequence-major bitpacked observations and the binary
   sequence-file reader.
+- `include/io.hpp`: shared little-endian binary I/O and atomic output writing.
+- `include/impute_io.hpp`: streamed fixed-point probability output and compact
+  imputation-evaluation output.
 - `include/clusters.hpp`: `R`/`Q` graph nodes, ownership, assignments, and
   cluster mutation interface, including the emission-mode enum.
 - `include/max.hpp`: sequence reassignment and insertion entry points.
@@ -59,6 +63,10 @@ current executable.
   imputation, timings, and JSON output.
 - `src/seq_array.cpp`: binary sequence loading and the 64-by-64 bit transpose
   from locus-major file words to sequence-major memory words.
+- `src/io.cpp`: exact binary reads/writes, endian conversion, and atomic file output.
+- `src/impute_io.cpp`: little-endian imputation probability and evaluation I/O.
+- `src/eval_impute.cpp`: per-locus r-squared and accuracy from probability and
+  masked-truth binaries.
 - `src/clusters.cpp`: cluster creation/deletion, graph links, assignments,
   hard-emission indexes, and soft-emission counts.
 - `src/max.cpp`: hard and soft sequencewise Viterbi maximization.
@@ -90,6 +98,12 @@ current executable.
 - `scripts/viz.py`: reads one result JSON document from stdin or a file and
   builds an interactive Plotly report; it renders DFCP's DOT tree output as
   locus-selectable Graphviz SVGs with zoom controls.
+- `scripts/1000g_phase3_v5b/window.py`: slices packed chromosome inputs into
+  equal-locus overlapping windows without decoding the allele payload.
+- `scripts/1000g_phase3_v5b/window_viz.py`: interactive physical/genetic
+  window-selection report using the same boundary formula as `window.py`.
+- `scripts/impute_viz.py`: plots per-locus imputation r-squared against
+  reference minor-allele count.
 
 ### Deprecated Python
 
@@ -203,7 +217,8 @@ current value before using it.
 5. Unless `--init_only 1` is set, run Maximization-Expectation until early
    stopping.
 6. Impute target loci absent from the observed-target map without inserting
-   target sequences into the fitted reference cluster graph.
+   target sequences into the fitted reference cluster graph, streaming one
+   fixed-point probability row at a time.
 7. Write diagnostics to stderr and one JSON object to stdout.
 
 ## Input Formats
@@ -231,6 +246,27 @@ current value before using it.
 - It must contain exactly `target.L` unique indexes, each in `[0, reference.L)`.
 - `dfcp_prep.sh` creates it by matching `CHROM`, `POS`, `REF`, and `ALT` and
   rejects missing, duplicate, or reordered target variants.
+
+### Imputation probability file
+
+- The four-byte magic is `DFIP`, followed by little-endian `uint32` target
+  sequence count `N` and masked-locus count `M`.
+- The payload is row-major `[N][M]` little-endian `uint16` values encoding
+  `round(P(allele 1) * 65535)`.
+- The masked-locus order is the complement of the observed-loci file in
+  increasing reference-locus order.
+- The writer streams one target row and atomically replaces the output after
+  all rows succeed.
+- Allele 1 is not guaranteed to be the reference-panel minor allele. Compute
+  minor count as `min(allele_1_count, N - allele_1_count)`.
+
+### Imputation evaluation file
+
+- The four-byte magic is `DFIE`, followed by little-endian `uint32 M`.
+- The payload contains little-endian `float32 r2[M]` followed by
+  `float32 accuracy[M]`.
+- An r-squared value of `-1` means the truth or probability had zero variance
+  at that locus.
 
 ### Variant position file
 
@@ -267,7 +303,7 @@ Build and run from the repository root:
 
 ```bash
 ./build.sh
-./build/dfcp REF_FILE TARGET_FILE OBSERVED_LOCI_FILE [OPTION VALUE]...
+./build/dfcp REF_FILE TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE [OPTION VALUE]...
 ```
 
 Every option requires a value, including booleans. There is no `--help` path.
@@ -292,9 +328,19 @@ A prepared 1000 Genomes invocation is:
 ```bash
 ./build.sh && ./build/dfcp \
   data/1000g_phase3_v5b/dfcp_prep/ref.bin \
-  data/1000g_phase3_v5b/dfcp_prep/target_masked.bin \
-  data/1000g_phase3_v5b/dfcp_prep/target_masked.observed_loci.txt \
+  data/1000g_phase3_v5b/dfcp_prep/target_observed.bin \
+  data/1000g_phase3_v5b/dfcp_prep/observed_loci.txt \
+  output/imputation.probs.bin \
   --init pbwt --viterbi_impute 1
+```
+
+Evaluate the probabilities with:
+
+```bash
+./build/eval_impute \
+  output/imputation.probs.bin \
+  data/1000g_phase3_v5b/dfcp_prep/target_masked_true.bin \
+  output/imputation.eval.bin
 ```
 
 ## Output
@@ -305,13 +351,15 @@ one JSON object suitable for scripts.
 Always-present fields include:
 
 - `ref_file`, `target_file`, and `observed_loci_file`
-- `t_init`, `probs`, and `t_impute`
+- `t_init` and `t_impute`
 
 Unless `--init_only 1` is set, output also includes `train_log` and the fitted
-parameter moments under `params`. Cluster assignments are not serialized.
+parameter moments under `params`. Probabilities are written to `PROB_FILE` and
+are not accumulated in JSON. Cluster assignments are not serialized.
 
-The evaluation metrics below describe the intended behavior in the inactive
-evaluation sources. They are not currently emitted by `dfcp`.
+The cluster and tree metrics below describe intended behavior in inactive
+evaluation sources. Imputation r-squared and accuracy are active in
+`eval_impute`; they are not emitted by `dfcp`.
 
 ## Evaluation Metrics
 
@@ -391,8 +439,8 @@ Required for the executable:
 - OpenMP.
 - Boost headers for special functions, logistic sigmoid, and Brent minimization.
 
-The build enables `-Wall -Wextra -Wpedantic -O3`. There is currently no
-install target, library target, automated test target, or CI configuration.
+The build enables `-Wall -Wextra -Wpedantic -O3`. There is no install target,
+library target, or CI configuration. CTest runs the binary-pipeline tests.
 
 The active analysis scripts require Python, Matplotlib, Plotly, PyTorch,
 BoTorch, and GPyTorch. Historical and notebook work may additionally require
@@ -405,6 +453,7 @@ After a C++ change, at minimum run:
 
 ```bash
 ./build.sh
+ctest --test-dir build --output-on-failure
 ```
 
 For changes involving fitting or tree metrics, run the representative command

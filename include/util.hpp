@@ -19,5 +19,8 @@ inline int8_t get_xil(const SeqArray& x, int i, int l, const std::unordered_map<
     return mapped_l == obs_ls->end() ? -1 : x(i, mapped_l->second);
 }
 
+double parse_double(const char* value);
+int parse_int(const char* value);
+
 std::vector<size_t> count_emissions(const SeqArray& x, int K);
 std::vector<int8_t> get_emission_modes(const std::vector<size_t>& emission_counts, const int L, const int K);

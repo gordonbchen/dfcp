@@ -21,6 +21,8 @@ add_executable(dfcp
     src/util.cpp
     src/pbwt.cpp
     src/fwd_bkwd.cpp
+    src/impute_io.cpp
+    src/io.cpp
 )
 
 target_include_directories(dfcp PRIVATE
@@ -37,3 +39,31 @@ target_compile_options(dfcp PRIVATE
 target_link_libraries(dfcp PRIVATE
     OpenMP::OpenMP_CXX
 )
+
+add_executable(eval_impute
+    src/eval_impute.cpp
+    src/impute_io.cpp
+    src/seq_array.cpp
+    src/io.cpp
+)
+
+target_include_directories(eval_impute PRIVATE
+    include
+)
+
+target_compile_options(eval_impute PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -O3
+)
+
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(
+        NAME binary_pipeline
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_binary_pipeline.py
+    )
+    set_tests_properties(binary_pipeline PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+endif()
