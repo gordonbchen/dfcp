@@ -2,24 +2,19 @@
 set -euo pipefail
 
 data_dir='data/1000g_phase3_v5b'
-out_dir="$data_dir/dfcp_prep"
-
-mkdir -p "$out_dir"
+windows_dir="${1:-$data_dir/windows}"
 
 to_bitpacked() {
     local vcf=$1
-    local name
+    local output=$2
     local n_samples
     local n_haplotypes
     local n_loci
-    local output
     local tmp
-    name=$(basename "${vcf%.vcf.gz}")
     n_samples=$(bcftools query -l "$vcf" | wc -l)
     n_haplotypes=$((2 * n_samples))
     n_loci=$(bcftools index --nrecords "$vcf")
-    output="$out_dir/$name.bin"
-    tmp=$(mktemp "$out_dir/.${name}.XXXXXX")
+    tmp=$(mktemp "${output}.XXXXXX")
 
     echo "bitpacking: $vcf"
     # VCF rows are loci. Write each as ceil(N/64) little-endian words; the
@@ -57,18 +52,17 @@ to_bitpacked() {
 write_observed_loci() {
     local ref_vcf=$1
     local target_observed_vcf=$2
+    local output=$3
     local n_target_loci
-    local target_positions
-    local output
+    local target_variants
     local tmp
     n_target_loci=$(bcftools index --nrecords "$target_observed_vcf")
-    target_positions=$(mktemp "$out_dir/.target_positions.XXXXXX")
-    output="$out_dir/observed_loci.txt"
-    tmp=$(mktemp "$out_dir/.observed_loci.XXXXXX")
+    target_variants=$(mktemp "${output}.target.XXXXXX")
+    tmp=$(mktemp "${output}.XXXXXX")
 
-    if ! bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\n' "$target_observed_vcf" > "$target_positions"
+    if ! bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\n' "$target_observed_vcf" > "$target_variants"
     then
-        rm -f -- "$target_positions" "$tmp"
+        rm -f -- "$target_variants" "$tmp"
         return 1
     fi
 
@@ -97,21 +91,36 @@ write_observed_loci() {
                     exit 1
                 }
             }
-        ' "$target_positions" - > "$tmp"
+        ' "$target_variants" - > "$tmp"
     then
-        rm -f -- "$target_positions" "$tmp"
+        rm -f -- "$target_variants" "$tmp"
         return 1
     fi
 
-    rm -f -- "$target_positions"
+    rm -f -- "$target_variants"
     mv -- "$tmp" "$output"
 }
 
-ref_vcf="$data_dir/ref_target/ref.vcf.gz"
-target_observed_vcf="$data_dir/mask_target/target_observed.vcf.gz"
-target_masked_true_vcf="$data_dir/mask_target/target_masked_true.vcf.gz"
+shopt -s nullglob
+window_dirs=("$windows_dir"/window_*)
+if (( ${#window_dirs[@]} == 0 )); then
+    echo "error: no window directories in $windows_dir" >&2
+    exit 1
+fi
 
-to_bitpacked "$ref_vcf"
-to_bitpacked "$target_observed_vcf"
-to_bitpacked "$target_masked_true_vcf"
-write_observed_loci "$ref_vcf" "$target_observed_vcf"
+for window_dir in "${window_dirs[@]}"; do
+    ref_vcf="$window_dir/ref.vcf.gz"
+    target_observed_vcf="$window_dir/target_observed.vcf.gz"
+    target_masked_true_vcf="$window_dir/target_masked_true.vcf.gz"
+    for vcf in "$ref_vcf" "$target_observed_vcf" "$target_masked_true_vcf"; do
+        if [[ ! -f "$vcf" ]]; then
+            echo "error: missing window VCF: $vcf" >&2
+            exit 1
+        fi
+    done
+
+    to_bitpacked "$ref_vcf" "$window_dir/ref.bin"
+    to_bitpacked "$target_observed_vcf" "$window_dir/target_observed.bin"
+    to_bitpacked "$target_masked_true_vcf" "$window_dir/target_masked_true.bin"
+    write_observed_loci "$ref_vcf" "$target_observed_vcf" "$window_dir/observed_loci.txt"
+done

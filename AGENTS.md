@@ -27,8 +27,7 @@ current executable.
 ### Root files
 
 - `notes.typ`: model derivations, inference notes, metrics, and research TODOs.
-- `CMakeLists.txt`: builds the `dfcp` and `eval_impute` C++20 executables and
-  registers the binary-pipeline test.
+- `CMakeLists.txt`: builds the `impute` and `eval_impute` C++20 executables.
 - `build.sh`: configures `build/`, links `compile_commands.json`, and builds.
 - `README.md`: short project title only; use this guide for operational docs.
 - `.clangd`: strict unused-include and missing-include diagnostics.
@@ -98,12 +97,12 @@ current executable.
 - `scripts/viz.py`: reads one result JSON document from stdin or a file and
   builds an interactive Plotly report; it renders DFCP's DOT tree output as
   locus-selectable Graphviz SVGs with zoom controls.
-- `scripts/1000g_phase3_v5b/window.py`: slices packed chromosome inputs into
-  equal-locus overlapping windows without decoding the allele payload.
+- `scripts/1000g_phase3_v5b/window.py`: writes aligned, equal-locus overlapping
+  reference and target VCF windows before DFCP bitpacking.
 - `scripts/1000g_phase3_v5b/window_viz.py`: interactive physical/genetic
   window-selection report using the same boundary formula as `window.py`.
 - `scripts/impute_viz.py`: plots per-locus imputation r-squared against
-  reference minor-allele count.
+  reference minor-allele count read from a windowed reference VCF.
 
 ### Deprecated Python
 
@@ -244,8 +243,8 @@ current value before using it.
 - The file contains one zero-based reference-locus index per observed target
   column, in the same order as columns in the target sequence file.
 - It must contain exactly `target.L` unique indexes, each in `[0, reference.L)`.
-- `dfcp_prep.sh` creates it by matching `CHROM`, `POS`, `REF`, and `ALT` and
-  rejects missing, duplicate, or reordered target variants.
+- `dfcp_prep.sh` creates it for each VCF window by matching `CHROM`, `POS`,
+  `REF`, and `ALT` and rejects missing, duplicate, or reordered target variants.
 
 ### Imputation probability file
 
@@ -303,7 +302,7 @@ Build and run from the repository root:
 
 ```bash
 ./build.sh
-./build/dfcp REF_FILE TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE [OPTION VALUE]...
+./build/impute REF_FILE TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE [OPTION VALUE]...
 ```
 
 Every option requires a value, including booleans. There is no `--help` path.
@@ -326,10 +325,10 @@ Every option requires a value, including booleans. There is no `--help` path.
 A prepared 1000 Genomes invocation is:
 
 ```bash
-./build.sh && ./build/dfcp \
-  data/1000g_phase3_v5b/dfcp_prep/ref.bin \
-  data/1000g_phase3_v5b/dfcp_prep/target_observed.bin \
-  data/1000g_phase3_v5b/dfcp_prep/observed_loci.txt \
+./build.sh && ./build/impute \
+  data/1000g_phase3_v5b/windows/window_0000/ref.bin \
+  data/1000g_phase3_v5b/windows/window_0000/target_observed.bin \
+  data/1000g_phase3_v5b/windows/window_0000/observed_loci.txt \
   output/imputation.probs.bin \
   --init pbwt --viterbi_impute 1
 ```
@@ -339,7 +338,7 @@ Evaluate the probabilities with:
 ```bash
 ./build/eval_impute \
   output/imputation.probs.bin \
-  data/1000g_phase3_v5b/dfcp_prep/target_masked_true.bin \
+  data/1000g_phase3_v5b/windows/window_0000/target_masked_true.bin \
   output/imputation.eval.bin
 ```
 
@@ -440,7 +439,7 @@ Required for the executable:
 - Boost headers for special functions, logistic sigmoid, and Brent minimization.
 
 The build enables `-Wall -Wextra -Wpedantic -O3`. There is no install target,
-library target, or CI configuration. CTest runs the binary-pipeline tests.
+library target, automated test target, or CI configuration.
 
 The active analysis scripts require Python, Matplotlib, Plotly, PyTorch,
 BoTorch, and GPyTorch. Historical and notebook work may additionally require
@@ -453,7 +452,6 @@ After a C++ change, at minimum run:
 
 ```bash
 ./build.sh
-ctest --test-dir build --output-on-failure
 ```
 
 For changes involving fitting or tree metrics, run the representative command

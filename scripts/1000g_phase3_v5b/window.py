@@ -1,33 +1,18 @@
 #!/usr/bin/env python3
 
 import argparse
-from bisect import bisect_left
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-import struct
-import sys
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
-PREP_DIR = REPO_ROOT / "data/1000g_phase3_v5b/dfcp_prep"
-DEFAULT_REF = PREP_DIR / "ref.bin"
-DEFAULT_TARGET_OBSERVED = PREP_DIR / "target_observed.bin"
-DEFAULT_TARGET_MASKED_TRUE = PREP_DIR / "target_masked_true.bin"
-DEFAULT_OBSERVED_LOCI = PREP_DIR / "observed_loci.txt"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "data/1000g_phase3_v5b/windows"
-
-SEQ_HEADER = struct.Struct("<4sII")
-SEQ_MAGIC = b"DFCP"
-COPY_BUFFER_SIZE = 8 * 1024 * 1024
-
-
-@dataclass(frozen=True)
-class SeqFile:
-    path: Path
-    n_sequences: int
-    n_loci: int
-    bytes_per_locus: int
+DATA_DIR = REPO_ROOT / "data/1000g_phase3_v5b"
+DEFAULT_REF = DATA_DIR / "ref_target/ref.vcf.gz"
+DEFAULT_TARGET_OBSERVED = DATA_DIR / "mask_target/target_observed.vcf.gz"
+DEFAULT_TARGET_MASKED_TRUE = DATA_DIR / "mask_target/target_masked_true.vcf.gz"
+DEFAULT_OUTPUT_DIR = DATA_DIR / "windows"
 
 
 @dataclass(frozen=True)
@@ -39,6 +24,12 @@ class Window:
     @property
     def size(self) -> int:
         return self.end - self.start
+
+
+@dataclass(frozen=True)
+class Position:
+    chromosome: str
+    value: int
 
 
 def make_windows(n_loci: int, n_windows: int, overlap: int) -> list[Window]:
@@ -67,93 +58,76 @@ def make_windows(n_loci: int, n_windows: int, overlap: int) -> list[Window]:
     return windows
 
 
-def read_seq_file(path: Path) -> SeqFile:
-    with path.open("rb") as stream:
-        header = stream.read(SEQ_HEADER.size)
-    if len(header) != SEQ_HEADER.size:
-        raise ValueError(f"truncated sequence header: {path}")
-
-    magic, n_sequences, n_loci = SEQ_HEADER.unpack(header)
-    if magic != SEQ_MAGIC:
-        raise ValueError(f"invalid sequence magic: {path}")
-    if n_sequences == 0 or n_loci == 0:
-        raise ValueError(f"sequence dimensions must be positive: {path}")
-
-    bytes_per_locus = ((n_sequences + 63) // 64) * 8
-    expected_size = SEQ_HEADER.size + n_loci * bytes_per_locus
-    actual_size = path.stat().st_size
-    if actual_size != expected_size:
-        raise ValueError(f"sequence file has {actual_size} bytes; expected {expected_size}: {path}")
-    return SeqFile(path, n_sequences, n_loci, bytes_per_locus)
-
-
-def read_observed_loci(path: Path, n_loci: int) -> list[int]:
-    loci = []
-    with path.open() as stream:
-        for row, line in enumerate(stream, start=1):
-            value = line.strip()
-            if not value:
-                raise ValueError(f"blank observed-locus row {row}: {path}")
-            try:
-                locus = int(value)
-            except ValueError as error:
-                raise ValueError(f"invalid observed locus on row {row}: {value}") from error
-            if not 0 <= locus < n_loci:
-                raise ValueError(f"observed locus {locus} on row {row} is outside [0, {n_loci})")
-            if loci and locus <= loci[-1]:
-                raise ValueError("observed loci must be unique and strictly increasing")
-            loci.append(locus)
-    return loci
-
-
-def copy_exact(source, destination, n_bytes: int) -> None:
-    remaining = n_bytes
-    while remaining:
-        block = source.read(min(remaining, COPY_BUFFER_SIZE))
-        if not block:
-            raise ValueError("sequence file ended while copying a validated locus range")
-        destination.write(block)
-        remaining -= len(block)
-
-
-def write_seq_slice(seq_file: SeqFile, start: int, end: int, output: Path) -> None:
-    if not 0 <= start < end <= seq_file.n_loci:
-        raise ValueError(f"invalid locus range [{start}, {end}) for {seq_file.path}")
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with seq_file.path.open("rb") as source, output.open("wb") as destination:
-        destination.write(SEQ_HEADER.pack(SEQ_MAGIC, seq_file.n_sequences, end - start))
-        source.seek(SEQ_HEADER.size + start * seq_file.bytes_per_locus)
-        copy_exact(source, destination, (end - start) * seq_file.bytes_per_locus)
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Split bitpacked DFCP chromosome inputs into equal-locus overlapping windows.",
+        description="Split aligned reference and target VCFs into equal-locus overlapping windows.",
     )
     parser.add_argument("--ref", type=Path, default=DEFAULT_REF)
     parser.add_argument("--target-observed", type=Path, default=DEFAULT_TARGET_OBSERVED)
     parser.add_argument("--target-masked-true", type=Path, default=DEFAULT_TARGET_MASKED_TRUE)
-    parser.add_argument("--observed-loci", type=Path, default=DEFAULT_OBSERVED_LOCI)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--n-windows", type=int, required=True)
-    parser.add_argument("--overlap", type=int, default=0, help="reference loci shared by adjacent windows")
-    parser.add_argument("--first-only", action="store_true", help="write only window 0")
-    return parser.parse_args()
+    parser.add_argument("--overlap", type=int, default=0, help="reference loci shared by neighbors")
+    parser.add_argument(
+        "--n-generate",
+        type=int,
+        help="generate only the first N windows; the default generates every window",
+    )
+    parser.add_argument("--threads", type=int, default=1)
+    args = parser.parse_args()
+    if args.n_generate is None:
+        args.n_generate = args.n_windows
+    if not 1 <= args.n_generate <= args.n_windows:
+        parser.error("--n-generate must be between 1 and --n-windows")
+    if args.threads <= 0:
+        parser.error("--threads must be positive")
+    return args
 
 
-def validate_inputs(
-    ref: SeqFile,
-    target_observed: SeqFile,
-    target_masked_true: SeqFile,
-    observed_loci: list[int],
-) -> None:
-    if target_observed.n_sequences != target_masked_true.n_sequences:
-        raise ValueError("observed target and masked truth have different sequence counts")
-    if target_observed.n_loci != len(observed_loci):
-        raise ValueError("observed-loci rows do not match the observed-target locus count")
-    if target_masked_true.n_loci != ref.n_loci - len(observed_loci):
-        raise ValueError("masked-truth loci are not the complement of the observed loci")
+def run(command: list[str]) -> None:
+    subprocess.run(command, check=True)
+
+
+def record_count(path: Path) -> int:
+    result = subprocess.run(
+        ["bcftools", "index", "--nrecords", str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return int(result.stdout)
+
+
+def read_boundary_positions(vcf: Path, boundary_indexes: list[int]) -> dict[int, Position]:
+    process = subprocess.Popen(
+        ["bcftools", "query", "-f", "%CHROM\t%POS\n", str(vcf)],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout is not None
+    wanted = set(boundary_indexes)
+    positions = {}
+    for index, line in enumerate(process.stdout):
+        if index in wanted:
+            chromosome, position = line.rstrip().split("\t")
+            positions[index] = Position(chromosome, int(position))
+    if process.wait():
+        raise subprocess.CalledProcessError(process.returncode, process.args)
+    if len(positions) != len(wanted):
+        raise RuntimeError("failed to find every window boundary in the reference VCF")
+    return positions
+
+
+def write_region(source: Path, output: Path, region: str, threads: int) -> int:
+    run([
+        "bcftools", "view",
+        "--threads", str(threads),
+        "--regions", region,
+        "-Oz", "-o", str(output),
+        str(source),
+    ])
+    run(["bcftools", "index", "--force", "--threads", str(threads), str(output)])
+    return record_count(output)
 
 
 def require_empty_output_dir(path: Path) -> None:
@@ -163,85 +137,70 @@ def require_empty_output_dir(path: Path) -> None:
 
 
 def write_window(
-    output_dir: Path,
+    args: argparse.Namespace,
     window: Window,
-    ref: SeqFile,
-    target_observed: SeqFile,
-    target_masked_true: SeqFile,
-    observed_loci: list[int],
-    overlap: int,
+    first: Position,
+    last: Position,
 ) -> tuple[int, int, int]:
-    first_observed = bisect_left(observed_loci, window.start)
-    after_observed = bisect_left(observed_loci, window.end)
-    observed_count = after_observed - first_observed
-    first_masked = window.start - first_observed
-    after_masked = window.end - after_observed
-    masked_count = after_masked - first_masked
-    if not observed_count:
-        raise ValueError(f"window {window.index} has no observed target loci")
-    if not masked_count:
-        raise ValueError(f"window {window.index} has no masked truth loci")
-
-    window_dir = output_dir / f"window_{window.index:04d}"
+    if first.chromosome != last.chromosome:
+        raise ValueError("a window cannot cross chromosomes")
+    region = f"{first.chromosome}:{first.value}-{last.value}"
+    window_dir = args.output_dir / f"window_{window.index:04d}"
     window_dir.mkdir()
-    write_seq_slice(ref, window.start, window.end, window_dir / "ref.bin")
-    write_seq_slice(
-        target_observed, first_observed, after_observed, window_dir / "target_observed.bin"
+    n_ref = write_region(args.ref, window_dir / "ref.vcf.gz", region, args.threads)
+    observed = write_region(
+        args.target_observed, window_dir / "target_observed.vcf.gz", region, args.threads
     )
-    write_seq_slice(
-        target_masked_true, first_masked, after_masked, window_dir / "target_masked_true.bin"
+    masked = write_region(
+        args.target_masked_true, window_dir / "target_masked_true.vcf.gz", region, args.threads
     )
-
-    local_observed = observed_loci[first_observed:after_observed]
-    observed_path = window_dir / "observed_loci.txt"
-    observed_path.write_text("".join(f"{locus - window.start}\n" for locus in local_observed))
-
-    output_bytes = sum(path.stat().st_size for path in window_dir.iterdir())
-    overlap_prev = overlap if window.index else 0
+    if observed == 0 or masked == 0 or observed + masked != n_ref:
+        raise RuntimeError(
+            f"window {window.index} has ref={n_ref}, observed={observed}, masked={masked} records"
+        )
     print(
-        f"window={window.index:04d} ref=[{window.start},{window.end}) loci={window.size} "
-        f"observed={observed_count} masked={masked_count} overlap_prev={overlap_prev} "
-        f"bytes={output_bytes}",
+        f"window={window.index:04d} ref=[{window.start},{window.end}) loci={n_ref} "
+        f"observed={observed} masked={masked}",
         file=sys.stderr,
     )
-    return observed_count, masked_count, output_bytes
+    return n_ref, observed, masked
 
 
 def main() -> None:
     args = parse_args()
-    ref = read_seq_file(args.ref)
-    target_observed = read_seq_file(args.target_observed)
-    target_masked_true = read_seq_file(args.target_masked_true)
-    observed_loci = read_observed_loci(args.observed_loci, ref.n_loci)
-    validate_inputs(ref, target_observed, target_masked_true, observed_loci)
-    windows = make_windows(ref.n_loci, args.n_windows, args.overlap)
-    selected = windows[:1] if args.first_only else windows
+    n_loci = record_count(args.ref)
+    windows = make_windows(n_loci, args.n_windows, args.overlap)
+    boundary_indexes = [index for window in windows for index in (window.start, window.end - 1)]
+    boundaries = read_boundary_positions(args.ref, boundary_indexes)
     require_empty_output_dir(args.output_dir)
 
-    manifest_path = args.output_dir / "windows.tsv"
-    total_bytes = 0
-    with manifest_path.open("w") as manifest:
-        manifest.write("window\tstart\tend\tloci\tobserved\tmasked\toverlap_previous\n")
-        for window in selected:
-            observed, masked, output_bytes = write_window(
-                args.output_dir,
-                window,
-                ref,
-                target_observed,
-                target_masked_true,
-                observed_loci,
-                args.overlap,
+    generated: dict[int, tuple[int, int, int]] = {}
+    for window in windows[:args.n_generate]:
+        generated[window.index] = write_window(
+            args, window, boundaries[window.start], boundaries[window.end - 1]
+        )
+
+    manifest = args.output_dir / "windows.tsv"
+    with manifest.open("w") as stream:
+        stream.write(
+            "window\tstart\tend\tplanned_loci\tchrom\tfirst_pos\tlast_pos\tgenerated"
+            "\tref_loci\tobserved\tmasked\toverlap_previous\n"
+        )
+        for window in windows:
+            first = boundaries[window.start]
+            last = boundaries[window.end - 1]
+            counts = generated.get(window.index)
+            ref_loci, observed, masked = counts if counts else (".", ".", ".")
+            overlap = args.overlap if window.index else 0
+            stream.write(
+                f"{window.index}\t{window.start}\t{window.end}\t{window.size}\t"
+                f"{first.chromosome}\t{first.value}\t{last.value}\t{int(counts is not None)}\t"
+                f"{ref_loci}\t{observed}\t{masked}\t{overlap}\n"
             )
-            overlap_prev = args.overlap if window.index else 0
-            manifest.write(
-                f"{window.index}\t{window.start}\t{window.end}\t{window.size}\t{observed}\t"
-                f"{masked}\t{overlap_prev}\n"
-            )
-            total_bytes += output_bytes
 
     print(
-        f"wrote {len(selected)} of {len(windows)} windows to {args.output_dir}; "
-        f"window_bytes={total_bytes} manifest={manifest_path}",
+        f"wrote {args.n_generate} of {args.n_windows} VCF windows to {args.output_dir}; "
+        f"manifest={manifest}",
         file=sys.stderr,
     )
 
