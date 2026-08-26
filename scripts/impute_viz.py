@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 
 import argparse
-from pathlib import Path
 import struct
+import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import plotly.graph_objects as go
-
 from plotly_html import ensure_plotly_asset
 
-
-SEQ_HEADER = struct.Struct("<4sII")
 EVAL_HEADER = struct.Struct("<4sI")
-POPCOUNT = np.unpackbits(np.arange(256, dtype=np.uint8)[:, None], axis=1).sum(axis=1)
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,7 +18,7 @@ def parse_args() -> argparse.Namespace:
         description="Plot per-locus imputation r-squared against reference minor-allele count.",
     )
     parser.add_argument("evaluation", type=Path)
-    parser.add_argument("reference", type=Path)
+    parser.add_argument("reference", type=Path, help="windowed reference VCF")
     parser.add_argument("observed_loci", type=Path)
     parser.add_argument("--output", type=Path, default=Path("impute.html"))
     parser.add_argument("--max-points", type=int, default=200_000)
@@ -31,19 +28,21 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def read_seq_header(path: Path) -> tuple[int, int, int]:
-    with path.open("rb") as stream:
-        header = stream.read(SEQ_HEADER.size)
-    if len(header) != SEQ_HEADER.size:
-        raise ValueError(f"truncated sequence header: {path}")
-    magic, n_sequences, n_loci = SEQ_HEADER.unpack(header)
-    if magic != b"DFCP" or n_sequences == 0 or n_loci == 0:
-        raise ValueError(f"invalid sequence header: {path}")
-    words_per_locus = (n_sequences + 63) // 64
-    expected_size = SEQ_HEADER.size + n_loci * words_per_locus * 8
-    if path.stat().st_size != expected_size:
-        raise ValueError(f"invalid sequence file size: {path}")
-    return n_sequences, n_loci, words_per_locus
+def read_reference_mac(path: Path) -> np.ndarray:
+    command = ["bcftools", "query", "-f", "%AC\\t%AN\\n", str(path)]
+    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    counts = []
+    for row, line in enumerate(result.stdout.splitlines(), start=1):
+        fields = line.split("\t")
+        if len(fields) != 2 or "," in fields[0]:
+            raise ValueError(f"reference VCF row {row} is not biallelic: {line}")
+        ac, an = map(int, fields)
+        if not 0 <= ac <= an:
+            raise ValueError(f"invalid AC/AN on reference VCF row {row}: {ac}/{an}")
+        counts.append(min(ac, an - ac))
+    if not counts:
+        raise ValueError(f"reference VCF contains no variants: {path}")
+    return np.asarray(counts, dtype=np.int32)
 
 
 def read_observed_loci(path: Path, n_loci: int) -> np.ndarray:
@@ -95,33 +94,6 @@ def masked_indexes(n_loci: int, observed: np.ndarray, n_masked: int) -> np.ndarr
             f"evaluation has {n_masked} loci but the observed-loci complement has {masked.size}"
         )
     return masked
-
-
-def minor_allele_counts(
-    path: Path,
-    n_sequences: int,
-    n_loci: int,
-    words_per_locus: int,
-    masked: np.ndarray,
-) -> np.ndarray:
-    words = np.memmap(
-        path,
-        dtype="<u8",
-        mode="r",
-        offset=SEQ_HEADER.size,
-        shape=(n_loci, words_per_locus),
-    )
-    counts = np.empty(masked.size, dtype=np.int32)
-    block_size = 4096
-    for start in range(0, masked.size, block_size):
-        end = min(start + block_size, masked.size)
-        selected = np.asarray(words[masked[start:end]])
-        byte_rows = selected.view(np.uint8).reshape(end - start, -1)
-        allele_1_counts = POPCOUNT[byte_rows].sum(axis=1)
-        if np.any(allele_1_counts > n_sequences):
-            raise ValueError("reference sequence file has nonzero locus padding bits")
-        counts[start:end] = np.minimum(allele_1_counts, n_sequences - allele_1_counts)
-    return counts
 
 
 def make_figure(
@@ -185,13 +157,12 @@ def make_figure(
 
 def main() -> None:
     args = parse_args()
-    n_sequences, n_loci, words_per_locus = read_seq_header(args.reference)
+    reference_mac = read_reference_mac(args.reference)
+    n_loci = reference_mac.size
     r2, accuracy = read_evaluation(args.evaluation)
     observed = read_observed_loci(args.observed_loci, n_loci)
     masked = masked_indexes(n_loci, observed, r2.size)
-    minor_counts = minor_allele_counts(
-        args.reference, n_sequences, n_loci, words_per_locus, masked
-    )
+    minor_counts = reference_mac[masked]
     figure, n_plotted = make_figure(r2, accuracy, minor_counts, args.max_points)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     figure.write_html(
