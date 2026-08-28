@@ -8,6 +8,7 @@
 #include <vector>
 #include "hyperparams.hpp"
 #include "seq_array.hpp"
+#include "util.hpp"
 
 
 struct Mode {
@@ -72,6 +73,11 @@ struct Clusters {
     void cluster_remove(Cluster* cluster, int idx, int emission);
 
     void set_emission(Cluster* c, int new_emission);
+
+    const std::unordered_set<Cluster*>& get_matching_as(int l, int emission) const {
+        return emit_mode != EmitMode::hard || emission == -1 ?
+            rs[l] : rs_by_emit[idx2d(l, emission, HP.K)];
+    }
 
     int cluster_mode(int l) const;
 };

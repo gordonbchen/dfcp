@@ -8,8 +8,8 @@ but should wait until the fitting loop is fast enough to test reliably.
 
 - The chr20 pipeline windows aligned VCFs first, then bitpacks each generated window.
 - `DFIP` probability output, `DFIE` imputation evaluation, and the imputation visualization are working.
-- Reusing Viterbi buffers and indexing R messages by reusable cluster IDs removed allocation and hashing
-  from the sequencewise Viterbi hot loop.
+- Reusing `ViterbiBuffers` and indexing inference messages by reusable cluster IDs removed allocation and
+  hashing from Viterbi and forward-backward scoring.
 - The first window from a 5,000-window plan with overlap 32 is the development input: 4,904 reference
   haplotypes, 376 reference loci, 10 observed loci, and 366 masked loci. Hard PBWT training plus Viterbi
   imputation takes about 4.2 seconds with four OpenMP threads after the current Viterbi optimizations.
@@ -64,18 +64,16 @@ Status: next.
   deterministic input in hard, noisy, and soft modes. Compare selected paths or final assignments, not only
   aggregate JSON.
 - Confirm Viterbi imputation probabilities are unchanged.
-- Run AddressSanitizer and UndefinedBehaviorSanitizer. Reused pointer-keyed maps retain stale keys, so code
-  may dereference a key only when the current candidate traversal proves that cluster is live and its message
-  was written during the current Viterbi call.
+- Run AddressSanitizer and UndefinedBehaviorSanitizer. Reused dense message entries may be read only when
+  current-candidate traversal proves that the entry was written during the current inference pass.
 - Record initialization, expectation, maximization, ELBO, and imputation times for both fixed inputs.
 - Profile maximization as removal, Viterbi scoring/backtracking, and reinsertion. Also record active `R` and
-  `Q` counts, compatible hard-emission candidates, visited `Q` edges, cluster churn, retained map capacity,
+  `Q` counts, compatible hard-emission candidates, visited `Q` edges, cluster churn, dense message capacity,
   allocation counts, peak memory, and cache misses.
 
 ### 2. Remove redundant Viterbi work
 
-Status: partially complete. Message maps are already reused across a maximization pass, sequential
-initialization, and target imputation. Benchmark the remaining changes after phase 1.
+Status: complete.
 
 Apply and benchmark these independently, in this order:
 
@@ -93,17 +91,19 @@ Apply and benchmark these independently, in this order:
 
 ### 3. Replace hash-based live cluster storage
 
-Status: in progress. Clusters now have reusable `uint32_t` IDs, and Viterbi messages are stored in one dense
-ID-indexed vector. Five alternating development-window runs reduced mean maximization time by 16.4%. On the
+Status: in progress. Clusters now have reusable `uint32_t` IDs, and inference messages use dense ID-indexed
+vectors. Five alternating development-window runs reduced mean maximization time by 16.4%. On the
 representative window, one run reduced maximization from 91.6 to 63.7 seconds; excluding one baseline
-outlier gives a 26.6% per-iteration reduction. Hard, noisy, and soft probability files were byte-identical.
+outlier gives a 26.6% per-iteration reduction. Dense forward-backward messages reduced mean representative
+imputation time by 33.2%. Hard, noisy, and soft probability files were byte-identical.
 
 - Add reusable stable-ID object slots and dense active `R` and `Q` vectors at each locus.
 - Replace the pointer-keyed ownership map and convert both assignment arrays to `uint32_t` IDs.
 - Replace `rs`, `qs`, and hard-emission unordered sets with dense vectors.
 - Store a `Q` cluster's one parent and one child directly instead of using one-element vectors.
-- Viterbi message maps have been replaced by a dense array indexed by stable ID. Current-candidate traversal
-  guarantees that every accessed hard-mode message was overwritten during the current Viterbi call.
+- Viterbi and forward-backward message maps have been replaced by dense arrays indexed by stable ID.
+  Current-candidate traversal guarantees that every accessed hard-mode message was overwritten during the
+  current inference pass.
 - Preserve constant-time deletion, stable identity, and hard-emission filtering.
 - Test sequential and PBWT initialization, all emission modes, validation splitting, singleton deletion,
   cluster-ID reuse, graph mutations, and temporary changes to `HP.N`.

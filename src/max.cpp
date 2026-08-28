@@ -14,6 +14,9 @@
 #include "util.hpp"
 
 
+ViterbiBuffers::ViterbiBuffers(uint32_t n_cluster_ids, int L) :
+    a_msgs(n_cluster_ids), new_a_msgs(L), new_b_msgs(L-1), path(2*L-1) {}
+
 double get_cluster_emission_ll(
     Cluster* a, int8_t xil, int l,
     const Clusters& clusters, const Params& params, const HyperParams& HP
@@ -55,20 +58,21 @@ double get_cluster_emission_ll(
 
 void get_viterbi_path(
     const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
-    std::vector<ViterbiMsg>& a_msgs,
-    std::vector<ViterbiMsg>& new_a_msgs,
-    std::vector<ViterbiMsg>& new_b_msgs,
-    std::vector<Cluster*>& viterbi_path,
+    ViterbiBuffers& viterbi_bufs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
+    std::vector<ViterbiMsg>& a_msgs = viterbi_bufs.a_msgs;
     a_msgs.resize(clusters.next_cluster_id);
+    std::vector<ViterbiMsg>& new_a_msgs = viterbi_bufs.new_a_msgs;
+    std::vector<ViterbiMsg>& new_b_msgs = viterbi_bufs.new_b_msgs;
+    std::vector<Cluster*>& viterbi_path = viterbi_bufs.path;
+
     const std::unordered_set<Cluster*> *matching_as = nullptr;
     for (int l = HP.L-1; l >= 0; --l) {
         int xil = get_xil(x, i, l, obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        matching_as = (clusters.emit_mode != EmitMode::hard || xil == -1) ?
-            &clusters.rs[l] : &clusters.rs_by_emit[idx2d(l, xil, HP.K)];
+        matching_as = &clusters.get_matching_as(l, xil);
         if (l == HP.L-1) {
             new_a_msgs[l] = ViterbiMsg{new_a_ll, nullptr};
             for (Cluster *a : *matching_as) {
@@ -87,10 +91,7 @@ void get_viterbi_path(
         double best_a_ll = params.mu_log_alpha + new_a_msgs[l+1].ll;
 
         int xil1 = get_xil(x, i, l+1, obs_ls);
-        const std::unordered_set<Cluster*>& matching_next_as =
-            (clusters.emit_mode != EmitMode::hard || xil1 == -1)
-            ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xil1, HP.K)];
-        for (Cluster *a : matching_next_as) {
+        for (Cluster *a : clusters.get_matching_as(l+1, xil1)) {
             double nCl = a->parents.size();
             double ll = params.mu_log_d[l] + std::log(nCl) + a_msgs[a->id].ll;
             if (ll > best_a_ll) {
@@ -180,13 +181,11 @@ int get_new_cluster_emission(
 
 void viterbi_add_seq(
     const SeqArray& x, int x_idx, int seq_idx,
-    std::vector<ViterbiMsg>& a_msgs,
-    std::vector<ViterbiMsg>& new_a_msgs,
-    std::vector<ViterbiMsg>& new_b_msgs,
-    std::vector<Cluster*>& viterbi_path,
+    ViterbiBuffers& viterbi_bufs,
     Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    get_viterbi_path(x, x_idx, nullptr, a_msgs, new_a_msgs, new_b_msgs, viterbi_path, clusters, params, HP);
+    get_viterbi_path(x, x_idx, nullptr, viterbi_bufs, clusters, params, HP);
+    std::vector<Cluster*>& viterbi_path = viterbi_bufs.path;
 
     Cluster* a = viterbi_path[0];
     Cluster* a_obj = a;
@@ -220,10 +219,7 @@ void viterbi_add_seq(
 }
 
 void max_step(const SeqArray& x, Clusters& clusters, const Params& params, const HyperParams& HP) {
-    std::vector<ViterbiMsg> a_msgs(clusters.next_cluster_id);
-    std::vector<ViterbiMsg> new_a_msgs(HP.L);
-    std::vector<ViterbiMsg> new_b_msgs(HP.L - 1);
-    std::vector<Cluster*> viterbi_path(2 * HP.L - 1);
+    ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
     for (int i = 0; i < HP.N; ++i) {
         for (int l = 0; l < HP.L; ++l) {
             clusters.cluster_remove(clusters.r_assign[idx2d(i, l, HP.L)], i, x(i, l));
@@ -232,7 +228,7 @@ void max_step(const SeqArray& x, Clusters& clusters, const Params& params, const
             }
             clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L - 1)], i, -1);
         }
-        viterbi_add_seq(x, i, i, a_msgs, new_a_msgs, new_b_msgs, viterbi_path, clusters, params, HP);
+        viterbi_add_seq(x, i, i, viterbi_bufs, clusters, params, HP);
     }
 }
 
@@ -242,13 +238,9 @@ void add_seqs(const SeqArray& x_new, Clusters& clusters, const Params& params, H
     clusters.r_assign.resize(HP.N * HP.L, nullptr);
     clusters.q_assign.resize(HP.N * (HP.L - 1), nullptr);
 
-    std::vector<ViterbiMsg> a_msgs(clusters.next_cluster_id);
-    std::vector<ViterbiMsg> new_a_msgs(HP.L);
-    std::vector<ViterbiMsg> new_b_msgs(HP.L - 1);
-    std::vector<Cluster*> viterbi_path(2 * HP.L - 1);
+    ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
     for (int i = 0; i < x_new.N; ++i) {
-        viterbi_add_seq(x_new, i, old_N + i, a_msgs, new_a_msgs, new_b_msgs, viterbi_path,
-                        clusters, params, HP);
+        viterbi_add_seq(x_new, i, old_N + i, viterbi_bufs, clusters, params, HP);
     }
 }
 

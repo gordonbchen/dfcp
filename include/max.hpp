@@ -20,12 +20,18 @@ struct ViterbiMsg {
     Cluster* next;
 };
 
+struct ViterbiBuffers {
+    std::vector<ViterbiMsg> a_msgs;
+    std::vector<ViterbiMsg> new_a_msgs;
+    std::vector<ViterbiMsg> new_b_msgs;
+    std::vector<Cluster*> path;
+
+    ViterbiBuffers(uint32_t n_cluster_ids, int L);
+};
+
 void get_viterbi_path(
     const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
-    std::vector<ViterbiMsg>& a_msgs,
-    std::vector<ViterbiMsg>& new_a_msgs,
-    std::vector<ViterbiMsg>& new_b_msgs,
-    std::vector<Cluster*>& viterbi_path,
+    ViterbiBuffers& viterbi_bufs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 
