@@ -83,7 +83,7 @@ void train_dfcp(
     if (init_only) { return; }
 
     // Train.
-    EarlyStopping early_stop{2, false, 1e-3};
+    EarlyStopping early_stop{2, false, 1.0};
     double elbo = 0.0;
 
     std::vector<Json> train_log;
