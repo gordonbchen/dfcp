@@ -14,8 +14,8 @@
 #include "util.hpp"
 
 
-Cluster::Cluster(bool is_r_, int l_, int emission_, int K)
-    : is_r(is_r_), l(l_), emission(emission_),
+Cluster::Cluster(uint32_t id_, bool is_r_, int l_, int emission_, int K)
+    : id(id_), is_r(is_r_), l(l_), emission(emission_),
       n(0), nk(K, 0), n_obs(0) {}
 
 void Cluster::add_child(Cluster *child) {
@@ -42,6 +42,7 @@ Mode Cluster::mode() const {
 
 
 Clusters::Clusters(const HyperParams& HP_, EmitMode emit_mode_) :
+    next_cluster_id(0),
     HP(HP_),
     emit_mode(emit_mode_),
     nR(0),
@@ -166,7 +167,16 @@ Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
         throw std::invalid_argument("only r cluster can have emissions.");
     }
 
-    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(is_r, l, emission, HP.K);
+    uint32_t id;
+    if (free_cluster_ids.empty()) {
+        id = next_cluster_id++;
+    }
+    else {
+        id = free_cluster_ids.back();
+        free_cluster_ids.pop_back();
+    }
+
+    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(id, is_r, l, emission, HP.K);
     Cluster* ptr = u_ptr.get();
     all_clusters[ptr] = std::move(u_ptr);
 
@@ -257,6 +267,7 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
         qs[cluster->l].erase(cluster);
     }
 
+    free_cluster_ids.push_back(cluster->id);
     all_clusters.erase(cluster);
 }
 

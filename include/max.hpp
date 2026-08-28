@@ -22,7 +22,8 @@ struct ViterbiMsg {
 
 void get_viterbi_path(
     const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
-    std::vector<std::unordered_map<Cluster*, ViterbiMsg>>& a_msgs,
+    std::vector<ViterbiMsg>& a_msgs,
+    std::vector<ViterbiMsg>& new_a_msgs,
     std::vector<ViterbiMsg>& new_b_msgs,
     std::vector<Cluster*>& viterbi_path,
     const Clusters& clusters, const Params& params, const HyperParams& HP

@@ -182,6 +182,9 @@ R_0 -> Q_0 -> R_1 -> Q_1 -> ... -> R_(L-1)
 
 `Clusters::all_clusters` owns every node through `unique_ptr`. All pointers in
 assignments, adjacency lists, and indexes are non-owning stable pointers.
+Every cluster also has a `uint32_t` ID that is stable for its lifetime and
+returned to a free list after deletion. Viterbi R messages use one dense vector
+indexed by this ID; proposed-new-cluster messages remain separate by locus.
 
 Important invariants:
 
@@ -191,6 +194,10 @@ Important invariants:
 - An `R` cluster may have multiple child fragments and multiple parent
   fragments.
 - Empty clusters are detached and deleted immediately.
+- A live cluster ID is unique. Reused IDs are assigned only after the previous
+  cluster is detached and deleted.
+- Viterbi reads messages only for current candidates, whose ID-indexed entries
+  were overwritten during the current right-to-left pass.
 - `Cluster::n` counts all assigned sequences.
 - In soft mode, `n_obs` excludes missing values and `nk[k]` counts observed
   allele `k` values only.

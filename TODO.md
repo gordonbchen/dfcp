@@ -8,10 +8,11 @@ but should wait until the fitting loop is fast enough to test reliably.
 
 - The chr20 pipeline windows aligned VCFs first, then bitpacks each generated window.
 - `DFIP` probability output, `DFIE` imputation evaluation, and the imputation visualization are working.
-- Reusing Viterbi message maps across sequences reduced maximization time by roughly half.
+- Reusing Viterbi buffers and indexing R messages by reusable cluster IDs removed allocation and hashing
+  from the sequencewise Viterbi hot loop.
 - The first window from a 5,000-window plan with overlap 32 is the development input: 4,904 reference
   haplotypes, 376 reference loci, 10 observed loci, and 366 masked loci. Hard PBWT training plus Viterbi
-  imputation takes about seven seconds with four OpenMP threads after message reuse.
+  imputation takes about 4.2 seconds with four OpenMP threads after the current Viterbi optimizations.
 - The first window from a 500-window plan is the representative performance input: 4,904 reference
   haplotypes and 3,535 loci. A run took roughly four minutes before the current optimization baseline was
   fully recorded.
@@ -86,22 +87,23 @@ Apply and benchmark these independently, in this order:
 3. Skip hard-mode `Q` edges whose child emission cannot match the next observed allele. Complete: the early
    skip and direct current-message lookup made development-window maximization 4.4% faster and wall time
    4.3% faster.
-4. Benchmark `boost::unordered_flat_map` for the remaining `a` messages. There are currently no retained
-   references or iterators whose invalidation should prevent its use.
-
-Do not reserve maps inside `get_viterbi_path`. Reused maps retain capacity, and the earlier reserve test
-was slower. Reconsider one-time reservation only if measured map growth identifies it as useful.
+4. Benchmark `boost::unordered_flat_map` for the remaining `a` messages. Complete, not retained: ten
+   alternating development-window runs improved mean maximization time by 1.2% and median time by 0.6%,
+   with no memory reduction. This is too small to carry into the cluster-ID redesign.
 
 ### 3. Replace hash-based live cluster storage
 
-Status: pending after the smaller message changes.
+Status: in progress. Clusters now have reusable `uint32_t` IDs, and Viterbi messages are stored in one dense
+ID-indexed vector. Five alternating development-window runs reduced mean maximization time by 16.4%. On the
+representative window, one run reduced maximization from 91.6 to 63.7 seconds; excluding one baseline
+outlier gives a 26.6% per-iteration reduction. Hard, noisy, and soft probability files were byte-identical.
 
 - Add reusable stable-ID object slots and dense active `R` and `Q` vectors at each locus.
 - Replace the pointer-keyed ownership map and convert both assignment arrays to `uint32_t` IDs.
 - Replace `rs`, `qs`, and hard-emission unordered sets with dense vectors.
 - Store a `Q` cluster's one parent and one child directly instead of using one-element vectors.
-- Replace message maps with dense arrays indexed by stable ID or dense active position, whichever benchmarks
-  better. Use an epoch or validity array where not every entry is overwritten, especially hard `a` messages.
+- Viterbi message maps have been replaced by a dense array indexed by stable ID. Current-candidate traversal
+  guarantees that every accessed hard-mode message was overwritten during the current Viterbi call.
 - Preserve constant-time deletion, stable identity, and hard-emission filtering.
 - Test sequential and PBWT initialization, all emission modes, validation splitting, singleton deletion,
   cluster-ID reuse, graph mutations, and temporary changes to `HP.N`.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -15,6 +16,7 @@ struct Mode {
 };
 
 struct Cluster {
+    const uint32_t id;
     const bool is_r;
     const int l;
     int emission;
@@ -27,7 +29,7 @@ struct Cluster {
     std::vector<Cluster*> children;
 
 
-    Cluster(bool is_r_, int l_, int emission_, int K);
+    Cluster(uint32_t id_, bool is_r_, int l_, int emission_, int K);
 
     void add_child(Cluster *child);
 
@@ -39,6 +41,8 @@ enum class EmitMode { hard, noisy, soft };
 
 struct Clusters {
     std::unordered_map<Cluster*, std::unique_ptr<Cluster>> all_clusters;
+    uint32_t next_cluster_id;
+    std::vector<uint32_t> free_cluster_ids;
 
     const HyperParams& HP;
     const EmitMode emit_mode;
