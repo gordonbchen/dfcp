@@ -89,24 +89,24 @@ void train_dfcp(
     std::vector<Json> train_log;
     while (!early_stop.converged()) {
         auto t0 = std::chrono::steady_clock::now();
+        expect_step(HP, params, clusters);
+        auto t1 = std::chrono::steady_clock::now();
         max_step(x_train, clusters, params, HP);
         if (clusters.emit_mode == EmitMode::noisy) {
             max_cluster_emissions(clusters, params, HP);
         }
-        auto t1 = std::chrono::steady_clock::now();
-        expect_step(HP, params, clusters);
         auto t2 = std::chrono::steady_clock::now();
         elbo = calc_elbo(HP, params, clusters);
         auto t3 = std::chrono::steady_clock::now();
         early_stop.update(elbo);
 
-        auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-        auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+        auto t_expect = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
         auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
         auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
         std::cerr << early_stop.step << ": elbo=" << elbo
-            << " t_max=" << t_max << "ms t_expect=" << t_expect << "ms t_elbo=" << t_elbo
-            << "ms t_step=" << t_step << "ms\n";
+            << " t_expect=" << t_expect << "ms t_max=" << t_max
+            << "ms t_elbo=" << t_elbo << "ms t_step=" << t_step << "ms\n";
         train_log.emplace_back();
         train_log[train_log.size()-1].add("elbo", elbo)
             .add("t_max", t_max).add("t_expect", t_expect).add("t_elbo", t_elbo).add("t_step", t_step);
@@ -124,9 +124,7 @@ std::vector<double> get_viterbi_impute_probs(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<Cluster*> viterbi_clusters{
-        get_viterbi_clusters(x, i, &obs_ls, clusters, params, HP)
-    };
+    std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(x, i, &obs_ls, clusters, params, HP)};
     std::vector<double> viterbi_probs;
     int n_masked_ls = HP.L - obs_ls.size();
     viterbi_probs.reserve(n_masked_ls * HP.K);
