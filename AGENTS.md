@@ -186,7 +186,9 @@ adjacency lists, and indexes are non-owning stable pointers. Every cluster has a
 `uint32_t` ID that is stable for its lifetime and returned to a free list after
 deletion. Viterbi and forward-backward R messages use dense vectors indexed by
 this ID; proposed-new-cluster messages remain separate by locus. `ViterbiBuffers`
-owns the reusable Viterbi messages and path.
+owns the reusable Viterbi messages and path. `FwdBkwdBuffers` owns reusable
+forward and backward message arrays. Imputation also overwrites one probability
+row for every target sequence in both inference modes.
 Active `R` and `Q` clusters and the hard-emission index are dense pointer
 vectors. Empty-cluster deletion finds the pointer linearly and uses
 swap-and-pop; the vectors average only a few entries per locus.

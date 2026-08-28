@@ -121,24 +121,23 @@ void train_dfcp(
 }
 
 
-std::vector<double> get_viterbi_impute_probs(
+void get_viterbi_impute_probs(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
-    ViterbiBuffers& viterbi_bufs,
+    ViterbiBuffers& viterbi_bufs, std::vector<double>& seq_probs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
     get_viterbi_path(x, i, &obs_ls, viterbi_bufs, clusters, params, HP);
-    std::vector<double> viterbi_probs;
     int n_masked_ls = HP.L - obs_ls.size();
-    viterbi_probs.reserve(n_masked_ls * HP.K);
+    int masked_l = 0;
     for (int l = 0; l < HP.L; ++l) {
         if (obs_ls.contains(l)) { continue; }
         for (int k = 0; k < HP.K; ++k) {
             double p = get_cluster_emission_ll(viterbi_bufs.path[2 * l], k, l, clusters, params, HP);
-            viterbi_probs.emplace_back(p);
+            seq_probs[idx2d(masked_l, k, HP.K)] = p;
         }
+        ++masked_l;
     }
-    normalize_ll(viterbi_probs, n_masked_ls, HP.K);
-    return viterbi_probs;
+    normalize_ll(seq_probs, n_masked_ls, HP.K);
 }
 
 void impute(
@@ -149,18 +148,20 @@ void impute(
 ) {
     int n_masked_ls = HP.L - static_cast<int>(obs_ls.size());
     ImputeProbWriter prob_writer(prob_file, x_val.N, n_masked_ls);
+    std::vector<double> seq_probs(n_masked_ls * HP.K);
 
     if (viterbi) {
         ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
         for (int i = 0; i < x_val.N; ++i) {
-            prob_writer.write_row(
-                get_viterbi_impute_probs(x_val, i, obs_ls, viterbi_bufs, clusters, params, HP)
-            );
+            get_viterbi_impute_probs(x_val, i, obs_ls, viterbi_bufs, seq_probs, clusters, params, HP);
+            prob_writer.write_row(seq_probs);
         }
     }
     else {
+        FwdBkwdBuffers fwd_bkwd_bufs(clusters.next_cluster_id, HP.L);
         for (int i = 0; i < x_val.N; ++i) {
-            prob_writer.write_row(fwd_bkwd(x_val, i, obs_ls, clusters, params, HP));
+            fwd_bkwd(x_val, i, obs_ls, fwd_bkwd_bufs, seq_probs, clusters, params, HP);
+            prob_writer.write_row(seq_probs);
         }
     }
     prob_writer.finish();

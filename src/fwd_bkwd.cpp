@@ -15,6 +15,12 @@
 #include "util.hpp"
 
 
+FwdBkwdMsgs::FwdBkwdMsgs(std::uint32_t n_cluster_ids, int L) : a(n_cluster_ids), new_a(L) {}
+
+FwdBkwdBuffers::FwdBkwdBuffers(std::uint32_t n_cluster_ids, int L) :
+    bkwd(n_cluster_ids, L), fwd(n_cluster_ids, L) {}
+
+
 double log_sum_exp(double x1, double x2) {
     if (x1 == -std::numeric_limits<double>::infinity()) {
         return x2;
@@ -26,20 +32,13 @@ double log_sum_exp(double x1, double x2) {
     return xmax + std::log(std::exp(x1 - xmax) + std::exp(x2 - xmax));
 }
 
-struct FwdBkwdMsgs {
-    std::vector<double> a_msgs;
-    std::vector<double> new_a_msgs;
-
-    FwdBkwdMsgs(uint32_t n_cluster_ids, int L) : a_msgs(n_cluster_ids), new_a_msgs(L) {}
-};
-
-FwdBkwdMsgs get_bkwd_msgs(
+void get_bkwd_msgs(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
+    FwdBkwdMsgs& msgs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    FwdBkwdMsgs msgs(clusters.next_cluster_id, HP.L);
-    std::vector<double>& a_msgs = msgs.a_msgs;
-    std::vector<double>& new_a_msgs = msgs.new_a_msgs;
+    std::vector<double>& a_msgs = msgs.a;
+    std::vector<double>& new_a_msgs = msgs.new_a;
     for (int l = HP.L-1; l >= 0; --l) {
         int xil = get_xil(x, i, l, &obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
@@ -85,16 +84,15 @@ FwdBkwdMsgs get_bkwd_msgs(
             a_msgs[a->id] = get_cluster_emission_ll(a, xil, l, clusters, params, HP) + a_ll;
         }
     }
-    return msgs;
 }
 
-FwdBkwdMsgs get_fwd_msgs(
+void get_fwd_msgs(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
+    FwdBkwdMsgs& msgs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    FwdBkwdMsgs msgs(clusters.next_cluster_id, HP.L);
-    std::vector<double>& a_msgs = msgs.a_msgs;
-    std::vector<double>& new_a_msgs = msgs.new_a_msgs;
+    std::vector<double>& a_msgs = msgs.a;
+    std::vector<double>& new_a_msgs = msgs.new_a;
     for (int l = 0; l < HP.L; ++l) {
         int xil = get_xil(x, i, l, &obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
@@ -141,7 +139,6 @@ FwdBkwdMsgs get_fwd_msgs(
             a_msgs[a->id] = get_cluster_emission_ll(a, xil, l, clusters, params, HP) + a_ll;
         }
     }
-    return msgs;
 }
 
 void normalize_ll(std::vector<double>& ll, int L, int K) {
@@ -156,42 +153,44 @@ void normalize_ll(std::vector<double>& ll, int L, int K) {
     }
 }
 
-std::vector<double> fwd_bkwd(
+void fwd_bkwd(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
+    FwdBkwdBuffers& fwd_bkwd_bufs, std::vector<double>& seq_probs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    FwdBkwdMsgs msgs = get_bkwd_msgs(x, i, obs_ls, clusters, params, HP);
-    FwdBkwdMsgs fwd_msgs = get_fwd_msgs(x, i, obs_ls, clusters, params, HP);
+    FwdBkwdMsgs& msgs = fwd_bkwd_bufs.bkwd;
+    FwdBkwdMsgs& fwd_msgs = fwd_bkwd_bufs.fwd;
+    get_bkwd_msgs(x, i, obs_ls, msgs, clusters, params, HP);
+    get_fwd_msgs(x, i, obs_ls, fwd_msgs, clusters, params, HP);
 
     for (int l = 0; l < HP.L; ++l) {
         int xil = get_xil(x, i, l, &obs_ls);
-        msgs.new_a_msgs[l] += fwd_msgs.new_a_msgs[l]
+        msgs.new_a[l] += fwd_msgs.new_a[l]
             - get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
         for (Cluster* a : clusters.get_matching_as(l, xil)) {
-            msgs.a_msgs[a->id] += fwd_msgs.a_msgs[a->id]
+            msgs.a[a->id] += fwd_msgs.a[a->id]
                 - get_cluster_emission_ll(a, xil, l, clusters, params, HP);
         }
     }
 
     int n_masked_ls = HP.L - obs_ls.size();
-    std::vector<double> probs(n_masked_ls * HP.K, -std::numeric_limits<double>::infinity());
+    std::fill(seq_probs.begin(), seq_probs.end(), -std::numeric_limits<double>::infinity());
     int masked_l = 0;
     for (int l = 0; l < HP.L; ++l) {
         if (obs_ls.contains(l)) { continue; }
         for (int k = 0; k < HP.K; ++k) {
             std::size_t prob_idx = idx2d(masked_l, k, HP.K);
             double emission_ll = get_cluster_emission_ll(nullptr, k, l, clusters, params, HP);
-            probs[prob_idx] = log_sum_exp(probs[prob_idx], msgs.new_a_msgs[l] + emission_ll);
+            seq_probs[prob_idx] = log_sum_exp(seq_probs[prob_idx], msgs.new_a[l] + emission_ll);
         }
         for (Cluster* a : clusters.rs[l]) {
             for (int k = 0; k < HP.K; ++k) {
                 std::size_t prob_idx = idx2d(masked_l, k, HP.K);
                 double emission_ll = get_cluster_emission_ll(a, k, l, clusters, params, HP);
-                probs[prob_idx] = log_sum_exp(probs[prob_idx], msgs.a_msgs[a->id] + emission_ll);
+                seq_probs[prob_idx] = log_sum_exp(seq_probs[prob_idx], msgs.a[a->id] + emission_ll);
             }
         }
         ++masked_l;
     }
-    normalize_ll(probs, n_masked_ls, HP.K);
-    return probs;
+    normalize_ll(seq_probs, n_masked_ls, HP.K);
 }

@@ -10,6 +10,9 @@ but should wait until the fitting loop is fast enough to test reliably.
 - `DFIP` probability output, `DFIE` imputation evaluation, and the imputation visualization are working.
 - Reusing `ViterbiBuffers` and indexing inference messages by reusable cluster IDs removed allocation and
   hashing from Viterbi and forward-backward scoring.
+- `FwdBkwdBuffers` and one shared probability row remove per-target message and row allocations. On the full
+  104-target input, five alternating initialization-only runs reduced mean forward-backward imputation by
+  13.4% at PBWT match length 5 and 3.2% at match length 20; Viterbi row reuse was below timing noise.
 - The first window from a 5,000-window plan with overlap 32 is the development input: 4,904 reference
   haplotypes, 376 reference loci, 10 observed loci, and 366 masked loci. Hard PBWT training plus Viterbi
   imputation takes about 4.2 seconds with four OpenMP threads after the current Viterbi optimizations.
