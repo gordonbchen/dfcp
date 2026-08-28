@@ -74,17 +74,16 @@ std::vector<Cluster*> get_viterbi_clusters(
     std::vector<std::unordered_map<Cluster*, Msg>>& b_msgs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    a_msgs[0].clear();
+    const std::unordered_set<Cluster*> *matching_as = nullptr;
     for (int l = HP.L-1; l >= 0; --l) {
         int xil = get_xil(x, i, l, obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as =
-            (clusters.emit_mode != EmitMode::hard || xil == -1) ?
-            clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xil, HP.K)];
+        matching_as = (clusters.emit_mode != EmitMode::hard || xil == -1) ?
+            &clusters.rs[l] : &clusters.rs_by_emit[idx2d(l, xil, HP.K)];
         if (l == HP.L-1) {
             a_msgs[l][nullptr] = Msg{new_a_ll, nullptr};
-            for (Cluster *a : matching_as) {
+            for (Cluster *a : *matching_as) {
                 a_msgs[l][a] = Msg{get_cluster_emission_ll(a, xil, l, clusters, params, HP), nullptr};
             }
             continue;
@@ -122,7 +121,7 @@ std::vector<Cluster*> get_viterbi_clusters(
 
         // a messages.
         a_msgs[l][nullptr] = Msg{new_a_ll + new_b_ll, nullptr};
-        for (Cluster* a : matching_as) {
+        for (Cluster* a : *matching_as) {
             Cluster* best_b = nullptr;
             double nFl = a->children.size();
             double best_b_ll = std::log(nFl) + params.mu_log_d[l] + b_msgs[l][nullptr].ll;
@@ -147,9 +146,15 @@ std::vector<Cluster*> get_viterbi_clusters(
     std::vector<Cluster*> best_clusters;
     best_clusters.reserve(HP.L + HP.L-1);
 
-    Cluster* a = std::max_element(a_msgs[0].begin(), a_msgs[0].end(),
-        [](const auto& a, const auto& b) { return a.second.ll < b.second.ll; }
-    )->first;
+    Cluster* a = nullptr;
+    double a_ll = a_msgs[0].at(nullptr).ll;
+    for (Cluster* cand_a : *matching_as) {
+        double ll = a_msgs[0].at(cand_a).ll;
+        if (ll > a_ll) {
+            a_ll = ll;
+            a = cand_a;
+        }
+    }
     best_clusters.emplace_back(a);
 
     Cluster* b;
