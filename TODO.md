@@ -78,14 +78,16 @@ initialization, and target imputation. Benchmark the remaining changes after pha
 
 Apply and benchmark these independently, in this order:
 
-1. Remove existing-cluster `b_msgs`. An existing `Q_l` has one child `R_(l+1)`, so its message is the child's
-   `a` message. Retain only the one new-`Q` message per transition.
-2. Reuse the `2L-1` Viterbi path buffer across sequences.
+1. Reuse the `2L-1` Viterbi path buffer across sequences. Complete: this removed about 54,000 allocation and
+   free pairs from the development run, but changed wall and maximization time by less than 0.2%.
+2. Remove existing-cluster `b_msgs`. Complete: existing `Q_l` clusters now read their sole child's `a`
+   message directly, leaving one `new_b_msg` per transition. Development-window maximization became 22.6%
+   faster and wall time became 22.2% faster.
 3. In hard mode, skip a `Q` edge when its child `R` emission cannot match the next observed allele.
 4. Benchmark `boost::unordered_flat_map` for the remaining `a` messages. There are currently no retained
    references or iterators whose invalidation should prevent its use.
 
-Do not reserve maps inside `get_viterbi_clusters`. Reused maps retain capacity, and the earlier reserve test
+Do not reserve maps inside `get_viterbi_path`. Reused maps retain capacity, and the earlier reserve test
 was slower. Reconsider one-time reservation only if measured map growth identifies it as useful.
 
 ### 3. Replace hash-based live cluster storage
