@@ -1959,26 +1959,21 @@ metrics
 
 #pagebreak()
 = TODO
+- expectation then maximization (init followed by max???)
 
 = evals
 - dfcp vs beagle imputation
-  - *$r^2$ b/t p(minor) and minor*
   - saving dfcp after training, loading for inference
-
 - ancestral tree time sampling: density plot of best clade time for each cluster
-
 - phasing
 
 == model changes
-- $alpha$ per location
-- $epsilon$ per location for noisy
-- multiple sequences taken out during maximization / stochastic updates
-- $d_l$ depending on genetic map (how far away the variant sites are),
-  or the other way, estimating dist via $d_l$
+- $d_l$ depending on genetic dist or the other way, estimating dist via $d_l$
 - K at each position
-
-== done
+- $alpha$ per location: is this well justified (maintain CRP marginals?), is changing $d$? GP prior?
+- $epsilon$ per location for noisy
 
 == ideas
-- beagle-like composite / best weighted subset to compress reference
+- multiple sequences (cluster?) taken out during maximization / stochastic updates
+- beagle-like composite / coreset to compress reference
 
