@@ -14,8 +14,16 @@ double get_cluster_emission_ll(
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 
+
+struct Msg {
+    double ll;
+    Cluster* next;
+};
+
 std::vector<Cluster*> get_viterbi_clusters(
     const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
+    std::vector<std::unordered_map<Cluster*, Msg>>& a_msgs,
+    std::vector<std::unordered_map<Cluster*, Msg>>& b_msgs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 

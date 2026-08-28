@@ -124,7 +124,10 @@ std::vector<double> get_viterbi_impute_probs(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(x, i, &obs_ls, clusters, params, HP)};
+    std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
+    std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
+    std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(x, i, &obs_ls, a_msgs, b_msgs,
+                                                                clusters, params, HP)};
     std::vector<double> viterbi_probs;
     int n_masked_ls = HP.L - obs_ls.size();
     viterbi_probs.reserve(n_masked_ls * HP.K);
