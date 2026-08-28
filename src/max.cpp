@@ -141,8 +141,9 @@ std::vector<Cluster*> get_viterbi_clusters(
     }
 
     // Initial CRP probs.
-    for (auto& [a, m] : a_msgs[0]) {
-        m.ll += (a == nullptr) ? params.mu_log_alpha : std::log(static_cast<double>(a->n));
+    a_msgs[0].at(nullptr).ll += params.mu_log_alpha;
+    for (Cluster* a : *matching_as) {
+        a_msgs[0].at(a).ll += std::log(static_cast<double>(a->n));
     }
 
     // Viterbi path.

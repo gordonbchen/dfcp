@@ -58,7 +58,7 @@ current executable.
 
 ### C++ sources
 
-- `src/me.cpp`: executable orchestration, input and argument parsing, fitting,
+- `src/impute.cpp`: executable orchestration, input and argument parsing, fitting,
   imputation, timings, and JSON output.
 - `src/seq_array.cpp`: binary sequence loading and the 64-by-64 bit transpose
   from locus-major file words to sequence-major memory words.
@@ -158,10 +158,10 @@ observations do not contribute to `nk` or `n_obs`.
 
 The executable alternates:
 
-1. Maximization: remove one sequence at a time and put it back along the best
-   complete `R-Q-R-...` path found by right-to-left Viterbi messages.
-2. Expectation: update independent approximations for `alpha`, every `d_l`,
+1. Expectation: update independent approximations for `alpha`, every `d_l`,
    and every `gamma_l`.
+2. Maximization: remove one sequence at a time and put it back along the best
+   complete `R-Q-R-...` path found by right-to-left Viterbi messages.
 3. Evaluation: calculate the approximate ELBO and update early stopping.
 
 Positive parameters use log-space Laplace approximations. Discounts use a
@@ -205,7 +205,7 @@ current value before using it.
 
 ## Runtime Data Flow
 
-`src/me.cpp` performs these steps:
+`src/impute.cpp` performs these steps:
 
 1. Read locus-major bitpacked reference and target files and transpose each
    into an in-memory sequence-major `SeqArray`.
@@ -213,7 +213,7 @@ current value before using it.
 3. Parse all optional arguments as option/value pairs.
 4. Initialize parameters and clusters, either as one block, with PBWT groups,
    or by adding sequences through Viterbi.
-5. Unless `--init_only 1` is set, run Maximization-Expectation until early
+5. Unless `--init_only 1` is set, run Expectation-Maximization until early
    stopping.
 6. Impute target loci absent from the observed-target map without inserting
    target sequences into the fitted reference cluster graph, streaming one
