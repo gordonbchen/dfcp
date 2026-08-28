@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <limits>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include "fwd_bkwd.hpp"
 #include "seq_array.hpp"
@@ -45,7 +44,7 @@ FwdBkwdMsgs get_bkwd_msgs(
         int xil = get_xil(x, i, l, &obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as = clusters.get_matching_as(l, xil);
+        const std::vector<Cluster*>& matching_as = clusters.get_matching_as(l, xil);
         if (l == HP.L-1) {
             new_a_msgs[l] = new_a_ll;
             for (Cluster *a : matching_as) {
@@ -100,7 +99,7 @@ FwdBkwdMsgs get_fwd_msgs(
         int xil = get_xil(x, i, l, &obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as = clusters.get_matching_as(l, xil);
+        const std::vector<Cluster*>& matching_as = clusters.get_matching_as(l, xil);
         if (l == 0) {
             new_a_msgs[l] = new_a_ll + params.mu_log_alpha;
             for (Cluster *a : matching_as) {

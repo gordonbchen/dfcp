@@ -104,11 +104,12 @@ void train_dfcp(
         auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
         auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
         auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
-        std::cerr << early_stop.step << ": elbo=" << elbo
+        double mean_nR = static_cast<double>(clusters.nR) / HP.L;
+        std::cerr << early_stop.step << ": elbo=" << elbo << " mean_nR=" << mean_nR
             << " t_expect=" << t_expect << "ms t_max=" << t_max
             << "ms t_elbo=" << t_elbo << "ms t_step=" << t_step << "ms\n";
         train_log.emplace_back();
-        train_log[train_log.size()-1].add("elbo", elbo)
+        train_log[train_log.size()-1].add("elbo", elbo).add("mean_nR", mean_nR)
             .add("t_max", t_max).add("t_expect", t_expect).add("t_elbo", t_elbo).add("t_step", t_step);
     }
     json.add("train_log", train_log);

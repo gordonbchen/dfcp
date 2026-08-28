@@ -181,14 +181,14 @@ Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
     all_clusters[ptr] = std::move(u_ptr);
 
     if (!is_r) {
-        qs[l].insert(ptr);
+        qs[l].push_back(ptr);
         return ptr;
     }
 
-    rs[l].insert(ptr);
+    rs[l].push_back(ptr);
     ++nR;
     if (emit_mode != EmitMode::soft) {
-        rs_by_emit[idx2d(l, emission, HP.K)].insert(ptr);
+        rs_by_emit[idx2d(l, emission, HP.K)].push_back(ptr);
     }
     return ptr;
 }
@@ -217,6 +217,12 @@ void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
         throw std::runtime_error("seq already assigned to q cluster");
     };
     q_assign[idx2d(idx, cluster->l, HP.L-1)] = cluster;
+}
+
+void erase_cluster(std::vector<Cluster*>& clusters, Cluster* cluster) {
+    auto it = std::find(clusters.begin(), clusters.end(), cluster);
+    *it = clusters.back();
+    clusters.pop_back();
 }
 
 void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
@@ -257,14 +263,14 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
     }
 
     if (cluster->is_r) {
-        rs[cluster->l].erase(cluster);
+        erase_cluster(rs[cluster->l], cluster);
         --nR;
         if (emit_mode != EmitMode::soft) {
-            rs_by_emit[idx2d(cluster->l, cluster->emission, HP.K)].erase(cluster);
+            erase_cluster(rs_by_emit[idx2d(cluster->l, cluster->emission, HP.K)], cluster);
         }
     }
     else {
-        qs[cluster->l].erase(cluster);
+        erase_cluster(qs[cluster->l], cluster);
     }
 
     free_cluster_ids.push_back(cluster->id);
@@ -278,8 +284,8 @@ void Clusters::set_emission(Cluster* c, int new_emission) {
     if (c->emission == new_emission) {
         return;
     }
-    rs_by_emit[idx2d(c->l,c->emission,HP.K)].erase(c);
-    rs_by_emit[idx2d(c->l,new_emission,HP.K)].insert(c);
+    erase_cluster(rs_by_emit[idx2d(c->l,c->emission,HP.K)], c);
+    rs_by_emit[idx2d(c->l,new_emission,HP.K)].push_back(c);
     n_matches += c->nk[new_emission];
     n_matches -= c->nk[c->emission];
     c->emission = new_emission;

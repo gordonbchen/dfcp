@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include "hyperparams.hpp"
 #include "seq_array.hpp"
@@ -51,10 +50,10 @@ struct Clusters {
 
     std::vector<Cluster*> r_assign;
     std::vector<Cluster*> q_assign;
-    std::vector<std::unordered_set<Cluster*>> rs;
-    std::vector<std::unordered_set<Cluster*>> qs;
+    std::vector<std::vector<Cluster*>> rs;
+    std::vector<std::vector<Cluster*>> qs;
 
-    std::vector<std::unordered_set<Cluster*>> rs_by_emit;
+    std::vector<std::vector<Cluster*>> rs_by_emit;
     size_t n_matches;
     size_t n_obs;
 
@@ -74,7 +73,7 @@ struct Clusters {
 
     void set_emission(Cluster* c, int new_emission);
 
-    const std::unordered_set<Cluster*>& get_matching_as(int l, int emission) const {
+    const std::vector<Cluster*>& get_matching_as(int l, int emission) const {
         return emit_mode != EmitMode::hard || emission == -1 ?
             rs[l] : rs_by_emit[idx2d(l, emission, HP.K)];
     }

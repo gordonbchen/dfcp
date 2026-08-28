@@ -3,7 +3,6 @@
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include "max.hpp"
 #include "seq_array.hpp"
@@ -67,7 +66,7 @@ void get_viterbi_path(
     std::vector<ViterbiMsg>& new_b_msgs = viterbi_bufs.new_b_msgs;
     std::vector<Cluster*>& viterbi_path = viterbi_bufs.path;
 
-    const std::unordered_set<Cluster*> *matching_as = nullptr;
+    const std::vector<Cluster*> *matching_as = nullptr;
     for (int l = HP.L-1; l >= 0; --l) {
         int xil = get_xil(x, i, l, obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);

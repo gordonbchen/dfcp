@@ -37,9 +37,9 @@ commits.
   clusters; a `Q_l` cannot be recovered uniquely from its parent and child `R` clusters.
 - Replace assignment pointers with stable `uint32_t` cluster IDs when live cluster storage is redesigned.
 - Do not renumber live IDs. Use reusable object slots, a free-ID list, and dense per-locus active vectors.
-- Delete from active vectors with swap-and-pop and store each cluster's active-vector position.
-- Keep the hard-emission filtering supplied by `rs_by_emit`, but replace each unordered set with a dense
-  vector during the storage redesign.
+- Active vectors use swap-and-pop after a linear pointer search. At about 7.3 R clusters per locus, storing
+  positions made maximization 5.6% slower and added about 1.3 MB peak RSS.
+- Keep the hard-emission filtering supplied by the dense `rs_by_emit` vectors.
 - Consider `uint16_t` IDs only after measuring the maximum live ID and cluster count per locus.
 
 ### Model persistence
@@ -95,16 +95,19 @@ Status: in progress. Clusters now have reusable `uint32_t` IDs, and inference me
 vectors. Five alternating development-window runs reduced mean maximization time by 16.4%. On the
 representative window, one run reduced maximization from 91.6 to 63.7 seconds; excluding one baseline
 outlier gives a 26.6% per-iteration reduction. Dense forward-backward messages reduced mean representative
-imputation time by 33.2%. Hard, noisy, and soft probability files were byte-identical.
+imputation time by 33.2%. Replacing active hash sets with dense vectors and linear removal reduced mean
+representative maximization time another 20.6%, from 5,628 to 4,467 ms per iteration. Hard, noisy, and soft
+probability files were byte-identical across the applicable changes.
 
-- Add reusable stable-ID object slots and dense active `R` and `Q` vectors at each locus.
+- Add reusable stable-ID object slots.
 - Replace the pointer-keyed ownership map and convert both assignment arrays to `uint32_t` IDs.
-- Replace `rs`, `qs`, and hard-emission unordered sets with dense vectors.
+- `rs`, `qs`, and the hard-emission index are dense vectors. Linear removal beat stored vector positions on
+  the representative window, and every training iteration now records the mean R-cluster count per locus.
 - Store a `Q` cluster's one parent and one child directly instead of using one-element vectors.
 - Viterbi and forward-backward message maps have been replaced by dense arrays indexed by stable ID.
   Current-candidate traversal guarantees that every accessed hard-mode message was overwritten during the
   current inference pass.
-- Preserve constant-time deletion, stable identity, and hard-emission filtering.
+- Preserve stable identity and hard-emission filtering.
 - Test sequential and PBWT initialization, all emission modes, validation splitting, singleton deletion,
   cluster-ID reuse, graph mutations, and temporary changes to `HP.N`.
 - Measure assignment memory, total cluster memory, churn, and runtime before considering narrower IDs.

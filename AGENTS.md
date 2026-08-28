@@ -186,6 +186,9 @@ Every cluster also has a `uint32_t` ID that is stable for its lifetime and
 returned to a free list after deletion. Viterbi and forward-backward R messages
 use dense vectors indexed by this ID; proposed-new-cluster messages remain
 separate by locus. `ViterbiBuffers` owns the reusable Viterbi messages and path.
+Active `R` and `Q` clusters and the hard-emission index are dense pointer
+vectors. Empty-cluster deletion finds the pointer linearly and uses
+swap-and-pop; the vectors average only a few entries per locus.
 
 Important invariants:
 
@@ -363,8 +366,9 @@ Always-present fields include:
 - `t_init` and `t_impute`
 
 Unless `--init_only 1` is set, output also includes `train_log` and the fitted
-parameter moments under `params`. Probabilities are written to `PROB_FILE` and
-are not accumulated in JSON. Cluster assignments are not serialized.
+parameter moments under `params`. Each training record includes `mean_nR`, the
+mean number of active R clusters per locus. Probabilities are written to
+`PROB_FILE` and are not accumulated in JSON. Cluster assignments are not serialized.
 
 The cluster and tree metrics below describe intended behavior in inactive
 evaluation sources. Imputation r-squared and accuracy are active in
