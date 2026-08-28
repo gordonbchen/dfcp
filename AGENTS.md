@@ -58,7 +58,7 @@ current executable.
 
 ### C++ sources
 
-- `src/me.cpp`: executable orchestration, input and argument parsing, fitting,
+- `src/impute.cpp`: executable orchestration, input and argument parsing, fitting,
   imputation, timings, and JSON output.
 - `src/seq_array.cpp`: binary sequence loading and the 64-by-64 bit transpose
   from locus-major file words to sequence-major memory words.
@@ -158,10 +158,10 @@ observations do not contribute to `nk` or `n_obs`.
 
 The executable alternates:
 
-1. Maximization: remove one sequence at a time and put it back along the best
-   complete `R-Q-R-...` path found by right-to-left Viterbi messages.
-2. Expectation: update independent approximations for `alpha`, every `d_l`,
+1. Expectation: update independent approximations for `alpha`, every `d_l`,
    and every `gamma_l`.
+2. Maximization: remove one sequence at a time and put it back along the best
+   complete `R-Q-R-...` path found by right-to-left Viterbi messages.
 3. Evaluation: calculate the approximate ELBO and update early stopping.
 
 Positive parameters use log-space Laplace approximations. Discounts use a
@@ -180,17 +180,36 @@ The cluster graph is
 R_0 -> Q_0 -> R_1 -> Q_1 -> ... -> R_(L-1)
 ```
 
-`Clusters::all_clusters` owns every node through `unique_ptr`. All pointers in
-assignments, adjacency lists, and indexes are non-owning stable pointers.
+`Clusters::all_clusters` is an ID-indexed vector that owns every node through
+`unique_ptr`; deleted IDs leave reusable null slots. All pointers in assignments,
+adjacency lists, and indexes are non-owning stable pointers. Every cluster has a
+`uint32_t` ID that is stable for its lifetime and returned to a free list after
+deletion. Viterbi and forward-backward R messages use dense vectors indexed by
+this ID; proposed-new-cluster messages remain separate by locus. `ViterbiBuffers`
+owns the reusable Viterbi messages and path. `FwdBkwdBuffers` owns reusable
+forward and backward message arrays. Imputation also overwrites one probability
+row for every target sequence in both inference modes.
+Active `R` and `Q` clusters and the hard-emission index are dense pointer
+vectors. Empty-cluster deletion finds the pointer linearly and uses
+swap-and-pop; the vectors average only a few entries per locus.
 
 Important invariants:
 
 - Every active sequence belongs to exactly one `R` cluster at every locus.
 - Every active sequence belongs to exactly one `Q` cluster at every transition.
 - A `Q_l` is a fragment of one `R_l` and has exactly one child `R_(l+1)`.
+- Q clusters store their parent and child directly; only R clusters use the
+  `parents` and `children` vectors. A Q link may briefly be null when its adjacent
+  empty R cluster is deleted first during sequence removal.
 - An `R` cluster may have multiple child fragments and multiple parent
   fragments.
 - Empty clusters are detached and deleted immediately.
+- A live cluster ID is unique. Reused IDs are assigned only after the previous
+  cluster is detached and deleted.
+- Inference reads messages only for current candidates, whose ID-indexed entries
+  were overwritten during the current pass.
+- Use `Clusters::get_matching_as` for R candidates: hard observed emissions
+  select `rs_by_emit`, while missing, noisy, and soft emissions select all `rs`.
 - `Cluster::n` counts all assigned sequences.
 - In soft mode, `n_obs` excludes missing values and `nk[k]` counts observed
   allele `k` values only.
@@ -205,7 +224,7 @@ current value before using it.
 
 ## Runtime Data Flow
 
-`src/me.cpp` performs these steps:
+`src/impute.cpp` performs these steps:
 
 1. Read locus-major bitpacked reference and target files and transpose each
    into an in-memory sequence-major `SeqArray`.
@@ -213,7 +232,7 @@ current value before using it.
 3. Parse all optional arguments as option/value pairs.
 4. Initialize parameters and clusters, either as one block, with PBWT groups,
    or by adding sequences through Viterbi.
-5. Unless `--init_only 1` is set, run Maximization-Expectation until early
+5. Unless `--init_only 1` is set, run Expectation-Maximization until early
    stopping.
 6. Impute target loci absent from the observed-target map without inserting
    target sequences into the fitted reference cluster graph, streaming one
@@ -353,8 +372,9 @@ Always-present fields include:
 - `t_init` and `t_impute`
 
 Unless `--init_only 1` is set, output also includes `train_log` and the fitted
-parameter moments under `params`. Probabilities are written to `PROB_FILE` and
-are not accumulated in JSON. Cluster assignments are not serialized.
+parameter moments under `params`. Each training record includes `mean_nR`, the
+mean number of active R clusters per locus. Probabilities are written to
+`PROB_FILE` and are not accumulated in JSON. Cluster assignments are not serialized.
 
 The cluster and tree metrics below describe intended behavior in inactive
 evaluation sources. Imputation r-squared and accuracy are active in

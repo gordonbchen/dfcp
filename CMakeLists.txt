@@ -10,7 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(OpenMP REQUIRED)
 
 add_executable(impute
-    src/me.cpp
+    src/impute.cpp
     src/seq_array.cpp
     src/clusters.cpp
     src/max.cpp

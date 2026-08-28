@@ -83,7 +83,7 @@ void train_dfcp(
     if (init_only) { return; }
 
     // Train.
-    EarlyStopping early_stop{2, false, 1e-3};
+    EarlyStopping early_stop{2, false, 1.0};
     double elbo = 0.0;
 
     std::vector<Json> train_log;
@@ -104,11 +104,12 @@ void train_dfcp(
         auto t_max = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
         auto t_elbo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
         auto t_step = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t0).count();
-        std::cerr << early_stop.step << ": elbo=" << elbo
+        double mean_nR = static_cast<double>(clusters.nR) / HP.L;
+        std::cerr << early_stop.step << ": elbo=" << elbo << " mean_nR=" << mean_nR
             << " t_expect=" << t_expect << "ms t_max=" << t_max
             << "ms t_elbo=" << t_elbo << "ms t_step=" << t_step << "ms\n";
         train_log.emplace_back();
-        train_log[train_log.size()-1].add("elbo", elbo)
+        train_log[train_log.size()-1].add("elbo", elbo).add("mean_nR", mean_nR)
             .add("t_max", t_max).add("t_expect", t_expect).add("t_elbo", t_elbo).add("t_step", t_step);
     }
     json.add("train_log", train_log);
@@ -120,48 +121,50 @@ void train_dfcp(
 }
 
 
-std::vector<double> get_viterbi_impute_probs(
+void get_viterbi_impute_probs(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
+    ViterbiBuffers& viterbi_bufs, std::vector<double>& seq_probs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(x, i, &obs_ls, clusters, params, HP)};
-    std::vector<double> viterbi_probs;
+    get_viterbi_path(x, i, &obs_ls, viterbi_bufs, clusters, params, HP);
     int n_masked_ls = HP.L - obs_ls.size();
-    viterbi_probs.reserve(n_masked_ls * HP.K);
+    int masked_l = 0;
     for (int l = 0; l < HP.L; ++l) {
         if (obs_ls.contains(l)) { continue; }
         for (int k = 0; k < HP.K; ++k) {
-            double p = get_cluster_emission_ll(viterbi_clusters[2*l], k, l, clusters, params, HP);
-            viterbi_probs.emplace_back(p);
+            double p = get_cluster_emission_ll(viterbi_bufs.path[2 * l], k, l, clusters, params, HP);
+            seq_probs[idx2d(masked_l, k, HP.K)] = p;
         }
+        ++masked_l;
     }
-    normalize_ll(viterbi_probs, n_masked_ls, HP.K);
-    return viterbi_probs;
+    normalize_ll(seq_probs, n_masked_ls, HP.K);
 }
 
 void impute(
     const SeqArray& x_val, const std::unordered_map<int, int>& obs_ls,
     bool viterbi,
     const Clusters& clusters, const Params& params, const HyperParams& HP,
-    const char* prob_file, Json& json
+    const char* prob_file
 ) {
     int n_masked_ls = HP.L - static_cast<int>(obs_ls.size());
     ImputeProbWriter prob_writer(prob_file, x_val.N, n_masked_ls);
+    std::vector<double> seq_probs(n_masked_ls * HP.K);
 
-    std::chrono::steady_clock::duration impute_dur{};
-    for (int i = 0; i < x_val.N; ++i) {
-        auto t0 = std::chrono::steady_clock::now();
-        std::vector<double> seq_probs = viterbi ?
-            get_viterbi_impute_probs(x_val, i, obs_ls, clusters, params, HP)
-            : fwd_bkwd(x_val, i, obs_ls, clusters, params, HP);
-        prob_writer.write_row(seq_probs);
-        impute_dur += std::chrono::steady_clock::now() - t0;
+    if (viterbi) {
+        ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
+        for (int i = 0; i < x_val.N; ++i) {
+            get_viterbi_impute_probs(x_val, i, obs_ls, viterbi_bufs, seq_probs, clusters, params, HP);
+            prob_writer.write_row(seq_probs);
+        }
+    }
+    else {
+        FwdBkwdBuffers fwd_bkwd_bufs(clusters.next_cluster_id, HP.L);
+        for (int i = 0; i < x_val.N; ++i) {
+            fwd_bkwd(x_val, i, obs_ls, fwd_bkwd_bufs, seq_probs, clusters, params, HP);
+            prob_writer.write_row(seq_probs);
+        }
     }
     prob_writer.finish();
-
-    auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(impute_dur).count();
-    std::cerr << "t_impute=" << t_impute << "ms\n";
-    json.add("t_impute", t_impute);
 }
 
 
@@ -275,11 +278,16 @@ int main(int argc, char *argv[]) {
         json
     );
 
+    auto t0 = std::chrono::steady_clock::now();
     impute(
         x_val, obs_ls,
         viterbi_impute,
         clusters, params, HP,
-        argv[4], json
+        argv[4]
     );
+    auto t1 = std::chrono::steady_clock::now();
+    auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    std::cerr << "t_impute=" << t_impute << "ms\n";
+    json.add("t_impute", t_impute);
     std::cout << json.str() << '\n';
 }

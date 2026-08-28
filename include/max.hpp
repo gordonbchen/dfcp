@@ -14,8 +14,24 @@ double get_cluster_emission_ll(
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 
-std::vector<Cluster*> get_viterbi_clusters(
+
+struct ViterbiMsg {
+    double ll;
+    Cluster* next;
+};
+
+struct ViterbiBuffers {
+    std::vector<ViterbiMsg> a_msgs;
+    std::vector<ViterbiMsg> new_a_msgs;
+    std::vector<ViterbiMsg> new_b_msgs;
+    std::vector<Cluster*> path;
+
+    ViterbiBuffers(uint32_t n_cluster_ids, int L);
+};
+
+void get_viterbi_path(
     const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
+    ViterbiBuffers& viterbi_bufs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 

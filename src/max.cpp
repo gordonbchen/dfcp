@@ -1,10 +1,8 @@
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include "max.hpp"
 #include "seq_array.hpp"
@@ -15,21 +13,8 @@
 #include "util.hpp"
 
 
-struct Msg {
-    double ll;
-    Cluster* next;
-};
-
-double get_msg_ll(const std::unordered_map<Cluster*, Msg>& msgs, Cluster* c, EmitMode emit_mode) {
-    auto it = msgs.find(c);
-    if (it == msgs.end()) {
-        if (emit_mode != EmitMode::hard) {
-            throw std::runtime_error("All msgs should be present unless emissions are hard.");
-        }
-        return -std::numeric_limits<double>::infinity();
-    }
-    return it->second.ll;
-}
+ViterbiBuffers::ViterbiBuffers(uint32_t n_cluster_ids, int L) :
+    a_msgs(n_cluster_ids), new_a_msgs(L), new_b_msgs(L-1), path(2*L-1) {}
 
 double get_cluster_emission_ll(
     Cluster* a, int8_t xil, int l,
@@ -70,98 +55,98 @@ double get_cluster_emission_ll(
     return xil == a->emission ? 0.0 : -std::numeric_limits<double>::infinity();
 }
 
-std::vector<Cluster*> get_viterbi_clusters(
+void get_viterbi_path(
     const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
+    ViterbiBuffers& viterbi_bufs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<std::unordered_map<Cluster*, Msg>> a_msgs(HP.L);
-    std::vector<std::unordered_map<Cluster*, Msg>> b_msgs(HP.L-1);
+    std::vector<ViterbiMsg>& a_msgs = viterbi_bufs.a_msgs;
+    a_msgs.resize(clusters.next_cluster_id);
+    std::vector<ViterbiMsg>& new_a_msgs = viterbi_bufs.new_a_msgs;
+    std::vector<ViterbiMsg>& new_b_msgs = viterbi_bufs.new_b_msgs;
+    std::vector<Cluster*>& viterbi_path = viterbi_bufs.path;
+
+    const std::vector<Cluster*> *matching_as = nullptr;
     for (int l = HP.L-1; l >= 0; --l) {
         int xil = get_xil(x, i, l, obs_ls);
         double new_a_ll = get_cluster_emission_ll(nullptr, xil, l, clusters, params, HP);
 
-        const std::unordered_set<Cluster*>& matching_as =
-            (clusters.emit_mode != EmitMode::hard || xil == -1) ?
-            clusters.rs[l] : clusters.rs_by_emit[idx2d(l, xil, HP.K)];
+        matching_as = &clusters.get_matching_as(l, xil);
         if (l == HP.L-1) {
-            a_msgs[l][nullptr] = Msg{new_a_ll, nullptr};
-            for (Cluster *a : matching_as) {
-                a_msgs[l][a] = Msg{get_cluster_emission_ll(a, xil, l, clusters, params, HP), nullptr};
+            new_a_msgs[l] = ViterbiMsg{new_a_ll, nullptr};
+            for (Cluster *a : *matching_as) {
+                a_msgs[a->id] = ViterbiMsg{get_cluster_emission_ll(a, xil, l, clusters, params, HP), nullptr};
             }
             continue;
         }
 
-        // b messages.
-        for (Cluster* b : clusters.qs[l]) {
-            if (b->children.size() != 1) { throw std::runtime_error("b clusters can only have 1 child."); };
-            Cluster* next_a = *b->children.begin();
-            b_msgs[l][b] = Msg{get_msg_ll(a_msgs[l+1], next_a, clusters.emit_mode), next_a};
-        }
-
+        // New b message.
         int nQl = clusters.qs[l].size();
         double mu_y = params.mu_alpha + nQl*params.mu_d[l];
         double sigma2_y = params.sigma2_alpha + nQl*nQl * params.sigma2_d[l];
         double elogy = delta_Elogx(mu_y, sigma2_y, 1.0, 0.0);
 
         Cluster* best_a = nullptr;
-        double best_a_ll = params.mu_log_alpha + a_msgs[l+1].at(nullptr).ll;
+        double best_a_ll = params.mu_log_alpha + new_a_msgs[l+1].ll;
+
         int xil1 = get_xil(x, i, l+1, obs_ls);
-        const std::unordered_set<Cluster*>& matching_next_as =
-            (clusters.emit_mode != EmitMode::hard || xil1 == -1)
-            ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xil1, HP.K)];
-        for (Cluster *a : matching_next_as) {
+        for (Cluster *a : clusters.get_matching_as(l+1, xil1)) {
             double nCl = a->parents.size();
-            double ll = params.mu_log_d[l] + std::log(nCl) + get_msg_ll(a_msgs[l+1], a, clusters.emit_mode);
+            double ll = params.mu_log_d[l] + std::log(nCl) + a_msgs[a->id].ll;
             if (ll > best_a_ll) {
                 best_a = a;
                 best_a_ll = ll;
             }
         }
-        double new_b_ll = -elogy + best_a_ll;
-        b_msgs[l][nullptr] = Msg{new_b_ll, best_a};
+        new_b_msgs[l] = ViterbiMsg{-elogy + best_a_ll, best_a};
 
         // a messages.
-        a_msgs[l][nullptr] = Msg{new_a_ll + new_b_ll, nullptr};
-        for (Cluster* a : matching_as) {
+        new_a_msgs[l] = ViterbiMsg{new_a_ll + new_b_msgs[l].ll, nullptr};
+        for (Cluster* a : *matching_as) {
             Cluster* best_b = nullptr;
             double nFl = a->children.size();
-            double best_b_ll = std::log(nFl) + params.mu_log_d[l] + b_msgs[l][nullptr].ll;
+            double best_b_ll = std::log(nFl) + params.mu_log_d[l] + new_b_msgs[l].ll;
             for (Cluster* b : a->children) {
-                double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->n)
-                    + get_msg_ll(b_msgs[l], b, clusters.emit_mode);
+                Cluster* next_a = b->q_child;
+                if (clusters.emit_mode == EmitMode::hard && xil1 != -1 && next_a->emission != xil1) {
+                    continue;
+                }
+                double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->n) + a_msgs[next_a->id].ll;
                 if (ll > best_b_ll) {
                     best_b = b;
                     best_b_ll = ll;
                 }
             }
             double emission_ll = get_cluster_emission_ll(a, xil, l, clusters, params, HP);
-            a_msgs[l][a] = Msg{emission_ll - std::log(static_cast<double>(a->n)) + best_b_ll, best_b};
+            a_msgs[a->id] = ViterbiMsg{emission_ll - std::log(static_cast<double>(a->n)) + best_b_ll, best_b};
         }
     }
 
     // Initial CRP probs.
-    for (auto& [a, m] : a_msgs[0]) {
-        m.ll += (a == nullptr) ? params.mu_log_alpha : std::log(static_cast<double>(a->n));
+    new_a_msgs[0].ll += params.mu_log_alpha;
+    for (Cluster* a : *matching_as) {
+        a_msgs[a->id].ll += std::log(static_cast<double>(a->n));
     }
 
-    // Viterbi path.
-    std::vector<Cluster*> best_clusters;
-    best_clusters.reserve(HP.L + HP.L-1);
-
-    Cluster* a = std::max_element(a_msgs[0].begin(), a_msgs[0].end(),
-        [](const auto& a, const auto& b) { return a.second.ll < b.second.ll; }
-    )->first;
-    best_clusters.emplace_back(a);
+    Cluster* a = nullptr;
+    double a_ll = new_a_msgs[0].ll;
+    for (Cluster* cand_a : *matching_as) {
+        double ll = a_msgs[cand_a->id].ll;
+        if (ll > a_ll) {
+            a_ll = ll;
+            a = cand_a;
+        }
+    }
+    viterbi_path[0] = a;
 
     Cluster* b;
     for (int l = 0; l < HP.L-1; ++l) {
-        b = a_msgs[l].at(a).next;
-        best_clusters.emplace_back(b);
+        b = a == nullptr ? new_a_msgs[l].next : a_msgs[a->id].next;
+        viterbi_path[2 * l + 1] = b;
 
-        a = b_msgs[l].at(b).next;
-        best_clusters.emplace_back(a);
+        a = b == nullptr ? new_b_msgs[l].next : b->q_child;
+        viterbi_path[2 * l + 2] = a;
     }
-    return best_clusters;
 }
 
 
@@ -193,13 +178,15 @@ int get_new_cluster_emission(
     return best_k;
 }
 
-void viterbi_seq(
+void viterbi_add_seq(
     const SeqArray& x, int x_idx, int seq_idx,
+    ViterbiBuffers& viterbi_bufs,
     Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<Cluster*> best_clusters{get_viterbi_clusters(x, x_idx, nullptr, clusters, params, HP)};
+    get_viterbi_path(x, x_idx, nullptr, viterbi_bufs, clusters, params, HP);
+    std::vector<Cluster*>& viterbi_path = viterbi_bufs.path;
 
-    Cluster* a = best_clusters[0];
+    Cluster* a = viterbi_path[0];
     Cluster* a_obj = a;
     if (a == nullptr) {
         int emission = get_new_cluster_emission(x(x_idx, 0), 0, clusters, params, HP);
@@ -210,14 +197,14 @@ void viterbi_seq(
     Cluster* b = nullptr;
     Cluster* b_obj = nullptr;
     for (int l = 0; l < HP.L-1; ++l) {
-        b = best_clusters[2*l + 1];
+        b = viterbi_path[2 * l + 1];
         b_obj = (b == nullptr) ? clusters.create_empty_cluster(false, l, -1) : b;
         clusters.cluster_add(b_obj, seq_idx, -1);
         if (a == nullptr || b == nullptr) {
             a_obj->add_child(b_obj);
         }
 
-        a = best_clusters[2 * (l+1)];
+        a = viterbi_path[2 * (l + 1)];
         a_obj = a;
         if (a == nullptr) {
             int emission = get_new_cluster_emission(x(x_idx, l+1), l+1, clusters, params, HP);
@@ -231,15 +218,16 @@ void viterbi_seq(
 }
 
 void max_step(const SeqArray& x, Clusters& clusters, const Params& params, const HyperParams& HP) {
+    ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
     for (int i = 0; i < HP.N; ++i) {
         for (int l = 0; l < HP.L; ++l) {
             clusters.cluster_remove(clusters.r_assign[idx2d(i, l, HP.L)], i, x(i, l));
             if (l == HP.L-1) {
                 break;
             }
-            clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L-1)], i, -1);
+            clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L - 1)], i, -1);
         }
-        viterbi_seq(x, i, i, clusters, params, HP);
+        viterbi_add_seq(x, i, i, viterbi_bufs, clusters, params, HP);
     }
 }
 
@@ -247,10 +235,11 @@ void add_seqs(const SeqArray& x_new, Clusters& clusters, const Params& params, H
     int old_N = HP.N;
     HP.N += x_new.N;
     clusters.r_assign.resize(HP.N * HP.L, nullptr);
-    clusters.q_assign.resize(HP.N * (HP.L-1), nullptr);
+    clusters.q_assign.resize(HP.N * (HP.L - 1), nullptr);
 
+    ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
     for (int i = 0; i < x_new.N; ++i) {
-        viterbi_seq(x_new, i, old_N + i, clusters, params, HP);
+        viterbi_add_seq(x_new, i, old_N + i, viterbi_bufs, clusters, params, HP);
     }
 }
 
