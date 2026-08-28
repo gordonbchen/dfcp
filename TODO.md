@@ -83,7 +83,9 @@ Apply and benchmark these independently, in this order:
 2. Remove existing-cluster `b_msgs`. Complete: existing `Q_l` clusters now read their sole child's `a`
    message directly, leaving one `new_b_msg` per transition. Development-window maximization became 22.6%
    faster and wall time became 22.2% faster.
-3. In hard mode, skip a `Q` edge when its child `R` emission cannot match the next observed allele.
+3. Skip hard-mode `Q` edges whose child emission cannot match the next observed allele. Complete: the early
+   skip and direct current-message lookup made development-window maximization 4.4% faster and wall time
+   4.3% faster.
 4. Benchmark `boost::unordered_flat_map` for the remaining `a` messages. There are currently no retained
    references or iterators whose invalidation should prevent its use.
 

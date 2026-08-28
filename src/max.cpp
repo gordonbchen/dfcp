@@ -14,23 +14,6 @@
 #include "util.hpp"
 
 
-double get_msg_ll(
-    const std::unordered_map<Cluster*, ViterbiMsg>& msgs, Cluster* c,
-    EmitMode emit_mode, int xil
-) {
-    if ((emit_mode == EmitMode::hard) && (xil != -1) && (xil != c->emission)) {
-        return -std::numeric_limits<double>::infinity();
-    }
-    auto it = msgs.find(c);
-    if (it == msgs.end()) {
-        if (emit_mode != EmitMode::hard) {
-            throw std::runtime_error("All msgs should be present unless emissions are hard.");
-        }
-        return -std::numeric_limits<double>::infinity();
-    }
-    return it->second.ll;
-}
-
 double get_cluster_emission_ll(
     Cluster* a, int8_t xil, int l,
     const Clusters& clusters, const Params& params, const HyperParams& HP
@@ -92,7 +75,7 @@ void get_viterbi_path(
             continue;
         }
 
-        // b messages.
+        // New b message.
         int nQl = clusters.qs[l].size();
         double mu_y = params.mu_alpha + nQl*params.mu_d[l];
         double sigma2_y = params.sigma2_alpha + nQl*nQl * params.sigma2_d[l];
@@ -107,8 +90,7 @@ void get_viterbi_path(
             ? clusters.rs[l+1] : clusters.rs_by_emit[idx2d(l+1, xil1, HP.K)];
         for (Cluster *a : matching_next_as) {
             double nCl = a->parents.size();
-            double ll = params.mu_log_d[l] + std::log(nCl)
-                + get_msg_ll(a_msgs[l+1], a, clusters.emit_mode, xil1);
+            double ll = params.mu_log_d[l] + std::log(nCl) + a_msgs[l+1].at(a).ll;
             if (ll > best_a_ll) {
                 best_a = a;
                 best_a_ll = ll;
@@ -123,8 +105,12 @@ void get_viterbi_path(
             double nFl = a->children.size();
             double best_b_ll = std::log(nFl) + params.mu_log_d[l] + new_b_msgs[l].ll;
             for (Cluster* b : a->children) {
+                Cluster* next_a = b->children[0];
+                if (clusters.emit_mode == EmitMode::hard && xil1 != -1 && next_a->emission != xil1) {
+                    continue;
+                }
                 double ll = delta_Elogx(params.mu_d[l], params.sigma2_d[l], -1, b->n)
-                    + get_msg_ll(a_msgs[l + 1], b->children[0], clusters.emit_mode, xil1);
+                    + a_msgs[l+1].at(next_a).ll;
                 if (ll > best_b_ll) {
                     best_b = b;
                     best_b_ll = ll;
