@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -71,10 +70,11 @@ double get_cluster_emission_ll(
     return xil == a->emission ? 0.0 : -std::numeric_limits<double>::infinity();
 }
 
-std::vector<Cluster*> get_viterbi_clusters(
+void get_viterbi_path(
     const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>>& a_msgs,
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>>& b_msgs,
+    std::vector<Cluster*>& viterbi_path,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
     const std::unordered_set<Cluster*> *matching_as = nullptr;
@@ -146,10 +146,6 @@ std::vector<Cluster*> get_viterbi_clusters(
         a_msgs[0].at(a).ll += std::log(static_cast<double>(a->n));
     }
 
-    // Viterbi path.
-    std::vector<Cluster*> best_clusters;
-    best_clusters.reserve(HP.L + HP.L-1);
-
     Cluster* a = nullptr;
     double a_ll = a_msgs[0].at(nullptr).ll;
     for (Cluster* cand_a : *matching_as) {
@@ -159,17 +155,16 @@ std::vector<Cluster*> get_viterbi_clusters(
             a = cand_a;
         }
     }
-    best_clusters.emplace_back(a);
+    viterbi_path[0] = a;
 
     Cluster* b;
     for (int l = 0; l < HP.L-1; ++l) {
         b = a_msgs[l].at(a).next;
-        best_clusters.emplace_back(b);
+        viterbi_path[2 * l + 1] = b;
 
         a = b_msgs[l].at(b).next;
-        best_clusters.emplace_back(a);
+        viterbi_path[2 * l + 2] = a;
     }
-    return best_clusters;
 }
 
 
@@ -205,12 +200,12 @@ void viterbi_add_seq(
     const SeqArray& x, int x_idx, int seq_idx,
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>>& a_msgs,
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>>& b_msgs,
+    std::vector<Cluster*>& viterbi_path,
     Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<Cluster*> best_clusters{get_viterbi_clusters(x, x_idx, nullptr, a_msgs, b_msgs,
-                                                             clusters, params, HP)};
+    get_viterbi_path(x, x_idx, nullptr, a_msgs, b_msgs, viterbi_path, clusters, params, HP);
 
-    Cluster* a = best_clusters[0];
+    Cluster* a = viterbi_path[0];
     Cluster* a_obj = a;
     if (a == nullptr) {
         int emission = get_new_cluster_emission(x(x_idx, 0), 0, clusters, params, HP);
@@ -221,14 +216,14 @@ void viterbi_add_seq(
     Cluster* b = nullptr;
     Cluster* b_obj = nullptr;
     for (int l = 0; l < HP.L-1; ++l) {
-        b = best_clusters[2*l + 1];
+        b = viterbi_path[2 * l + 1];
         b_obj = (b == nullptr) ? clusters.create_empty_cluster(false, l, -1) : b;
         clusters.cluster_add(b_obj, seq_idx, -1);
         if (a == nullptr || b == nullptr) {
             a_obj->add_child(b_obj);
         }
 
-        a = best_clusters[2 * (l+1)];
+        a = viterbi_path[2 * (l + 1)];
         a_obj = a;
         if (a == nullptr) {
             int emission = get_new_cluster_emission(x(x_idx, l+1), l+1, clusters, params, HP);
@@ -243,16 +238,17 @@ void viterbi_add_seq(
 
 void max_step(const SeqArray& x, Clusters& clusters, const Params& params, const HyperParams& HP) {
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>> a_msgs(HP.L);
-    std::vector<std::unordered_map<Cluster*, ViterbiMsg>> b_msgs(HP.L-1);
+    std::vector<std::unordered_map<Cluster*, ViterbiMsg>> b_msgs(HP.L - 1);
+    std::vector<Cluster*> viterbi_path(2 * HP.L - 1);
     for (int i = 0; i < HP.N; ++i) {
         for (int l = 0; l < HP.L; ++l) {
             clusters.cluster_remove(clusters.r_assign[idx2d(i, l, HP.L)], i, x(i, l));
             if (l == HP.L-1) {
                 break;
             }
-            clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L-1)], i, -1);
+            clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L - 1)], i, -1);
         }
-        viterbi_add_seq(x, i, i, a_msgs, b_msgs, clusters, params, HP);
+        viterbi_add_seq(x, i, i, a_msgs, b_msgs, viterbi_path, clusters, params, HP);
     }
 }
 
@@ -260,12 +256,13 @@ void add_seqs(const SeqArray& x_new, Clusters& clusters, const Params& params, H
     int old_N = HP.N;
     HP.N += x_new.N;
     clusters.r_assign.resize(HP.N * HP.L, nullptr);
-    clusters.q_assign.resize(HP.N * (HP.L-1), nullptr);
+    clusters.q_assign.resize(HP.N * (HP.L - 1), nullptr);
 
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>> a_msgs(HP.L);
-    std::vector<std::unordered_map<Cluster*, ViterbiMsg>> b_msgs(HP.L-1);
+    std::vector<std::unordered_map<Cluster*, ViterbiMsg>> b_msgs(HP.L - 1);
+    std::vector<Cluster*> viterbi_path(2 * HP.L - 1);
     for (int i = 0; i < x_new.N; ++i) {
-        viterbi_add_seq(x_new, i, old_N + i, a_msgs, b_msgs, clusters, params, HP);
+        viterbi_add_seq(x_new, i, old_N + i, a_msgs, b_msgs, viterbi_path, clusters, params, HP);
     }
 }
 

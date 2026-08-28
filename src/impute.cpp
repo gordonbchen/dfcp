@@ -124,17 +124,17 @@ std::vector<double> get_viterbi_impute_probs(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>>& a_msgs,
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>>& b_msgs,
+    std::vector<Cluster*>& viterbi_path,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    std::vector<Cluster*> viterbi_clusters{get_viterbi_clusters(x, i, &obs_ls, a_msgs, b_msgs,
-                                                                clusters, params, HP)};
+    get_viterbi_path(x, i, &obs_ls, a_msgs, b_msgs, viterbi_path, clusters, params, HP);
     std::vector<double> viterbi_probs;
     int n_masked_ls = HP.L - obs_ls.size();
     viterbi_probs.reserve(n_masked_ls * HP.K);
     for (int l = 0; l < HP.L; ++l) {
         if (obs_ls.contains(l)) { continue; }
         for (int k = 0; k < HP.K; ++k) {
-            double p = get_cluster_emission_ll(viterbi_clusters[2*l], k, l, clusters, params, HP);
+            double p = get_cluster_emission_ll(viterbi_path[2 * l], k, l, clusters, params, HP);
             viterbi_probs.emplace_back(p);
         }
     }
@@ -152,11 +152,12 @@ void impute(
     ImputeProbWriter prob_writer(prob_file, x_val.N, n_masked_ls);
 
     std::vector<std::unordered_map<Cluster*, ViterbiMsg>> a_msgs(viterbi ? HP.L : 0);
-    std::vector<std::unordered_map<Cluster*, ViterbiMsg>> b_msgs(viterbi ? HP.L-1 : 0);
+    std::vector<std::unordered_map<Cluster*, ViterbiMsg>> b_msgs(viterbi ? HP.L - 1 : 0);
+    std::vector<Cluster*> viterbi_path(viterbi ? 2 * HP.L - 1 : 0);
 
     for (int i = 0; i < x_val.N; ++i) {
         std::vector<double> seq_probs = viterbi ?
-            get_viterbi_impute_probs(x_val, i, obs_ls, a_msgs, b_msgs, clusters, params, HP)
+            get_viterbi_impute_probs(x_val, i, obs_ls, a_msgs, b_msgs, viterbi_path, clusters, params, HP)
             : fwd_bkwd(x_val, i, obs_ls, clusters, params, HP);
         prob_writer.write_row(seq_probs);
     }
