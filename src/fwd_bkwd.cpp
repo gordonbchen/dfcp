@@ -74,7 +74,7 @@ FwdBkwdMsgs get_bkwd_msgs(
             double nFl = a->children.size();
             double a_ll = -log_na + std::log(nFl) + params.mu_log_d[l] + new_b_ll;
             for (Cluster* b : a->children) {
-                Cluster* next_a = b->children[0];
+                Cluster* next_a = b->q_child;
                 if (clusters.emit_mode == EmitMode::hard && xil1 != -1 && next_a->emission != xil1) {
                     continue;
                 }
@@ -130,7 +130,7 @@ FwdBkwdMsgs get_fwd_msgs(
             double nCl = a->parents.size();
             double a_ll = new_b_ll - elogy + params.mu_log_d[l-1] + std::log(nCl);
             for (Cluster* b : a->parents) {
-                Cluster* prev_a = b->parents[0];
+                Cluster* prev_a = b->q_parent;
                 if (clusters.emit_mode == EmitMode::hard && xilm1 != -1 && prev_a->emission != xilm1) {
                     continue;
                 }

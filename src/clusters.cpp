@@ -16,16 +16,21 @@
 
 Cluster::Cluster(uint32_t id_, bool is_r_, int l_, int emission_, int K)
     : id(id_), is_r(is_r_), l(l_), emission(emission_),
-      n(0), nk(K, 0), n_obs(0) {}
+      n(0), nk(K, 0), n_obs(0), q_parent(nullptr), q_child(nullptr) {}
 
 void Cluster::add_child(Cluster *child) {
-    if (is_r && child->parents.size() != 0) {
-        throw std::runtime_error("Child q cluster has a parent already.");
+    if (is_r) {
+        if (child->q_parent != nullptr) {
+            throw std::runtime_error("Child q cluster has a parent already.");
+        }
+        children.push_back(child);
+        child->q_parent = this;
+        return;
     }
-    if (!is_r && children.size() != 0) {
+    if (q_child != nullptr) {
         throw std::runtime_error("Parent q cluster has a child already.");
     }
-    children.push_back(child);
+    q_child = child;
     child->parents.push_back(this);
 }
 
@@ -178,7 +183,8 @@ Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
 
     std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(id, is_r, l, emission, HP.K);
     Cluster* ptr = u_ptr.get();
-    all_clusters[ptr] = std::move(u_ptr);
+    if (id == all_clusters.size()) { all_clusters.push_back(std::move(u_ptr)); }
+    else { all_clusters[id] = std::move(u_ptr); }
 
     if (!is_r) {
         qs[l].push_back(ptr);
@@ -250,19 +256,13 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
         return;
     }
 
-    // Delete cluster.
-    for (Cluster* parent : cluster->parents) {
-        std::swap(
-            *std::find(parent->children.begin(), parent->children.end(), cluster), parent->children.back()
-        );
-        parent->children.pop_back();
-    }
-    for (Cluster* child: cluster->children) {
-        std::swap(*std::find(child->parents.begin(), child->parents.end(), cluster), child->parents.back());
-        child->parents.pop_back();
-    }
-
     if (cluster->is_r) {
+        for (Cluster* b : cluster->parents) {
+            b->q_child = nullptr;
+        }
+        for (Cluster* b : cluster->children) {
+            b->q_parent = nullptr;
+        }
         erase_cluster(rs[cluster->l], cluster);
         --nR;
         if (emit_mode != EmitMode::soft) {
@@ -270,11 +270,17 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
         }
     }
     else {
+        if (cluster->q_parent != nullptr) {
+            erase_cluster(cluster->q_parent->children, cluster);
+        }
+        if (cluster->q_child != nullptr) {
+            erase_cluster(cluster->q_child->parents, cluster);
+        }
         erase_cluster(qs[cluster->l], cluster);
     }
 
     free_cluster_ids.push_back(cluster->id);
-    all_clusters.erase(cluster);
+    all_clusters[cluster->id].reset();
 }
 
 void Clusters::set_emission(Cluster* c, int new_emission) {

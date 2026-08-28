@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <unordered_map>
 #include <vector>
 #include "hyperparams.hpp"
 #include "seq_array.hpp"
@@ -27,6 +26,8 @@ struct Cluster {
 
     std::vector<Cluster*> parents;
     std::vector<Cluster*> children;
+    Cluster* q_parent;
+    Cluster* q_child;
 
 
     Cluster(uint32_t id_, bool is_r_, int l_, int emission_, int K);
@@ -40,7 +41,7 @@ struct Cluster {
 enum class EmitMode { hard, noisy, soft };
 
 struct Clusters {
-    std::unordered_map<Cluster*, std::unique_ptr<Cluster>> all_clusters;
+    std::vector<std::unique_ptr<Cluster>> all_clusters;
     uint32_t next_cluster_id;
     std::vector<uint32_t> free_cluster_ids;
 

@@ -180,12 +180,13 @@ The cluster graph is
 R_0 -> Q_0 -> R_1 -> Q_1 -> ... -> R_(L-1)
 ```
 
-`Clusters::all_clusters` owns every node through `unique_ptr`. All pointers in
-assignments, adjacency lists, and indexes are non-owning stable pointers.
-Every cluster also has a `uint32_t` ID that is stable for its lifetime and
-returned to a free list after deletion. Viterbi and forward-backward R messages
-use dense vectors indexed by this ID; proposed-new-cluster messages remain
-separate by locus. `ViterbiBuffers` owns the reusable Viterbi messages and path.
+`Clusters::all_clusters` is an ID-indexed vector that owns every node through
+`unique_ptr`; deleted IDs leave reusable null slots. All pointers in assignments,
+adjacency lists, and indexes are non-owning stable pointers. Every cluster has a
+`uint32_t` ID that is stable for its lifetime and returned to a free list after
+deletion. Viterbi and forward-backward R messages use dense vectors indexed by
+this ID; proposed-new-cluster messages remain separate by locus. `ViterbiBuffers`
+owns the reusable Viterbi messages and path.
 Active `R` and `Q` clusters and the hard-emission index are dense pointer
 vectors. Empty-cluster deletion finds the pointer linearly and uses
 swap-and-pop; the vectors average only a few entries per locus.
@@ -195,6 +196,9 @@ Important invariants:
 - Every active sequence belongs to exactly one `R` cluster at every locus.
 - Every active sequence belongs to exactly one `Q` cluster at every transition.
 - A `Q_l` is a fragment of one `R_l` and has exactly one child `R_(l+1)`.
+- Q clusters store their parent and child directly; only R clusters use the
+  `parents` and `children` vectors. A Q link may briefly be null when its adjacent
+  empty R cluster is deleted first during sequence removal.
 - An `R` cluster may have multiple child fragments and multiple parent
   fragments.
 - Empty clusters are detached and deleted immediately.

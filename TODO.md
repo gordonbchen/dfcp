@@ -38,7 +38,9 @@ commits.
 - Replace assignment pointers with stable `uint32_t` cluster IDs when live cluster storage is redesigned.
 - Do not renumber live IDs. Use reusable object slots, a free-ID list, and dense per-locus active vectors.
 - Active vectors use swap-and-pop after a linear pointer search. At about 7.3 R clusters per locus, storing
-  positions made maximization 5.6% slower and added about 1.3 MB peak RSS.
+  positions made maximization 5.6% slower and added about 1.3 MB peak RSS. On a fixed 376-locus input,
+  linear and indexed removal remained effectively tied at PBWT match lengths 10 and 20, with about 13.9 and
+  31.9 final R clusters per locus; indexed removal still used more memory, so retain the simpler search.
 - Keep the hard-emission filtering supplied by the dense `rs_by_emit` vectors.
 - Consider `uint16_t` IDs only after measuring the maximum live ID and cluster count per locus.
 
@@ -97,13 +99,17 @@ representative window, one run reduced maximization from 91.6 to 63.7 seconds; e
 outlier gives a 26.6% per-iteration reduction. Dense forward-backward messages reduced mean representative
 imputation time by 33.2%. Replacing active hash sets with dense vectors and linear removal reduced mean
 representative maximization time another 20.6%, from 5,628 to 4,467 ms per iteration. Hard, noisy, and soft
-probability files were byte-identical across the applicable changes.
+probability files were byte-identical across the applicable changes. ID-indexed ownership and direct Q links
+then reduced default representative maximization from 4,467 to 4,139 ms per iteration and wall time from
+about 59.1 to 54.8 seconds, while lowering peak RSS by about 3.7 MB.
 
-- Add reusable stable-ID object slots.
-- Replace the pointer-keyed ownership map and convert both assignment arrays to `uint32_t` IDs.
+- The pointer-keyed ownership map has been replaced by reusable ID-indexed `unique_ptr` slots. At PBWT match
+  length 20 this reduced mean maximization and wall time by 2.4% and peak RSS by about 1.1 MB.
+- Convert both assignment arrays to `uint32_t` IDs.
 - `rs`, `qs`, and the hard-emission index are dense vectors. Linear removal beat stored vector positions on
   the representative window, and every training iteration now records the mean R-cluster count per locus.
-- Store a `Q` cluster's one parent and one child directly instead of using one-element vectors.
+- Q clusters store their one parent and one child directly. At PBWT match length 20 this reduced mean
+  maximization and wall time by another 6.8%, with effectively unchanged peak RSS.
 - Viterbi and forward-backward message maps have been replaced by dense arrays indexed by stable ID.
   Current-candidate traversal guarantees that every accessed hard-mode message was overwritten during the
   current inference pass.

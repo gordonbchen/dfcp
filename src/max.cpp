@@ -107,7 +107,7 @@ void get_viterbi_path(
             double nFl = a->children.size();
             double best_b_ll = std::log(nFl) + params.mu_log_d[l] + new_b_msgs[l].ll;
             for (Cluster* b : a->children) {
-                Cluster* next_a = b->children[0];
+                Cluster* next_a = b->q_child;
                 if (clusters.emit_mode == EmitMode::hard && xil1 != -1 && next_a->emission != xil1) {
                     continue;
                 }
@@ -144,7 +144,7 @@ void get_viterbi_path(
         b = a == nullptr ? new_a_msgs[l].next : a_msgs[a->id].next;
         viterbi_path[2 * l + 1] = b;
 
-        a = b == nullptr ? new_b_msgs[l].next : b->children[0];
+        a = b == nullptr ? new_b_msgs[l].next : b->q_child;
         viterbi_path[2 * l + 2] = a;
     }
 }
