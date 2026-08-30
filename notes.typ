@@ -1959,13 +1959,10 @@ metrics
 
 #pagebreak()
 = TODO
-- expectation then maximization (init followed by max???)
 
 = evals
 - dfcp vs beagle imputation
-  - saving dfcp after training, loading for inference
 - ancestral tree time sampling: density plot of best clade time for each cluster
-- phasing
 
 == model changes
 - $d_l$ depending on genetic dist or the other way, estimating dist via $d_l$
@@ -1975,5 +1972,7 @@ metrics
 
 == ideas
 - multiple sequences (cluster?) taken out during maximization / stochastic updates
+- phasing?
+- saving dfcp after training, loading for inference
 - beagle-like composite / coreset to compress reference
-
+- clustering on transformer embeddings
