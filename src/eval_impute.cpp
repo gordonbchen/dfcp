@@ -12,6 +12,7 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <stdio.h>
 #include <string>
 #include <string_view>
 #include <system_error>
