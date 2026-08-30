@@ -548,6 +548,9 @@ Match the existing code unless a local cleanup is required for correctness.
   the mathematical derivation.
 - Keep control flow direct. Prefer early validation and early returns over deep
   nesting.
+- Establish pipeline invariants once where data is generated or first read. Do
+  not repeat those checks downstream; only validate independently produced
+  inputs when their compatibility is required for safe interpretation.
 - Braces are required for multi-line blocks. Existing one-line throw guards are
   acceptable.
 - Use four spaces for indentation and keep blank-line spacing consistent with

@@ -26,7 +26,7 @@ namespace {
 
 constexpr std::string_view manifest_header =
     "window\tstart\tend\tplanned_loci\tchrom\tfirst_pos\tlast_pos\tgenerated"
-    "\tref_loci\tobserved\tmasked\toverlap_previous";
+    "\tobserved\tmasked\toverlap_previous";
 constexpr std::uint16_t fixed_point_max = std::numeric_limits<std::uint16_t>::max();
 
 struct Window {
@@ -135,17 +135,10 @@ std::vector<RefCount> read_ref_counts(const std::filesystem::path& vcf) {
     std::string line;
     while (std::getline(input, line)) {
         std::vector<std::string_view> fields = split_tabs(line);
-        if (fields.size() != 2 || fields[0].find(',') != std::string_view::npos) {
-            throw std::runtime_error(
-                std::format("Invalid biallelic AC/AN row in {}: {}", vcf.string(), line)
-            );
+        if (fields.size() != 2) {
+            throw std::runtime_error(std::format("Invalid AC/AN row in {}: {}", vcf.string(), line));
         }
-        int ac = parse_int(fields[0], "AC");
-        int an = parse_int(fields[1], "AN");
-        if (ac < 0 || an <= 0 || ac > an) {
-            throw std::runtime_error(std::format("Invalid AC/AN in {}: {}/{}", vcf.string(), ac, an));
-        }
-        counts.push_back({ac, an});
+        counts.push_back({parse_int(fields[0], "AC"), parse_int(fields[1], "AN")});
     }
     return counts;
 }
@@ -167,36 +160,19 @@ std::vector<Window> read_windows(const std::filesystem::path& root) {
     while (std::getline(input, line)) {
         ++row;
         std::vector<std::string_view> fields = split_tabs(line);
-        if (fields.size() != 12) {
+        if (fields.size() != 11) {
             throw std::runtime_error(std::format("Invalid windows.tsv row {}.", row));
         }
         int index = parse_int(fields[0], "window index");
-        if (fields[7] != "0" && fields[7] != "1") {
-            throw std::runtime_error(std::format("Invalid generated value on windows.tsv row {}.", row));
-        }
         std::filesystem::path dir = root / std::format("window_{:04d}", index);
-        if (fields[7] == "0" || !std::filesystem::exists(dir / "probs.bin")) { continue; }
+        if (fields[7] != "1" || !std::filesystem::exists(dir / "probs.bin")) { continue; }
 
         int start = parse_int(fields[1], "window start");
         int end = parse_int(fields[2], "window end");
-        int planned_loci = parse_int(fields[3], "planned loci");
-        int ref_loci = parse_int(fields[8], "reference loci");
-        if (start < 0 || end <= start || planned_loci != end - start || ref_loci != planned_loci) {
-            throw std::runtime_error(std::format("Inconsistent dimensions on windows.tsv row {}.", row));
-        }
         windows.push_back({index, start, end, std::move(dir)});
-    }
-    if (!input.eof()) {
-        throw std::runtime_error("Failed while reading windows.tsv.");
     }
     if (windows.empty()) {
         throw std::runtime_error("No generated windows contain probs.bin.");
-    }
-    std::ranges::sort(windows, {}, &Window::index);
-    for (std::size_t i = 1; i < windows.size(); ++i) {
-        if (windows[i-1].index == windows[i].index) {
-            throw std::runtime_error("windows.tsv contains a duplicate window index.");
-        }
     }
     return windows;
 }
@@ -225,28 +201,15 @@ std::vector<int> assign_loci(const std::vector<Window>& windows) {
     return owner;
 }
 
-std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_loci, int expected) {
+std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_loci) {
     std::ifstream input(path);
     if (!input.is_open()) {
         throw std::runtime_error(std::format("Failed to open observed loci: {}", path.string()));
     }
     std::vector<bool> observed(n_loci, false);
-    int previous = -1;
-    int count = 0;
     int l;
     while (input >> l) {
-        if (l <= previous || l < 0 || l >= n_loci) {
-            throw std::runtime_error(std::format("Invalid observed locus in {}: {}", path.string(), l));
-        }
         observed[l] = true;
-        previous = l;
-        ++count;
-    }
-    if (!input.eof()) {
-        throw std::runtime_error(std::format("Invalid observed loci file: {}", path.string()));
-    }
-    if (count != expected) {
-        throw std::runtime_error(std::format("Observed-locus count does not match {}.", path.string()));
     }
     return observed;
 }
@@ -265,13 +228,8 @@ void evaluate_window(
     }
 
     std::vector<RefCount> ref_counts = read_ref_counts(window.dir / "ref.vcf.gz");
-    int n_ref_loci = window.end - window.start;
-    if (ref_counts.size() != static_cast<std::size_t>(n_ref_loci)) {
-        throw std::runtime_error(std::format("Reference VCF dimensions differ in {}.", window.dir.string()));
-    }
-    std::vector<bool> observed = read_observed_loci(
-        window.dir / "observed_loci.txt", n_ref_loci, n_ref_loci - truth.L
-    );
+    int n_ref_loci = static_cast<int>(ref_counts.size());
+    std::vector<bool> observed = read_observed_loci(window.dir / "observed_loci.txt", n_ref_loci);
 
     std::vector<MaskedLocus> retained;
     int masked_l = 0;

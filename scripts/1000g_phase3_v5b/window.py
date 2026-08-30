@@ -141,7 +141,7 @@ def write_window(
     window: Window,
     first: Position,
     last: Position,
-) -> tuple[int, int, int]:
+) -> tuple[int, int]:
     if first.chromosome != last.chromosome:
         raise ValueError("a window cannot cross chromosomes")
     region = f"{first.chromosome}:{first.value}-{last.value}"
@@ -154,16 +154,17 @@ def write_window(
     masked = write_region(
         args.target_masked_true, window_dir / "target_masked_true.vcf.gz", region, args.threads
     )
-    if observed == 0 or masked == 0 or observed + masked != n_ref:
+    if n_ref != window.size or observed == 0 or masked == 0 or observed + masked != n_ref:
         raise RuntimeError(
-            f"window {window.index} has ref={n_ref}, observed={observed}, masked={masked} records"
+            f"window {window.index} expected {window.size} records but has "
+            f"ref={n_ref}, observed={observed}, masked={masked}"
         )
     print(
         f"window={window.index:04d} ref=[{window.start},{window.end}) loci={n_ref} "
         f"observed={observed} masked={masked}",
         file=sys.stderr,
     )
-    return n_ref, observed, masked
+    return observed, masked
 
 
 def main() -> None:
@@ -174,7 +175,7 @@ def main() -> None:
     boundaries = read_boundary_positions(args.ref, boundary_indexes)
     require_empty_output_dir(args.output_dir)
 
-    generated: dict[int, tuple[int, int, int]] = {}
+    generated: dict[int, tuple[int, int]] = {}
     for window in windows[:args.n_generate]:
         generated[window.index] = write_window(
             args, window, boundaries[window.start], boundaries[window.end - 1]
@@ -184,18 +185,18 @@ def main() -> None:
     with manifest.open("w") as stream:
         stream.write(
             "window\tstart\tend\tplanned_loci\tchrom\tfirst_pos\tlast_pos\tgenerated"
-            "\tref_loci\tobserved\tmasked\toverlap_previous\n"
+            "\tobserved\tmasked\toverlap_previous\n"
         )
         for window in windows:
             first = boundaries[window.start]
             last = boundaries[window.end - 1]
             counts = generated.get(window.index)
-            ref_loci, observed, masked = counts if counts else (".", ".", ".")
+            observed, masked = counts if counts else (".", ".")
             overlap = args.overlap if window.index else 0
             stream.write(
                 f"{window.index}\t{window.start}\t{window.end}\t{window.size}\t"
                 f"{first.chromosome}\t{first.value}\t{last.value}\t{int(counts is not None)}\t"
-                f"{ref_loci}\t{observed}\t{masked}\t{overlap}\n"
+                f"{observed}\t{masked}\t{overlap}\n"
             )
 
     print(
