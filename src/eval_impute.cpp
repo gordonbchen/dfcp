@@ -28,7 +28,6 @@ namespace {
 constexpr std::string_view manifest_header =
     "window\tstart\tend\tplanned_loci\tchrom\tfirst_pos\tlast_pos\tgenerated"
     "\tobserved\tmasked\toverlap_previous";
-constexpr std::uint16_t fixed_point_max = std::numeric_limits<std::uint16_t>::max();
 
 struct Window {
     int index;
@@ -36,6 +35,63 @@ struct Window {
     int end;
     std::filesystem::path dir;
 };
+
+std::vector<std::string_view> split_tabs(const std::string& line) {
+    std::vector<std::string_view> fields;
+    std::string_view remaining = line;
+    while (true) {
+        std::size_t tab = remaining.find('\t');
+        fields.push_back(remaining.substr(0, tab));
+        if (tab == std::string_view::npos) { return fields; }
+        remaining.remove_prefix(tab + 1);
+    }
+}
+
+int parse_int(std::string_view text, std::string_view field) {
+    int value;
+    auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (error != std::errc{} || end != text.data() + text.size()) {
+        throw std::runtime_error(std::format("Invalid {}: {}", field, text));
+    }
+    return value;
+}
+
+std::vector<Window> read_windows(const std::filesystem::path& root) {
+    std::ifstream input(root / "windows.tsv");
+    if (!input.is_open()) {
+        throw std::runtime_error("Failed to open windows.tsv.");
+    }
+
+    std::string line;
+    std::getline(input, line);
+    if (line != manifest_header) {
+        throw std::runtime_error("Unexpected windows.tsv header.");
+    }
+
+    std::vector<Window> windows;
+    int row = 1;
+    while (std::getline(input, line)) {
+        ++row;
+        std::vector<std::string_view> fields = split_tabs(line);
+        if (fields.size() != 11) {
+            throw std::runtime_error(std::format("Invalid windows.tsv row {}.", row));
+        }
+        int index = parse_int(fields[0], "window index");
+        std::filesystem::path dir = root / std::format("window_{:04d}", index);
+        if (fields[7] != "1" || !std::filesystem::exists(dir / "probs.bin")) { continue; }
+
+        int start = parse_int(fields[1], "window start");
+        int end = parse_int(fields[2], "window end");
+        windows.push_back({index, start, end, std::move(dir)});
+    }
+    if (windows.empty()) {
+        throw std::runtime_error("No generated windows contain probs.bin.");
+    }
+    return windows;
+}
+
+
+constexpr std::uint16_t fixed_point_max = std::numeric_limits<std::uint16_t>::max();
 
 struct RefCount {
     int ac;
@@ -82,26 +138,6 @@ struct MacStats {
     }
 };
 
-std::vector<std::string_view> split_tabs(const std::string& line) {
-    std::vector<std::string_view> fields;
-    std::string_view remaining = line;
-    while (true) {
-        std::size_t tab = remaining.find('\t');
-        fields.push_back(remaining.substr(0, tab));
-        if (tab == std::string_view::npos) { return fields; }
-        remaining.remove_prefix(tab + 1);
-    }
-}
-
-int parse_int(std::string_view text, std::string_view field) {
-    int value;
-    auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (error != std::errc{} || end != text.data() + text.size()) {
-        throw std::runtime_error(std::format("Invalid {}: {}", field, text));
-    }
-    return value;
-}
-
 std::string shell_quote(const std::filesystem::path& path) {
     std::string quoted{"'"};
     for (char c : path.string()) {
@@ -142,40 +178,6 @@ std::vector<RefCount> read_ref_counts(const std::filesystem::path& vcf) {
         counts.push_back({parse_int(fields[0], "AC"), parse_int(fields[1], "AN")});
     }
     return counts;
-}
-
-std::vector<Window> read_windows(const std::filesystem::path& root) {
-    std::ifstream input(root / "windows.tsv");
-    if (!input.is_open()) {
-        throw std::runtime_error("Failed to open windows.tsv.");
-    }
-
-    std::string line;
-    std::getline(input, line);
-    if (line != manifest_header) {
-        throw std::runtime_error("Unexpected windows.tsv header.");
-    }
-
-    std::vector<Window> windows;
-    int row = 1;
-    while (std::getline(input, line)) {
-        ++row;
-        std::vector<std::string_view> fields = split_tabs(line);
-        if (fields.size() != 11) {
-            throw std::runtime_error(std::format("Invalid windows.tsv row {}.", row));
-        }
-        int index = parse_int(fields[0], "window index");
-        std::filesystem::path dir = root / std::format("window_{:04d}", index);
-        if (fields[7] != "1" || !std::filesystem::exists(dir / "probs.bin")) { continue; }
-
-        int start = parse_int(fields[1], "window start");
-        int end = parse_int(fields[2], "window end");
-        windows.push_back({index, start, end, std::move(dir)});
-    }
-    if (windows.empty()) {
-        throw std::runtime_error("No generated windows contain probs.bin.");
-    }
-    return windows;
 }
 
 std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_loci) {
