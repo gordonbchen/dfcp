@@ -99,7 +99,7 @@ struct RefCount {
 };
 
 struct MaskedLocus {
-    int column;
+    int l;
     int mac;
     bool alt_is_minor;
 };
@@ -198,27 +198,27 @@ void evaluate_window(
 ) {
     ImputeProbReader prob_reader((window.dir / "probs.bin").c_str());
     const ImputeProbHeader& header = prob_reader.header();
-    SeqArray truth{read_seq_file((window.dir / "target_masked_true.bin").c_str())};
-    if (header.n_sequences != static_cast<std::uint32_t>(truth.N)
-        || header.n_loci != static_cast<std::uint32_t>(truth.L)) {
+    SeqArray x_true{read_seq_file((window.dir / "target_masked_true.bin").c_str())};
+    if (header.n_sequences != static_cast<std::uint32_t>(x_true.N)
+        || header.n_loci != static_cast<std::uint32_t>(x_true.L)) {
         throw std::runtime_error(
             std::format("Probability and truth dimensions differ in {}.", window.dir.string())
         );
     }
 
     std::vector<RefCount> ref_counts = read_ref_counts(window.dir / "ref.vcf.gz");
-    int n_ref_loci = static_cast<int>(ref_counts.size());
-    std::vector<bool> observed = read_observed_loci(window.dir / "observed_loci.txt", n_ref_loci);
+    int L = static_cast<int>(ref_counts.size());
+    std::vector<bool> observed = read_observed_loci(window.dir / "observed_loci.txt", L);
 
-    std::vector<MaskedLocus> retained;
+    std::vector<MaskedLocus> masked_counts;
     int masked_l = 0;
-    for (int l = 0; l < n_ref_loci; ++l) {
+    for (int l = 0; l < L; ++l) {
         if (observed[l]) { continue; }
-        if (l >= left_trim && l < n_ref_loci - right_trim) {
+        if (l >= left_trim && l < L - right_trim) {
             RefCount count = ref_counts[l];
             int ref_count = count.an - count.ac;
             int mac = std::min(count.ac, ref_count);
-            retained.push_back({masked_l, mac, count.ac <= ref_count});
+            masked_counts.push_back({masked_l, mac, count.ac <= ref_count});
             if (mac >= static_cast<int>(stats.size())) { stats.resize(mac + 1); }
             ++stats[mac].n_loci;
         }
@@ -226,11 +226,11 @@ void evaluate_window(
     }
 
     std::vector<std::uint16_t> prob_row(header.n_loci);
-    for (int i = 0; i < truth.N; ++i) {
+    for (int i = 0; i < x_true.N; ++i) {
         prob_reader.read_row(prob_row);
-        for (const MaskedLocus& locus : retained) {
-            std::uint16_t q = prob_row[locus.column];
-            int y = truth(i, locus.column);
+        for (const MaskedLocus& locus : masked_counts) {
+            std::uint16_t q = prob_row[locus.l];
+            int y = x_true(i, locus.l);
             if (!locus.alt_is_minor) {
                 q = static_cast<std::uint16_t>(fixed_point_max - q);
                 y = 1 - y;
@@ -239,18 +239,19 @@ void evaluate_window(
         }
     }
     std::cerr << "window=" << std::format("{:04d}", window.index)
-        << " retained_loci=" << retained.size() << '\n';
+        << " imputed_masked_loci=" << masked_counts.size() << '\n';
 }
+
 
 void write_tsv(const std::filesystem::path& path, const std::vector<MacStats>& stats) {
     AtomicBinaryWriter output(path.c_str());
     std::ostream& stream = output.stream();
     stream << "mac\tn_loci\tn_predictions\tr2\taccuracy\n" << std::setprecision(10);
     for (std::size_t mac = 0; mac < stats.size(); ++mac) {
-        const MacStats& value = stats[mac];
-        if (value.n_predictions == 0) { continue; }
-        stream << mac << '\t' << value.n_loci << '\t' << value.n_predictions << '\t'
-            << value.r2() << '\t' << value.accuracy() << '\n';
+        const MacStats& stat = stats[mac];
+        if (stat.n_predictions == 0) { continue; }
+        stream << mac << '\t' << stat.n_loci << '\t' << stat.n_predictions << '\t'
+            << stat.r2() << '\t' << stat.accuracy() << '\n';
     }
     output.finish();
 }
@@ -274,13 +275,11 @@ int main(int argc, char* argv[]) {
     }
     write_tsv(argv[2], stats);
 
-    std::uint64_t n_loci = 0;
-    std::uint64_t n_predictions = 0;
-    for (const MacStats& value : stats) {
-        n_loci += value.n_loci;
-        n_predictions += value.n_predictions;
+    std::uint64_t n_masked_loci = 0;
+    for (const MacStats& stat : stats) {
+        n_masked_loci += stat.n_loci;
     }
-    std::cerr << "windows=" << windows.size() << " retained_loci=" << n_loci
-        << " predictions=" << n_predictions << " output=" << argv[2] << '\n';
+    std::cerr << "windows=" << windows.size() << " n_masked_loci=" << n_masked_loci
+        << " output=" << argv[2] << '\n';
     return 0;
 }
