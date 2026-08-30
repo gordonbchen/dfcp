@@ -24,8 +24,6 @@
 
 namespace {
 
-namespace fs = std::filesystem;
-
 constexpr std::string_view manifest_header =
     "window\tstart\tend\tplanned_loci\tchrom\tfirst_pos\tlast_pos\tgenerated"
     "\tref_loci\tobserved\tmasked\toverlap_previous";
@@ -35,7 +33,7 @@ struct Window {
     int index;
     int start;
     int end;
-    fs::path dir;
+    std::filesystem::path dir;
 };
 
 struct RefCount {
@@ -103,7 +101,7 @@ int parse_int(std::string_view text, std::string_view field) {
     return value;
 }
 
-std::string shell_quote(const fs::path& path) {
+std::string shell_quote(const std::filesystem::path& path) {
     std::string quoted{"'"};
     for (char c : path.string()) {
         quoted += c == '\'' ? "'\\''" : std::string(1, c);
@@ -111,7 +109,7 @@ std::string shell_quote(const fs::path& path) {
     return quoted + "'";
 }
 
-std::string query_ref_counts(const fs::path& vcf) {
+std::string query_ref_counts(const std::filesystem::path& vcf) {
     std::string command = "bcftools query -f '%AC\\t%AN\\n' " + shell_quote(vcf);
     FILE* pipe = popen(command.c_str(), "r");
     if (pipe == nullptr) {
@@ -131,7 +129,7 @@ std::string query_ref_counts(const fs::path& vcf) {
     return output;
 }
 
-std::vector<RefCount> read_ref_counts(const fs::path& vcf) {
+std::vector<RefCount> read_ref_counts(const std::filesystem::path& vcf) {
     std::istringstream input(query_ref_counts(vcf));
     std::vector<RefCount> counts;
     std::string line;
@@ -152,7 +150,7 @@ std::vector<RefCount> read_ref_counts(const fs::path& vcf) {
     return counts;
 }
 
-std::vector<Window> read_windows(const fs::path& root) {
+std::vector<Window> read_windows(const std::filesystem::path& root) {
     std::ifstream input(root / "windows.tsv");
     if (!input.is_open()) {
         throw std::runtime_error("Failed to open windows.tsv.");
@@ -176,8 +174,8 @@ std::vector<Window> read_windows(const fs::path& root) {
         if (fields[7] != "0" && fields[7] != "1") {
             throw std::runtime_error(std::format("Invalid generated value on windows.tsv row {}.", row));
         }
-        fs::path dir = root / std::format("window_{:04d}", index);
-        if (fields[7] == "0" || !fs::exists(dir / "probs.bin")) { continue; }
+        std::filesystem::path dir = root / std::format("window_{:04d}", index);
+        if (fields[7] == "0" || !std::filesystem::exists(dir / "probs.bin")) { continue; }
 
         int start = parse_int(fields[1], "window start");
         int end = parse_int(fields[2], "window end");
@@ -227,7 +225,7 @@ std::vector<int> assign_loci(const std::vector<Window>& windows) {
     return owner;
 }
 
-std::vector<bool> read_observed_loci(const fs::path& path, int n_loci, int expected) {
+std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_loci, int expected) {
     std::ifstream input(path);
     if (!input.is_open()) {
         throw std::runtime_error(std::format("Failed to open observed loci: {}", path.string()));
@@ -307,7 +305,7 @@ void evaluate_window(
         << " retained_loci=" << retained.size() << '\n';
 }
 
-void write_tsv(const fs::path& path, const std::vector<MacStats>& stats) {
+void write_tsv(const std::filesystem::path& path, const std::vector<MacStats>& stats) {
     AtomicBinaryWriter output(path.c_str());
     std::ostream& stream = output.stream();
     stream << "mac\tn_loci\tn_predictions\tr2\taccuracy\n" << std::setprecision(10);
@@ -328,7 +326,7 @@ int main(int argc, char* argv[]) {
         throw std::invalid_argument("Usage: eval_impute WINDOWS_DIR OUTPUT.tsv");
     }
 
-    fs::path root = argv[1];
+    std::filesystem::path root = argv[1];
     std::vector<Window> windows = read_windows(root);
     std::vector<int> owner = assign_loci(windows);
     std::vector<MacStats> stats;
