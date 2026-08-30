@@ -74,14 +74,12 @@ Use `--physical-only` to build the report in Mb without the genetic map.
 ```bash
 window_dir=data/1000g_phase3_v5b/windows_200_o32/window_0000
 ./build/impute "$window_dir/ref.bin" "$window_dir/target_observed.bin" \
-  "$window_dir/observed_loci.txt" "$window_dir/soft_fwd_bkwd.probs.bin" \
+  "$window_dir/observed_loci.txt" "$window_dir/probs.bin" \
   --mode soft --init pbwt --viterbi_impute 0 > "$window_dir/soft_fwd_bkwd.json"
-./build/eval_impute "$window_dir/soft_fwd_bkwd.probs.bin" \
-  "$window_dir/target_masked_true.bin" "$window_dir/soft_fwd_bkwd.eval.bin"
-.venv/bin/python scripts/impute_viz.py "$window_dir/soft_fwd_bkwd.eval.bin" \
-  "$window_dir/ref.vcf.gz" "$window_dir/observed_loci.txt" \
-  --output "$window_dir/soft_fwd_bkwd.html"
+./build/eval_impute data/1000g_phase3_v5b/windows_200_o32 output/imputation.tsv
+.venv/bin/python scripts/impute_viz.py output/imputation.tsv --output output/imputation.html
 ```
 
-`impute_viz.py` obtains the reference minor-allele count directly from the window VCF as
-`min(AC, AN - AC)`; no separate per-locus metadata file is required.
+Run `impute` for each desired window before evaluation, always writing `probs.bin` in that window directory.
+`eval_impute` reads `AC` and `AN` from each reference VCF, keeps each overlap locus from the window where it
+is farthest from an edge, and pools r-squared and accuracy over all retained target alleles at each MAC.

@@ -15,7 +15,6 @@
 namespace {
 
 constexpr std::array<char, 4> prob_magic{'D', 'F', 'I', 'P'};
-constexpr std::array<char, 4> eval_magic{'D', 'F', 'I', 'E'};
 constexpr std::uint32_t fixed_point_max = std::numeric_limits<std::uint16_t>::max();
 
 }
@@ -78,17 +77,5 @@ void ImputeProbWriter::finish() {
     if (rows_written != n_sequences) {
         throw std::runtime_error("Imputation probability file has the wrong number of rows.");
     }
-    output.finish();
-}
-
-
-void write_impute_eval_file(
-    const char* filename, std::span<const float> r2, std::span<const float> accuracy
-) {
-    AtomicBinaryWriter output(filename);
-    write_bytes(output.stream(), eval_magic.data(), eval_magic.size());
-    write_uint32_le(output.stream(), static_cast<std::uint32_t>(r2.size()));
-    write_float32s_le(output.stream(), r2);
-    write_float32s_le(output.stream(), accuracy);
     output.finish();
 }

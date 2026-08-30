@@ -44,8 +44,3 @@ class ImputeProbWriter {
         void write_row(std::span<const double> allele_probs);
         void finish();
 };
-
-
-void write_impute_eval_file(
-    const char* filename, std::span<const float> r2, std::span<const float> accuracy
-);

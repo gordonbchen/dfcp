@@ -1,5 +1,4 @@
 #include <array>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -91,21 +90,6 @@ void read_uint64s_le(std::istream& stream, std::span<std::uint64_t> values) {
         }
     }
 }
-
-void write_float32s_le(std::ostream& stream, std::span<const float> values) {
-    std::vector<std::uint32_t> bits(values.size());
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        bits[i] = std::bit_cast<std::uint32_t>(values[i]);
-    }
-    if constexpr (std::endian::native == std::endian::big) {
-        for (std::uint32_t& value : bits) {
-            value = (value << 24) | ((value << 8) & 0x00ff0000) | ((value >> 8) & 0x0000ff00)
-                | (value >> 24);
-        }
-    }
-    write_bytes(stream, bits.data(), bits.size() * sizeof(std::uint32_t));
-}
-
 
 AtomicBinaryWriter::AtomicBinaryWriter(const char* filename) :
     output_path(filename), temporary_path(output_path.string() + ".tmp"),

@@ -7,7 +7,7 @@ but should wait until the fitting loop is fast enough to test reliably.
 ## Current state
 
 - The chr20 pipeline windows aligned VCFs first, then bitpacks each generated window.
-- `DFIP` probability output, `DFIE` imputation evaluation, and the imputation visualization are working.
+- `DFIP` probability output, pooled window-aware imputation evaluation, and its visualization are working.
 - Reusing `ViterbiBuffers` and indexing inference messages by reusable cluster IDs removed allocation and
   hashing from Viterbi and forward-backward scoring.
 - `FwdBkwdBuffers` and one shared probability row remove per-target message and row allocations. On the full
@@ -166,9 +166,9 @@ a clearly measured memory benefit worth its runtime cost.
 
 - Add a small synthetic VCF fixture that checks overlapping windows, `--n-generate`, the manifest, VCF record
   alignment, window-local `observed_loci.txt`, bitpacked alleles, and all output dimensions.
-- Add focused `DFIP` and `DFIE` tests for exact decoding, fixed-point tolerance, atomic replacement,
-  malformed headers, mismatched dimensions, truncation, trailing data, constant inputs, and the `0.5`
-  accuracy threshold.
+- Add focused `DFIP` and pooled-evaluator tests for exact decoding, fixed-point tolerance, overlap ownership,
+  minor-allele orientation, malformed inputs, mismatched dimensions, constant bins, and the `0.5` accuracy
+  threshold.
 - Keep one deterministic end-to-end fixture covering hard, noisy, and soft modes and both imputation methods.
 - Verify masked indexes are the complement of observed indexes and VCF `min(AC, AN-AC)` agrees with counts
   decoded from `ref.bin`.
@@ -200,5 +200,5 @@ a clearly measured memory benefit worth its runtime cost.
 ### External imputation evaluation
 
 - Compare DFCP with Beagle on the same reference, target, observed-marker mask, and windows.
-- Compare per-locus and MAC-stratified r-squared and accuracy, and record runtime and peak memory under
-  matched conditions.
+- Compare pooled MAC-stratified r-squared and accuracy, and record runtime and peak memory under matched
+  conditions.

@@ -1,73 +1,285 @@
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <limits>
+#include <sstream>
 #include <stdexcept>
+#include <stdio.h>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 #include "impute_io.hpp"
+#include "io.hpp"
 #include "seq_array.hpp"
 
 
-int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        throw std::invalid_argument("Usage: eval_impute PROBS.bin MASKED_TRUTH.bin OUTPUT.bin");
+namespace {
+
+constexpr std::string_view manifest_header =
+    "window\tstart\tend\tplanned_loci\tchrom\tfirst_pos\tlast_pos\tgenerated"
+    "\tobserved\tmasked\toverlap_previous";
+
+struct Window {
+    int index;
+    int start;
+    int end;
+    std::filesystem::path dir;
+};
+
+std::vector<std::string_view> split_tabs(const std::string& line) {
+    std::vector<std::string_view> fields;
+    std::string_view remaining = line;
+    while (true) {
+        std::size_t tab = remaining.find('\t');
+        fields.push_back(remaining.substr(0, tab));
+        if (tab == std::string_view::npos) { return fields; }
+        remaining.remove_prefix(tab + 1);
+    }
+}
+
+int parse_int(std::string_view text, std::string_view field) {
+    int value;
+    auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (error != std::errc{} || end != text.data() + text.size()) {
+        throw std::runtime_error(std::format("Invalid {}: {}", field, text));
+    }
+    return value;
+}
+
+std::vector<Window> read_windows(const std::filesystem::path& root) {
+    std::ifstream input(root / "windows.tsv");
+    if (!input.is_open()) {
+        throw std::runtime_error("Failed to open windows.tsv.");
     }
 
-    ImputeProbReader prob_reader(argv[1]);
+    std::string line;
+    std::getline(input, line);
+    if (line != manifest_header) {
+        throw std::runtime_error("Unexpected windows.tsv header.");
+    }
+
+    std::vector<Window> windows;
+    int row = 1;
+    while (std::getline(input, line)) {
+        ++row;
+        std::vector<std::string_view> fields = split_tabs(line);
+        if (fields.size() != 11) {
+            throw std::runtime_error(std::format("Invalid windows.tsv row {}.", row));
+        }
+        int index = parse_int(fields[0], "window index");
+        std::filesystem::path dir = root / std::format("window_{:04d}", index);
+        if (fields[7] != "1" || !std::filesystem::exists(dir / "probs.bin")) { continue; }
+
+        int start = parse_int(fields[1], "window start");
+        int end = parse_int(fields[2], "window end");
+        windows.push_back({index, start, end, std::move(dir)});
+    }
+    if (windows.empty()) {
+        throw std::runtime_error("No generated windows contain probs.bin.");
+    }
+    return windows;
+}
+
+
+constexpr std::uint16_t fixed_point_max = std::numeric_limits<std::uint16_t>::max();
+
+struct RefCount {
+    int ac;
+    int an;
+};
+
+struct MaskedLocus {
+    int l;
+    int mac;
+    bool alt_is_minor;
+};
+
+struct MacStats {
+    std::uint64_t n_loci = 0;
+    std::uint64_t n_predictions = 0;
+    std::uint64_t n_correct = 0;
+    long double mean_q = 0.0;
+    long double mean_y = 0.0;
+    long double m2_q = 0.0;
+    long double m2_y = 0.0;
+    long double covariance = 0.0;
+
+    void add(std::uint16_t q, int y) {
+        ++n_predictions;
+        long double dn = n_predictions;
+        long double dq = q - mean_q;
+        long double dy = y - mean_y;
+        mean_q += dq / dn;
+        mean_y += dy / dn;
+        m2_q += dq * (q - mean_q);
+        m2_y += dy * (y - mean_y);
+        covariance += dq * (y - mean_y);
+        n_correct += (static_cast<int>(q >= (std::uint16_t{1} << 15)) == y);
+    }
+
+    double r2() const {
+        if (m2_q <= 0.0 || m2_y <= 0.0) { return -1.0; }
+        long double value = covariance * covariance / (m2_q * m2_y);
+        return static_cast<double>(std::clamp(value, 0.0L, 1.0L));
+    }
+
+    double accuracy() const {
+        return static_cast<double>(n_correct) / n_predictions;
+    }
+};
+
+std::string shell_quote(const std::filesystem::path& path) {
+    std::string quoted{"'"};
+    for (char c : path.string()) {
+        quoted += c == '\'' ? "'\\''" : std::string(1, c);
+    }
+    return quoted + "'";
+}
+
+std::string query_ref_counts(const std::filesystem::path& vcf) {
+    std::string command = "bcftools query -f '%AC\\t%AN\\n' " + shell_quote(vcf);
+    FILE* pipe = popen(command.c_str(), "r");
+    if (pipe == nullptr) {
+        throw std::runtime_error("Failed to run bcftools query.");
+    }
+
+    std::string output;
+    std::array<char, 4096> buffer{};
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+        output += buffer.data();
+    }
+    bool read_failed = ferror(pipe);
+    int status = pclose(pipe);
+    if (read_failed || status != 0) {
+        throw std::runtime_error(std::format("Failed to query reference allele counts: {}", vcf.string()));
+    }
+    return output;
+}
+
+std::vector<RefCount> read_ref_counts(const std::filesystem::path& vcf) {
+    std::istringstream input(query_ref_counts(vcf));
+    std::vector<RefCount> counts;
+    std::string line;
+    while (std::getline(input, line)) {
+        std::vector<std::string_view> fields = split_tabs(line);
+        if (fields.size() != 2) {
+            throw std::runtime_error(std::format("Invalid AC/AN row in {}: {}", vcf.string(), line));
+        }
+        counts.push_back({parse_int(fields[0], "AC"), parse_int(fields[1], "AN")});
+    }
+    return counts;
+}
+
+std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_loci) {
+    std::ifstream input(path);
+    if (!input.is_open()) {
+        throw std::runtime_error(std::format("Failed to open observed loci: {}", path.string()));
+    }
+    std::vector<bool> observed(n_loci, false);
+    int l;
+    while (input >> l) {
+        observed[l] = true;
+    }
+    return observed;
+}
+
+void evaluate_window(
+    const Window& window, int left_trim, int right_trim, std::vector<MacStats>& stats
+) {
+    ImputeProbReader prob_reader((window.dir / "probs.bin").c_str());
     const ImputeProbHeader& header = prob_reader.header();
-
-    SeqArray x_val_true{read_seq_file(argv[2])};
-    if (header.n_sequences != static_cast<std::uint32_t>(x_val_true.N)
-        || header.n_loci != static_cast<std::uint32_t>(x_val_true.L)) {
-        throw std::runtime_error("Probability and truth dimensions do not match.");
+    SeqArray x_true{read_seq_file((window.dir / "target_masked_true.bin").c_str())};
+    if (header.n_sequences != static_cast<std::uint32_t>(x_true.N)
+        || header.n_loci != static_cast<std::uint32_t>(x_true.L)) {
+        throw std::runtime_error(
+            std::format("Probability and truth dimensions differ in {}.", window.dir.string())
+        );
     }
 
-    std::size_t n_loci = header.n_loci;
-    std::vector<double> sum_q(n_loci, 0.0);
-    std::vector<double> sum_q2(n_loci, 0.0);
-    std::vector<double> sum_qy(n_loci, 0.0);
-    std::vector<std::uint32_t> sum_y(n_loci, 0);
-    std::vector<std::uint32_t> n_correct(n_loci, 0);
-    std::vector<std::uint16_t> prob_row(n_loci);
+    std::vector<RefCount> ref_counts = read_ref_counts(window.dir / "ref.vcf.gz");
+    int L = static_cast<int>(ref_counts.size());
+    std::vector<bool> observed = read_observed_loci(window.dir / "observed_loci.txt", L);
 
-    for (int i = 0; i < x_val_true.N; ++i) {
+    std::vector<MaskedLocus> masked_counts;
+    int masked_l = 0;
+    for (int l = 0; l < L; ++l) {
+        if (observed[l]) { continue; }
+        if (l >= left_trim && l < L - right_trim) {
+            RefCount count = ref_counts[l];
+            int ref_count = count.an - count.ac;
+            int mac = std::min(count.ac, ref_count);
+            masked_counts.push_back({masked_l, mac, count.ac <= ref_count});
+            if (mac >= static_cast<int>(stats.size())) { stats.resize(mac + 1); }
+            ++stats[mac].n_loci;
+        }
+        ++masked_l;
+    }
+
+    std::vector<std::uint16_t> prob_row(header.n_loci);
+    for (int i = 0; i < x_true.N; ++i) {
         prob_reader.read_row(prob_row);
-        for (int l = 0; l < x_val_true.L; ++l) {
-            std::uint16_t q = prob_row[l];
-            int y = x_val_true(i, l);
-            sum_q[l] += q;
-            sum_q2[l] += static_cast<double>(q) * q;
-            sum_qy[l] += static_cast<double>(q) * y;
-            sum_y[l] += y;
-            n_correct[l] += (static_cast<int>(q >= std::uint16_t{1} << 15) == y);
+        for (const MaskedLocus& locus : masked_counts) {
+            std::uint16_t q = prob_row[locus.l];
+            int y = x_true(i, locus.l);
+            if (!locus.alt_is_minor) {
+                q = static_cast<std::uint16_t>(fixed_point_max - q);
+                y = 1 - y;
+            }
+            stats[locus.mac].add(q, y);
         }
     }
-    std::vector<float> r2(n_loci, -1.0F);
-    std::vector<float> accuracy(n_loci);
-    double r2_sum = 0.0;
-    double accuracy_sum = 0.0;
-    std::size_t n_defined_r2 = 0;
-    double n = x_val_true.N;
-    for (std::size_t l = 0; l < n_loci; ++l) {
-        double centered_q = n * sum_q2[l] - sum_q[l] * sum_q[l];
-        double centered_y = n * sum_y[l] - static_cast<double>(sum_y[l]) * sum_y[l];
-        double covariance = n * sum_qy[l] - sum_q[l] * sum_y[l];
-        if (centered_q > 0.0 && centered_y > 0.0) {
-            r2[l] = static_cast<float>(std::clamp(
-                covariance * covariance / (centered_q * centered_y), 0.0, 1.0
-            ));
-            r2_sum += r2[l];
-            ++n_defined_r2;
-        }
-        accuracy[l] = static_cast<float>(n_correct[l] / n);
-        accuracy_sum += accuracy[l];
+    std::cerr << "window=" << std::format("{:04d}", window.index)
+        << " imputed_masked_loci=" << masked_counts.size() << '\n';
+}
+
+
+void write_tsv(const std::filesystem::path& path, const std::vector<MacStats>& stats) {
+    AtomicBinaryWriter output(path.c_str());
+    std::ostream& stream = output.stream();
+    stream << "mac\tn_loci\tn_predictions\tr2\taccuracy\n" << std::setprecision(10);
+    for (std::size_t mac = 0; mac < stats.size(); ++mac) {
+        const MacStats& stat = stats[mac];
+        if (stat.n_predictions == 0) { continue; }
+        stream << mac << '\t' << stat.n_loci << '\t' << stat.n_predictions << '\t'
+            << stat.r2() << '\t' << stat.accuracy() << '\n';
+    }
+    output.finish();
+}
+
+}
+
+
+int main(int argc, char* argv[]) {
+    if (argc != 3) {
+        throw std::invalid_argument("Usage: eval_impute WINDOWS_DIR OUTPUT.tsv");
     }
 
-    double mean_r2 = n_defined_r2 ? r2_sum / n_defined_r2 : -1.0;
-    double mean_accuracy = accuracy_sum / n_loci;
-    std::cerr << "n_sequences=" << x_val_true.N << " n_loci=" << x_val_true.L
-        << " mean_r2=" << mean_r2 << " mean_accuracy=" << mean_accuracy
-        << " undefined_r2=" << n_loci - n_defined_r2 << '\n';
-    write_impute_eval_file(argv[3], r2, accuracy);
+    std::filesystem::path root = argv[1];
+    std::vector<Window> windows = read_windows(root);
+    int overlap = windows.size() > 1 ? windows[0].end - windows[1].start : 0;
+    std::vector<MacStats> stats;
+    for (std::size_t w = 0; w < windows.size(); ++w) {
+        int left_trim = w == 0 ? 0 : (overlap + 1) / 2;
+        int right_trim = w + 1 == windows.size() ? 0 : overlap / 2;
+        evaluate_window(windows[w], left_trim, right_trim, stats);
+    }
+    write_tsv(argv[2], stats);
+
+    std::uint64_t n_masked_loci = 0;
+    for (const MacStats& stat : stats) {
+        n_masked_loci += stat.n_loci;
+    }
+    std::cerr << "windows=" << windows.size() << " n_masked_loci=" << n_masked_loci
+        << " output=" << argv[2] << '\n';
     return 0;
 }

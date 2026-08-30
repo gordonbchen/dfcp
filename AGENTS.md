@@ -43,8 +43,7 @@ current executable.
 - `include/seq_array.hpp`: sequence-major bitpacked observations and the binary
   sequence-file reader.
 - `include/io.hpp`: shared little-endian binary I/O and atomic output writing.
-- `include/impute_io.hpp`: streamed fixed-point probability output and compact
-  imputation-evaluation output.
+- `include/impute_io.hpp`: streamed fixed-point imputation probability I/O.
 - `include/clusters.hpp`: `R`/`Q` graph nodes, ownership, assignments, and
   cluster mutation interface, including the emission-mode enum.
 - `include/max.hpp`: sequence reassignment and insertion entry points.
@@ -63,9 +62,9 @@ current executable.
 - `src/seq_array.cpp`: binary sequence loading and the 64-by-64 bit transpose
   from locus-major file words to sequence-major memory words.
 - `src/io.cpp`: exact binary reads/writes, endian conversion, and atomic file output.
-- `src/impute_io.cpp`: little-endian imputation probability and evaluation I/O.
-- `src/eval_impute.cpp`: per-locus r-squared and accuracy from probability and
-  masked-truth binaries.
+- `src/impute_io.cpp`: little-endian imputation probability I/O.
+- `src/eval_impute.cpp`: pooled minor-allele r-squared and accuracy across
+  materialized VCF windows.
 - `src/clusters.cpp`: cluster creation/deletion, graph links, assignments,
   hard-emission indexes, and soft-emission counts.
 - `src/max.cpp`: hard and soft sequencewise Viterbi maximization.
@@ -101,8 +100,8 @@ current executable.
   reference and target VCF windows before DFCP bitpacking.
 - `scripts/1000g_phase3_v5b/window_viz.py`: interactive physical/genetic
   window-selection report using the same boundary formula as `window.py`.
-- `scripts/impute_viz.py`: plots per-locus imputation r-squared against
-  reference minor-allele count read from a windowed reference VCF.
+- `scripts/impute_viz.py`: plots pooled imputation r-squared and accuracy by
+  reference minor-allele count from `eval_impute` TSV output.
 
 ### Deprecated Python
 
@@ -278,13 +277,18 @@ current value before using it.
 - Allele 1 is not guaranteed to be the reference-panel minor allele. Compute
   minor count as `min(allele_1_count, N - allele_1_count)`.
 
-### Imputation evaluation file
+### Imputation evaluation TSV
 
-- The four-byte magic is `DFIE`, followed by little-endian `uint32 M`.
-- The payload contains little-endian `float32 r2[M]` followed by
-  `float32 accuracy[M]`.
+- `eval_impute` reads a window root containing `windows.tsv` and evaluates each
+  generated window that contains `probs.bin`.
+- Each global locus is retained from the available window in which it is
+  farthest from an edge. Ties go to the lower window index.
+- Reference `AC` and `AN` are read from each window's `ref.vcf.gz` with
+  `bcftools`. Probability and truth alleles are flipped when REF is minor.
+- The output columns are `mac`, `n_loci`, `n_predictions`, `r2`, and `accuracy`.
+  Statistics are pooled over all retained target alleles in each exact MAC bin.
 - An r-squared value of `-1` means the truth or probability had zero variance
-  at that locus.
+  within that MAC bin.
 
 ### Variant position file
 
@@ -348,7 +352,7 @@ A prepared 1000 Genomes invocation is:
   data/1000g_phase3_v5b/windows/window_0000/ref.bin \
   data/1000g_phase3_v5b/windows/window_0000/target_observed.bin \
   data/1000g_phase3_v5b/windows/window_0000/observed_loci.txt \
-  output/imputation.probs.bin \
+  data/1000g_phase3_v5b/windows/window_0000/probs.bin \
   --init pbwt --viterbi_impute 1
 ```
 
@@ -356,10 +360,15 @@ Evaluate the probabilities with:
 
 ```bash
 ./build/eval_impute \
-  output/imputation.probs.bin \
-  data/1000g_phase3_v5b/windows/window_0000/target_masked_true.bin \
-  output/imputation.eval.bin
+  data/1000g_phase3_v5b/windows \
+  output/imputation.tsv
+.venv/bin/python scripts/impute_viz.py \
+  output/imputation.tsv \
+  --output output/imputation.html
 ```
+
+The evaluator expects each completed window's probability file to be named
+`probs.bin`.
 
 ## Output
 
@@ -444,10 +453,12 @@ by `L * n_train_seqs`.
 ### Minor-allele imputation r²
 
 For binary data, the minor allele at each masked locus is defined from the
-training panel. DFCP reports the squared Pearson correlation between its
-predicted minor-allele probabilities and the held-out minor-allele indicators.
-The online covariance calculation returns `-1` when either variable is
-constant. Per-method means exclude these undefined loci.
+reference panel. `eval_impute` pools predicted minor-allele probabilities and
+true minor-allele indicators across every retained target allele at the same
+reference MAC, then reports their squared Pearson correlation. It likewise
+reports pooled hard-call accuracy rather than a mean of per-locus accuracies.
+The online covariance calculation returns `-1` when either value is constant
+within a MAC bin.
 
 ## Build And Dependencies
 
@@ -457,6 +468,7 @@ Required for the executable:
 - A C++20 compiler with `<format>` support.
 - OpenMP.
 - Boost headers for special functions, logistic sigmoid, and Brent minimization.
+- `bcftools` for windowed imputation evaluation.
 
 The build enables `-Wall -Wextra -Wpedantic -O3`. There is no install target,
 library target, automated test target, or CI configuration.
@@ -536,6 +548,9 @@ Match the existing code unless a local cleanup is required for correctness.
   the mathematical derivation.
 - Keep control flow direct. Prefer early validation and early returns over deep
   nesting.
+- Establish pipeline invariants once where data is generated or first read. Do
+  not repeat those checks downstream; only validate independently produced
+  inputs when their compatibility is required for safe interpretation.
 - Braces are required for multi-line blocks. Existing one-line throw guards are
   acceptable.
 - Use four spaces for indentation and keep blank-line spacing consistent with

@@ -16,7 +16,6 @@ void write_uint32_le(std::ostream& stream, std::uint32_t value);
 void read_uint16s_le(std::istream& stream, std::span<std::uint16_t> values);
 void write_uint16s_le(std::ostream& stream, std::span<const std::uint16_t> values);
 void read_uint64s_le(std::istream& stream, std::span<std::uint64_t> values);
-void write_float32s_le(std::ostream& stream, std::span<const float> values);
 
 
 class AtomicBinaryWriter {

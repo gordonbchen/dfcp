@@ -1,146 +1,107 @@
 #!/usr/bin/env python3
 
 import argparse
-import struct
-import subprocess
+import csv
+import math
 import sys
 from pathlib import Path
 
-import numpy as np
 import plotly.graph_objects as go
 from plotly_html import ensure_plotly_asset
 
-EVAL_HEADER = struct.Struct("<4sI")
+FIELDS = ["mac", "n_loci", "n_predictions", "r2", "accuracy"]
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Plot per-locus imputation r-squared against reference minor-allele count.",
+        description="Plot pooled imputation accuracy and r-squared by reference minor-allele count.",
     )
-    parser.add_argument("evaluation", type=Path)
-    parser.add_argument("reference", type=Path, help="windowed reference VCF")
-    parser.add_argument("observed_loci", type=Path)
+    parser.add_argument("evaluation", type=Path, help="aggregate TSV written by eval_impute")
     parser.add_argument("--output", type=Path, default=Path("impute.html"))
-    parser.add_argument("--max-points", type=int, default=200_000)
-    args = parser.parse_args()
-    if args.max_points <= 0:
-        parser.error("--max-points must be positive")
-    return args
+    return parser.parse_args()
 
 
-def read_reference_mac(path: Path) -> np.ndarray:
-    command = ["bcftools", "query", "-f", "%AC\\t%AN\\n", str(path)]
-    result = subprocess.run(command, check=True, capture_output=True, text=True)
-    counts = []
-    for row, line in enumerate(result.stdout.splitlines(), start=1):
-        fields = line.split("\t")
-        if len(fields) != 2 or "," in fields[0]:
-            raise ValueError(f"reference VCF row {row} is not biallelic: {line}")
-        ac, an = map(int, fields)
-        if not 0 <= ac <= an:
-            raise ValueError(f"invalid AC/AN on reference VCF row {row}: {ac}/{an}")
-        counts.append(min(ac, an - ac))
-    if not counts:
-        raise ValueError(f"reference VCF contains no variants: {path}")
-    return np.asarray(counts, dtype=np.int32)
-
-
-def read_observed_loci(path: Path, n_loci: int) -> np.ndarray:
-    loci = []
-    with path.open() as stream:
-        for row, line in enumerate(stream, start=1):
-            value = line.strip()
-            if not value:
-                raise ValueError(f"blank observed-locus row {row}: {path}")
+def read_evaluation(path: Path) -> tuple[list[int], list[int], list[int], list[float], list[float]]:
+    macs = []
+    n_loci = []
+    n_predictions = []
+    r2 = []
+    accuracy = []
+    with path.open(newline="") as stream:
+        rows = csv.DictReader(stream, delimiter="\t")
+        if rows.fieldnames != FIELDS:
+            raise ValueError(f"unexpected imputation evaluation header: {path}")
+        for row_number, row in enumerate(rows, start=2):
             try:
-                locus = int(value)
+                values = (
+                    int(row["mac"]),
+                    int(row["n_loci"]),
+                    int(row["n_predictions"]),
+                    float(row["r2"]),
+                    float(row["accuracy"]),
+                )
             except ValueError as error:
-                raise ValueError(f"invalid observed locus on row {row}: {value}") from error
-            if not 0 <= locus < n_loci:
-                raise ValueError(f"observed locus {locus} is outside [0, {n_loci})")
-            if loci and locus <= loci[-1]:
-                raise ValueError("observed loci must be unique and strictly increasing")
-            loci.append(locus)
-    return np.asarray(loci, dtype=np.int64)
-
-
-def read_evaluation(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    with path.open("rb") as stream:
-        header = stream.read(EVAL_HEADER.size)
-    if len(header) != EVAL_HEADER.size:
-        raise ValueError(f"truncated imputation evaluation header: {path}")
-    magic, n_loci = EVAL_HEADER.unpack(header)
-    if magic != b"DFIE" or n_loci == 0:
-        raise ValueError(f"invalid imputation evaluation header: {path}")
-    expected_size = EVAL_HEADER.size + 2 * n_loci * 4
-    if path.stat().st_size != expected_size:
-        raise ValueError(f"invalid imputation evaluation file size: {path}")
-    values = np.memmap(path, dtype="<f4", mode="r", offset=EVAL_HEADER.size, shape=(2, n_loci))
-    if not np.all(np.isfinite(values)):
-        raise ValueError(f"imputation evaluation contains non-finite values: {path}")
-    if np.any((values[0] < 0.0) & (values[0] != -1.0)) or np.any(values[0] > 1.0):
-        raise ValueError(f"imputation evaluation contains invalid r-squared values: {path}")
-    if np.any((values[1] < 0.0) | (values[1] > 1.0)):
-        raise ValueError(f"imputation evaluation contains invalid accuracy values: {path}")
-    return values[0], values[1]
-
-
-def masked_indexes(n_loci: int, observed: np.ndarray, n_masked: int) -> np.ndarray:
-    is_observed = np.zeros(n_loci, dtype=bool)
-    is_observed[observed] = True
-    masked = np.flatnonzero(~is_observed)
-    if masked.size != n_masked:
-        raise ValueError(
-            f"evaluation has {n_masked} loci but the observed-loci complement has {masked.size}"
-        )
-    return masked
+                raise ValueError(f"invalid value on {path} row {row_number}") from error
+            mac, loci, predictions, row_r2, row_accuracy = values
+            if mac < 0 or (macs and mac <= macs[-1]) or loci <= 0 or predictions <= 0:
+                raise ValueError(f"invalid counts on {path} row {row_number}")
+            if not math.isfinite(row_r2) or (row_r2 < 0.0 and row_r2 != -1.0) or row_r2 > 1.0:
+                raise ValueError(f"invalid r-squared on {path} row {row_number}")
+            if not math.isfinite(row_accuracy) or not 0.0 <= row_accuracy <= 1.0:
+                raise ValueError(f"invalid accuracy on {path} row {row_number}")
+            macs.append(mac)
+            n_loci.append(loci)
+            n_predictions.append(predictions)
+            r2.append(row_r2)
+            accuracy.append(row_accuracy)
+    if not macs:
+        raise ValueError(f"imputation evaluation contains no MAC bins: {path}")
+    return macs, n_loci, n_predictions, r2, accuracy
 
 
 def make_figure(
-    r2: np.ndarray,
-    accuracy: np.ndarray,
-    minor_counts: np.ndarray,
-    max_points: int,
-) -> tuple[go.Figure, int]:
-    valid = np.flatnonzero(r2 >= 0.0)
-    if valid.size > max_points:
-        rng = np.random.default_rng(0)
-        plotted = np.sort(rng.choice(valid, max_points, replace=False))
-    else:
-        plotted = valid
-
-    mac_totals = np.bincount(minor_counts[valid], weights=r2[valid])
-    mac_loci = np.bincount(minor_counts[valid])
-    populated = np.flatnonzero(mac_loci)
-    mac_means = mac_totals[populated] / mac_loci[populated]
-
+    macs: list[int],
+    n_loci: list[int],
+    n_predictions: list[int],
+    r2: list[float],
+    accuracy: list[float],
+) -> go.Figure:
+    custom = list(zip(n_loci, n_predictions))
+    hover = (
+        "reference MAC=%{x}<br>%{fullData.name}=%{y:.4f}"
+        "<br>retained loci=%{customdata[0]:,}<br>target alleles=%{customdata[1]:,}<extra></extra>"
+    )
     figure = go.Figure()
-    figure.add_trace(go.Scattergl(
-        x=minor_counts[plotted],
-        y=r2[plotted],
-        mode="markers",
-        name="Masked loci",
-        marker={"color": "#3366cc", "opacity": 0.22, "size": 4},
-        hovertemplate="reference MAC=%{x}<br>r²=%{y:.4f}<extra></extra>",
+    figure.add_trace(go.Scatter(
+        x=macs,
+        y=[None if value < 0.0 else value for value in r2],
+        customdata=custom,
+        mode="lines",
+        name="Pooled r²",
+        line={"color": "#3366cc", "width": 2},
+        hovertemplate=hover,
     ))
     figure.add_trace(go.Scatter(
-        x=populated,
-        y=mac_means,
+        x=macs,
+        y=accuracy,
+        customdata=custom,
         mode="lines",
-        name="Mean at each MAC",
-        line={"color": "#ef8a35", "width": 2.5},
-        hovertemplate="reference MAC=%{x}<br>mean r²=%{y:.4f}<extra></extra>",
+        name="Pooled accuracy",
+        line={"color": "#ef8a35", "width": 2},
+        hovertemplate=hover,
     ))
+    total_predictions = sum(n_predictions)
+    overall_accuracy = sum(n * value for n, value in zip(n_predictions, accuracy)) / total_predictions
     figure.update_layout(
-        title="Imputation r² by reference minor-allele count",
+        title="Imputation performance by reference minor-allele count",
         xaxis_title="Reference minor-allele count (haplotypes)",
-        yaxis_title="Imputation r² across target haplotypes",
+        yaxis_title="Metric pooled across retained target alleles",
+        yaxis_range=[0, 1],
         template="plotly_white",
-        hovermode="closest",
+        hovermode="x unified",
         legend={"orientation": "h", "y": 1.08, "x": 1, "xanchor": "right"},
-        margin={"l": 70, "r": 30, "t": 80, "b": 65},
+        margin={"l": 70, "r": 30, "t": 90, "b": 65},
     )
-    mean_r2 = float(np.mean(r2[valid])) if valid.size else -1.0
     figure.add_annotation(
         x=0,
         y=1.08,
@@ -148,32 +109,26 @@ def make_figure(
         yref="paper",
         showarrow=False,
         text=(
-            f"mean r²={mean_r2:.4f}; mean accuracy={float(np.mean(accuracy)):.4f}; "
-            f"undefined r²={r2.size - valid.size:,}"
+            f"retained loci={sum(n_loci):,}; target alleles={total_predictions:,}; "
+            f"overall accuracy={overall_accuracy:.4f}"
         ),
     )
-    return figure, plotted.size
+    return figure
 
 
 def main() -> None:
     args = parse_args()
-    reference_mac = read_reference_mac(args.reference)
-    n_loci = reference_mac.size
-    r2, accuracy = read_evaluation(args.evaluation)
-    observed = read_observed_loci(args.observed_loci, n_loci)
-    masked = masked_indexes(n_loci, observed, r2.size)
-    minor_counts = reference_mac[masked]
-    figure, n_plotted = make_figure(r2, accuracy, minor_counts, args.max_points)
+    values = read_evaluation(args.evaluation)
+    figure = make_figure(*values)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     figure.write_html(
         args.output,
         include_plotlyjs=ensure_plotly_asset(args.output),
         config={"responsive": True, "displaylogo": False},
     )
-    n_defined = int(np.count_nonzero(r2 >= 0.0))
     print(
-        f"wrote {args.output}: loci={r2.size} defined_r2={n_defined} plotted={n_plotted} "
-        f"mean_r2={float(np.mean(r2[r2 >= 0.0])) if n_defined else -1.0:.6f}",
+        f"wrote {args.output}: mac_bins={len(values[0])} retained_loci={sum(values[1])} "
+        f"target_alleles={sum(values[2])}",
         file=sys.stderr,
     )
 
