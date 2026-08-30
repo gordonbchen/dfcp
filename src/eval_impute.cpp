@@ -178,30 +178,6 @@ std::vector<Window> read_windows(const std::filesystem::path& root) {
     return windows;
 }
 
-std::vector<int> assign_loci(const std::vector<Window>& windows) {
-    int max_end = std::ranges::max_element(windows, {}, &Window::end)->end;
-    std::vector<int> owner(max_end, -1);
-    for (std::size_t w = 0; w < windows.size(); ++w) {
-        const Window& window = windows[w];
-        for (int l = 0; l < window.end - window.start; ++l) {
-            int global_l = window.start + l;
-            int depth = std::min(l, window.end - window.start - 1 - l);
-            int current = owner[global_l];
-            if (current == -1) {
-                owner[global_l] = static_cast<int>(w);
-                continue;
-            }
-            const Window& current_window = windows[current];
-            int current_l = global_l - current_window.start;
-            int current_depth = std::min(current_l, current_window.end - 1 - global_l);
-            if (depth > current_depth) {
-                owner[global_l] = static_cast<int>(w);
-            }
-        }
-    }
-    return owner;
-}
-
 std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_loci) {
     std::ifstream input(path);
     if (!input.is_open()) {
@@ -216,7 +192,7 @@ std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_lo
 }
 
 void evaluate_window(
-    const Window& window, int window_slot, const std::vector<int>& owner, std::vector<MacStats>& stats
+    const Window& window, int left_trim, int right_trim, std::vector<MacStats>& stats
 ) {
     ImputeProbReader prob_reader((window.dir / "probs.bin").c_str());
     const ImputeProbHeader& header = prob_reader.header();
@@ -236,7 +212,7 @@ void evaluate_window(
     int masked_l = 0;
     for (int l = 0; l < n_ref_loci; ++l) {
         if (observed[l]) { continue; }
-        if (owner[window.start + l] == window_slot) {
+        if (l >= left_trim && l < n_ref_loci - right_trim) {
             RefCount count = ref_counts[l];
             int ref_count = count.an - count.ac;
             int mac = std::min(count.ac, ref_count);
@@ -287,10 +263,12 @@ int main(int argc, char* argv[]) {
 
     std::filesystem::path root = argv[1];
     std::vector<Window> windows = read_windows(root);
-    std::vector<int> owner = assign_loci(windows);
+    int overlap = windows.size() > 1 ? windows[0].end - windows[1].start : 0;
     std::vector<MacStats> stats;
     for (std::size_t w = 0; w < windows.size(); ++w) {
-        evaluate_window(windows[w], static_cast<int>(w), owner, stats);
+        int left_trim = w == 0 ? 0 : (overlap + 1) / 2;
+        int right_trim = w + 1 == windows.size() ? 0 : overlap / 2;
+        evaluate_window(windows[w], left_trim, right_trim, stats);
     }
     write_tsv(argv[2], stats);
 
