@@ -98,6 +98,10 @@ current executable.
   locus-selectable Graphviz SVGs with zoom controls.
 - `scripts/1000g_phase3_v5b/window.py`: writes aligned, equal-locus overlapping
   reference and target VCF windows before DFCP bitpacking.
+- `scripts/1000g_phase3_v5b/prep_data.sh`: runs the complete 1000 Genomes data
+  preparation pipeline.
+- `scripts/1000g_phase3_v5b/impute.sh`: builds and imputes every materialized
+  window, writing `probs.bin` and `impute.json` in each directory.
 - `scripts/1000g_phase3_v5b/window_viz.py`: interactive physical/genetic
   window-selection report using the same boundary formula as `window.py`.
 - `scripts/impute_viz.py`: plots pooled imputation r-squared and accuracy by

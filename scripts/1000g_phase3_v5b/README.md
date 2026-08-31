@@ -10,7 +10,7 @@ Run from the repository root:
 ```bash
 THREADS=8 N_WINDOWS=200 OVERLAP=32 N_GENERATE=1 \
   WINDOWS_DIR=data/1000g_phase3_v5b/windows_200_o32 \
-  scripts/1000g_phase3_v5b/run.sh
+  scripts/1000g_phase3_v5b/prep_data.sh
 ```
 
 `N_WINDOWS` and `OVERLAP` define the chromosome-wide window plan. `N_GENERATE` writes only the first
@@ -72,14 +72,13 @@ Use `--physical-only` to build the report in Mb without the genetic map.
 ## Imputation and evaluation
 
 ```bash
-window_dir=data/1000g_phase3_v5b/windows_200_o32/window_0000
-./build/impute "$window_dir/ref.bin" "$window_dir/target_observed.bin" \
-  "$window_dir/observed_loci.txt" "$window_dir/probs.bin" \
-  --mode soft --init pbwt --viterbi_impute 0 > "$window_dir/soft_fwd_bkwd.json"
+scripts/1000g_phase3_v5b/impute.sh data/1000g_phase3_v5b/windows_200_o32 \
+  --mode soft --init pbwt --viterbi_impute 0
 ./build/eval_impute data/1000g_phase3_v5b/windows_200_o32 output/imputation.tsv
 .venv/bin/python scripts/impute_viz.py output/imputation.tsv --output output/imputation.html
 ```
 
-Run `impute` for each desired window before evaluation, always writing `probs.bin` in that window directory.
-`eval_impute` reads `AC` and `AN` from each reference VCF, keeps each overlap locus from the window where it
-is farthest from an edge, and pools r-squared and accuracy over all retained target alleles at each MAC.
+`impute.sh` builds DFCP once, runs the same options on every window, and writes `probs.bin` and `impute.json`
+in each window directory. `eval_impute` reads `AC` and `AN` from each reference VCF, keeps each overlap locus
+from the window where it is farthest from an edge, and pools r-squared and accuracy over all retained target
+alleles at each MAC.
