@@ -1,6 +1,9 @@
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <omp.h>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
@@ -178,14 +181,10 @@ int get_new_cluster_emission(
     return best_k;
 }
 
-void viterbi_add_seq(
-    const SeqArray& x, int x_idx, int seq_idx,
-    ViterbiBuffers& viterbi_bufs,
+void viterbi_add_path(
+    const SeqArray& x, int x_idx, int seq_idx, Cluster* const* viterbi_path,
     Clusters& clusters, const Params& params, const HyperParams& HP
 ) {
-    get_viterbi_path(x, x_idx, nullptr, viterbi_bufs, clusters, params, HP);
-    std::vector<Cluster*>& viterbi_path = viterbi_bufs.path;
-
     Cluster* a = viterbi_path[0];
     Cluster* a_obj = a;
     if (a == nullptr) {
@@ -217,17 +216,55 @@ void viterbi_add_seq(
     }
 }
 
-void max_step(const SeqArray& x, Clusters& clusters, const Params& params, const HyperParams& HP) {
-    ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
-    for (int i = 0; i < HP.N; ++i) {
-        for (int l = 0; l < HP.L; ++l) {
-            clusters.cluster_remove(clusters.r_assign[idx2d(i, l, HP.L)], i, x(i, l));
-            if (l == HP.L-1) {
-                break;
-            }
+void remove_seq(const SeqArray& x, int i, Clusters& clusters, const HyperParams& HP) {
+    for (int l = 0; l < HP.L; ++l) {
+        clusters.cluster_remove(clusters.r_assign[idx2d(i, l, HP.L)], i, x(i, l));
+        if (l < HP.L-1) {
             clusters.cluster_remove(clusters.q_assign[idx2d(i, l, HP.L - 1)], i, -1);
         }
-        viterbi_add_seq(x, i, i, viterbi_bufs, clusters, params, HP);
+    }
+}
+
+void max_step(
+    const SeqArray& x, Clusters& clusters, const Params& params, const HyperParams& HP,
+    int batch_size
+) {
+    if (batch_size == 1) {
+        ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
+        for (int i = 0; i < HP.N; ++i) {
+            remove_seq(x, i, clusters, HP);
+            get_viterbi_path(x, i, nullptr, viterbi_bufs, clusters, params, HP);
+            viterbi_add_path(x, i, i, viterbi_bufs.path.data(), clusters, params, HP);
+        }
+        return;
+    }
+
+    int n_threads = std::min(omp_get_max_threads(), batch_size);
+    std::vector<ViterbiBuffers> thread_bufs;
+    thread_bufs.reserve(n_threads);
+    for (int thread = 0; thread < n_threads; ++thread) {
+        thread_bufs.emplace_back(clusters.next_cluster_id, HP.L);
+    }
+
+    std::size_t path_size = static_cast<std::size_t>(2*HP.L - 1);
+    std::vector<Cluster*> paths(static_cast<std::size_t>(batch_size) * path_size);
+
+    for (int i = 0; i < HP.N; i += batch_size) {
+        int size = std::min(batch_size, HP.N - i);
+        for (int j = 0; j < size; ++j) {
+            remove_seq(x, i + j, clusters, HP);
+        }
+
+        #pragma omp parallel for num_threads(n_threads)
+        for (int j = 0; j < size; ++j) {
+            ViterbiBuffers& bufs = thread_bufs[omp_get_thread_num()];
+            get_viterbi_path(x, i + j, nullptr, bufs, clusters, params, HP);
+            std::copy(bufs.path.begin(), bufs.path.end(), paths.begin() + j*path_size);
+        }
+
+        for (int j = 0; j < size; ++j) {
+            viterbi_add_path(x, i+j, i+j, paths.data() + j*path_size, clusters, params, HP);
+        }
     }
 }
 
@@ -239,7 +276,8 @@ void add_seqs(const SeqArray& x_new, Clusters& clusters, const Params& params, H
 
     ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
     for (int i = 0; i < x_new.N; ++i) {
-        viterbi_add_seq(x_new, i, old_N + i, viterbi_bufs, clusters, params, HP);
+        get_viterbi_path(x_new, i, nullptr, viterbi_bufs, clusters, params, HP);
+        viterbi_add_path(x_new, i, old_N + i, viterbi_bufs.path.data(), clusters, params, HP);
     }
 }
 

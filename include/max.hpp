@@ -41,7 +41,10 @@ int get_new_cluster_emission(
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 
-void max_step(const SeqArray& x, Clusters& clusters, const Params& params, const HyperParams& HP);
+void max_step(
+    const SeqArray& x, Clusters& clusters, const Params& params, const HyperParams& HP,
+    int batch_size
+);
 
 void add_seqs(const SeqArray& x, Clusters& clusters, const Params& params, HyperParams& HP);
 

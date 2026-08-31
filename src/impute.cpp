@@ -57,7 +57,7 @@ class EarlyStopping {
 void train_dfcp(
     Clusters& clusters, Params& params, HyperParams& HP,
     InitMode init_mode, int pbwt_match_len, bool pbwt_match_curr, bool init_only,
-    const SeqArray& x_train,
+    const SeqArray& x_train, int max_batch_size,
     Json& json
 ) {
     // Init clusters.
@@ -91,7 +91,7 @@ void train_dfcp(
         auto t0 = std::chrono::steady_clock::now();
         expect_step(HP, params, clusters);
         auto t1 = std::chrono::steady_clock::now();
-        max_step(x_train, clusters, params, HP);
+        max_step(x_train, clusters, params, HP, max_batch_size);
         if (clusters.emit_mode == EmitMode::noisy) {
             max_cluster_emissions(clusters, params, HP);
         }
@@ -223,6 +223,7 @@ int main(int argc, char *argv[]) {
     InitMode init_mode = InitMode::pbwt;
     int pbwt_match_len = 5;
     bool pbwt_match_curr = true;
+    int max_batch_size = 1;
     bool init_only = false;
 
     bool viterbi_impute = false;
@@ -258,6 +259,7 @@ int main(int argc, char *argv[]) {
         }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
         else if (arg == "--pbwt_match_curr") { pbwt_match_curr = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--max_batch_size") { max_batch_size = parse_int(argv[i+1]); }
         else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
 
         else if (arg == "--viterbi_impute") { viterbi_impute = (parse_int(argv[i+1]) == 1); }
@@ -274,7 +276,7 @@ int main(int argc, char *argv[]) {
     train_dfcp(
         clusters, params, HP,
         init_mode, pbwt_match_len, pbwt_match_curr, init_only,
-        x_train,
+        x_train, max_batch_size,
         json
     );
 

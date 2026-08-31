@@ -46,7 +46,7 @@ current executable.
 - `include/impute_io.hpp`: streamed fixed-point imputation probability I/O.
 - `include/clusters.hpp`: `R`/`Q` graph nodes, ownership, assignments, and
   cluster mutation interface, including the emission-mode enum.
-- `include/max.hpp`: sequence reassignment and insertion entry points.
+- `include/max.hpp`: serial and batched sequence reassignment and insertion entry points.
 - `include/expect.hpp`: continuous-parameter update entry point.
 - `include/elbo.hpp`: approximate ELBO entry point.
 - `include/math.hpp`: second-order delta-method helpers.
@@ -67,7 +67,8 @@ current executable.
   materialized VCF windows.
 - `src/clusters.cpp`: cluster creation/deletion, graph links, assignments,
   hard-emission indexes, and soft-emission counts.
-- `src/max.cpp`: hard and soft sequencewise Viterbi maximization.
+- `src/max.cpp`: hard and soft sequencewise Viterbi maximization, including
+  parallel read-only path searches within an optional sequence batch.
 - `src/expect.cpp`: Laplace updates for `alpha`, `gamma_l`, and `d_l`.
 - `src/elbo.cpp`: approximate ELBO and variational entropy.
 - `src/math.cpp`: reusable delta approximations.
@@ -164,8 +165,10 @@ The executable alternates:
 
 1. Expectation: update independent approximations for `alpha`, every `d_l`,
    and every `gamma_l`.
-2. Maximization: remove one sequence at a time and put it back along the best
-   complete `R-Q-R-...` path found by right-to-left Viterbi messages.
+2. Maximization: by default, remove one sequence at a time and put it back along
+   the best complete `R-Q-R-...` path found by right-to-left Viterbi messages.
+   Optional batching removes several sequences, finds their paths in parallel
+   against the same reduced graph, and then inserts the paths sequentially.
 3. Evaluation: calculate the approximate ELBO and update early stopping.
 
 Positive parameters use log-space Laplace approximations. Discounts use a
@@ -212,6 +215,9 @@ Important invariants:
   cluster is detached and deleted.
 - Inference reads messages only for current candidates, whose ID-indexed entries
   were overwritten during the current pass.
+- Batched maximization does not mutate the graph while its parallel Viterbi
+  searches run. Existing cluster pointers in the saved paths remain valid while
+  those paths are subsequently inserted in sequence order.
 - Use `Clusters::get_matching_as` for R candidates: hard observed emissions
   select `rs_by_emit`, while missing, noisy, and soft emissions select all `rs`.
 - `Cluster::n` counts all assigned sequences.
@@ -347,6 +353,8 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--pbwt_match_curr`: include the current locus in PBWT matching only when the
   value is exactly `1`; defaults to enabled.
 - `--init_only`: skip ME training only when the value is exactly `1`.
+- `--max_batch_size`: sequences removed before parallel Viterbi searches and
+  sequential reinsertion; defaults to `1`, which preserves serial maximization.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
   imputation only when the value is exactly `1`.
 
