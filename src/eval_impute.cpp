@@ -34,6 +34,7 @@ struct Window {
     int start;
     int end;
     std::filesystem::path dir;
+    std::filesystem::path prob_file;
 };
 
 std::vector<std::string_view> split_tabs(const std::string& line) {
@@ -56,7 +57,7 @@ int parse_int(std::string_view text, std::string_view field) {
     return value;
 }
 
-std::vector<Window> read_windows(const std::filesystem::path& root) {
+std::vector<Window> read_windows(const std::filesystem::path& root, std::string_view name) {
     std::ifstream input(root / "windows.tsv");
     if (!input.is_open()) {
         throw std::runtime_error("Failed to open windows.tsv.");
@@ -78,14 +79,15 @@ std::vector<Window> read_windows(const std::filesystem::path& root) {
         }
         int index = parse_int(fields[0], "window index");
         std::filesystem::path dir = root / std::format("window_{:04d}", index);
-        if (fields[7] != "1" || !std::filesystem::exists(dir / "probs.bin")) { continue; }
+        std::filesystem::path prob_file = dir / "impute" / std::format("{}.bin", name);
+        if (fields[7] != "1" || !std::filesystem::exists(prob_file)) { continue; }
 
         int start = parse_int(fields[1], "window start");
         int end = parse_int(fields[2], "window end");
-        windows.push_back({index, start, end, std::move(dir)});
+        windows.push_back({index, start, end, std::move(dir), std::move(prob_file)});
     }
     if (windows.empty()) {
-        throw std::runtime_error("No generated windows contain probs.bin.");
+        throw std::runtime_error(std::format("No generated windows contain impute/{}.bin.", name));
     }
     return windows;
 }
@@ -196,7 +198,7 @@ std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_lo
 void evaluate_window(
     const Window& window, int left_trim, int right_trim, std::vector<MacStats>& stats
 ) {
-    ImputeProbReader prob_reader((window.dir / "probs.bin").c_str());
+    ImputeProbReader prob_reader(window.prob_file.c_str());
     const ImputeProbHeader& header = prob_reader.header();
     SeqArray x_true{read_seq_file((window.dir / "target_masked_true.bin").c_str())};
     if (header.n_sequences != static_cast<std::uint32_t>(x_true.N)
@@ -260,12 +262,12 @@ void write_tsv(const std::filesystem::path& path, const std::vector<MacStats>& s
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        throw std::invalid_argument("Usage: eval_impute WINDOWS_DIR OUTPUT.tsv");
+    if (argc != 4) {
+        throw std::invalid_argument("Usage: eval_impute WINDOWS_DIR NAME OUTPUT.tsv");
     }
 
     std::filesystem::path root = argv[1];
-    std::vector<Window> windows = read_windows(root);
+    std::vector<Window> windows = read_windows(root, argv[2]);
     int overlap = windows.size() > 1 ? windows[0].end - windows[1].start : 0;
     std::vector<MacStats> stats;
     for (std::size_t w = 0; w < windows.size(); ++w) {
@@ -273,13 +275,13 @@ int main(int argc, char* argv[]) {
         int right_trim = w + 1 == windows.size() ? 0 : overlap / 2;
         evaluate_window(windows[w], left_trim, right_trim, stats);
     }
-    write_tsv(argv[2], stats);
+    write_tsv(argv[3], stats);
 
     std::uint64_t n_masked_loci = 0;
     for (const MacStats& stat : stats) {
         n_masked_loci += stat.n_loci;
     }
     std::cerr << "windows=" << windows.size() << " n_masked_loci=" << n_masked_loci
-        << " output=" << argv[2] << '\n';
+        << " output=" << argv[3] << '\n';
     return 0;
 }

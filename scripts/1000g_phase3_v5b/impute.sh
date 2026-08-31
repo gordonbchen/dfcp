@@ -3,13 +3,17 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/../.." && pwd)
-windows_dir=${1:?Usage: impute.sh WINDOWS_DIR [OPTION VALUE]...}
+windows_dir=${1:?Usage: impute.sh WINDOWS_DIR [--name NAME] [OPTION VALUE]...}
 shift
 n_parallel=1
+name=probs
 impute_args=()
 while (( $# )); do
     if [[ $1 == --n-parallel ]]; then
         n_parallel=${2:?--n-parallel requires a value}
+        shift 2
+    elif [[ $1 == --name ]]; then
+        name=${2:?--name requires a value}
         shift 2
     else
         impute_args+=("$1")
@@ -34,8 +38,8 @@ run_window() {
         "$window_dir/ref.bin" \
         "$window_dir/target_observed.bin" \
         "$window_dir/observed_loci.txt" \
-        "$window_dir/probs.bin" \
-        "$@" > "$window_dir/impute.json"
+        "$window_dir/impute/$name.bin" \
+        "$@" > "$window_dir/impute/$name.json"
 }
 
 stop_jobs() {
@@ -64,7 +68,8 @@ wait_one() {
 }
 
 for window_dir in "${window_dirs[@]}"; do
-    log_file="$window_dir/impute.log"
+    mkdir -p "$window_dir/impute"
+    log_file="$window_dir/impute/$name.log"
     run_window "$window_dir" "${impute_args[@]}" 2> "$log_file" &
     pid=$!
     job_dirs[$pid]=$window_dir

@@ -101,8 +101,8 @@ current executable.
 - `scripts/1000g_phase3_v5b/prep_data.sh`: runs the complete 1000 Genomes data
   preparation pipeline.
 - `scripts/1000g_phase3_v5b/impute.sh`: builds and imputes every materialized
-  window with configurable process concurrency, writing `probs.bin`,
-  `impute.json`, and a buffered `impute.log` in each directory.
+  window with configurable process concurrency, writing named `.bin`, `.json`,
+  and buffered `.log` files under each window's `impute/` directory.
 - `scripts/1000g_phase3_v5b/window_viz.py`: interactive physical/genetic
   window-selection report using the same boundary formula as `window.py`.
 - `scripts/impute_viz.py`: plots pooled imputation r-squared and accuracy by
@@ -284,8 +284,8 @@ current value before using it.
 
 ### Imputation evaluation TSV
 
-- `eval_impute` reads a window root containing `windows.tsv` and evaluates each
-  generated window that contains `probs.bin`.
+- `eval_impute` reads a window root containing `windows.tsv` and a run name,
+  then evaluates each generated window that contains `impute/NAME.bin`.
 - Each global locus is retained from the available window in which it is
   farthest from an edge. Ties go to the lower window index.
 - Reference `AC` and `AN` are read from each window's `ref.vcf.gz` with
@@ -353,12 +353,8 @@ Every option requires a value, including booleans. There is no `--help` path.
 A prepared 1000 Genomes invocation is:
 
 ```bash
-./build.sh && ./build/impute \
-  data/1000g_phase3_v5b/windows/window_0000/ref.bin \
-  data/1000g_phase3_v5b/windows/window_0000/target_observed.bin \
-  data/1000g_phase3_v5b/windows/window_0000/observed_loci.txt \
-  data/1000g_phase3_v5b/windows/window_0000/probs.bin \
-  --init pbwt --viterbi_impute 1
+scripts/1000g_phase3_v5b/impute.sh data/1000g_phase3_v5b/windows \
+  --name hard_pbwt10 --n-parallel 4 --init pbwt --pbwt_match_len 10
 ```
 
 Evaluate the probabilities with:
@@ -366,14 +362,15 @@ Evaluate the probabilities with:
 ```bash
 ./build/eval_impute \
   data/1000g_phase3_v5b/windows \
+  hard_pbwt10 \
   output/imputation.tsv
 .venv/bin/python scripts/impute_viz.py \
   output/imputation.tsv \
   --output output/imputation.html
 ```
 
-The evaluator expects each completed window's probability file to be named
-`probs.bin`.
+The evaluator expects each completed window's probability file under `impute/`
+to have the requested run name and a `.bin` extension.
 
 ## Output
 

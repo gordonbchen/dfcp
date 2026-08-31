@@ -73,14 +73,15 @@ Use `--physical-only` to build the report in Mb without the genetic map.
 
 ```bash
 scripts/1000g_phase3_v5b/impute.sh data/1000g_phase3_v5b/windows_200_o32 \
-  --n-parallel 4 --mode soft --init pbwt --viterbi_impute 0
-./build/eval_impute data/1000g_phase3_v5b/windows_200_o32 output/imputation.tsv
+  --name soft_pbwt10 --n-parallel 4 --mode soft --init pbwt --pbwt_match_len 10
+./build/eval_impute \
+  data/1000g_phase3_v5b/windows_200_o32 soft_pbwt10 output/imputation.tsv
 .venv/bin/python scripts/impute_viz.py output/imputation.tsv --output output/imputation.html
 ```
 
-`impute.sh` builds DFCP once, runs the same options on every window, and writes `probs.bin`, `impute.json`,
-and `impute.log` in each window directory. `--n-parallel` controls the number of simultaneous DFCP processes
-and defaults to one. Each process's stderr is printed as one block when it finishes. `Ctrl-C` stops every
-active process. `eval_impute` reads `AC` and `AN` from each reference VCF, keeps each overlap locus from the
-window where it is farthest from an edge, and pools r-squared and accuracy over all retained target alleles
-at each MAC.
+`impute.sh` builds DFCP once and runs the same options on every window. `--name NAME` writes `NAME.bin`,
+`NAME.json`, and `NAME.log` under each window's `impute/` directory; it defaults to `probs`. Pass the same
+name to `eval_impute`. `--n-parallel` controls the number of simultaneous DFCP processes and defaults to one.
+Each process's stderr is printed as one block when it finishes. `Ctrl-C` stops every active process.
+`eval_impute` reads `AC` and `AN` from each reference VCF, keeps each overlap locus from the window where it
+is farthest from an edge, and pools r-squared and accuracy over all retained target alleles at each MAC.
