@@ -31,9 +31,10 @@ class EarlyStopping {
         const int patience;
         const bool minimize;
         const double tol;
+        const int max_steps;
 
-        EarlyStopping(int patience_ = 3, bool minimize_ = true, double tol_ = 1e-5) :
-            patience(patience_), minimize(minimize_), tol(tol_)
+        EarlyStopping(int patience_, bool minimize_, double tol_, int max_steps_) :
+            patience(patience_), minimize(minimize_), tol(tol_), max_steps(max_steps_)
         {}
 
         void update(double x) {
@@ -50,14 +51,14 @@ class EarlyStopping {
         }
 
         bool converged() const {
-            return steps_since_min >= patience;
+            return (step >= max_steps) || (steps_since_min >= patience);
         }
 };
 
 void train_dfcp(
     Clusters& clusters, Params& params, HyperParams& HP,
     InitMode init_mode, int pbwt_match_len, bool pbwt_match_curr, bool init_only,
-    const SeqArray& x_train, int max_batch_size,
+    const SeqArray& x_train, int max_batch_size, int max_train_steps,
     Json& json
 ) {
     // Init clusters.
@@ -83,7 +84,7 @@ void train_dfcp(
     if (init_only) { return; }
 
     // Train.
-    EarlyStopping early_stop{2, false, 1.0};
+    EarlyStopping early_stop{2, false, 1.0, max_train_steps};
     double elbo = 0.0;
 
     std::vector<Json> train_log;
@@ -226,6 +227,8 @@ int main(int argc, char *argv[]) {
     int max_batch_size = 1;
     bool init_only = false;
 
+    int max_train_steps = std::numeric_limits<int>::max();
+
     bool viterbi_impute = false;
 
     int i = 5;
@@ -262,6 +265,8 @@ int main(int argc, char *argv[]) {
         else if (arg == "--max_batch_size") { max_batch_size = parse_int(argv[i+1]); }
         else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
 
+        else if (arg == "--max_train_steps") { max_train_steps = parse_int(argv[i+1]); }
+
         else if (arg == "--viterbi_impute") { viterbi_impute = (parse_int(argv[i+1]) == 1); }
 
         else { throw std::invalid_argument("Arg not recognized."); }
@@ -276,7 +281,7 @@ int main(int argc, char *argv[]) {
     train_dfcp(
         clusters, params, HP,
         init_mode, pbwt_match_len, pbwt_match_curr, init_only,
-        x_train, max_batch_size,
+        x_train, max_batch_size, max_train_steps,
         json
     );
 
