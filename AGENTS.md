@@ -108,6 +108,10 @@ current executable.
   window-selection report using the same boundary formula as `window.py`.
 - `scripts/impute_viz.py`: plots pooled imputation r-squared and accuracy by
   reference minor-allele count from `eval_impute` TSV output.
+- `scripts/fsc_sim/prep_data.py`: converts one haploid fastsimcoal `.gen` table
+  into a locus-major bitpacked `ref.bin` and aligned `variant_pos.txt`.
+- `scripts/fsc_sim/run.sh`: reproducibly runs the configured fastsimcoal
+  template with an explicit seed and then prepares its `.gen` output.
 
 ### Deprecated Python
 
@@ -249,6 +253,12 @@ current value before using it.
    fixed-point probability row at a time.
 7. Write diagnostics to stderr and one JSON object to stdout.
 
+This combined fitting-and-imputation interface is scheduled to be split. The
+planned `train` executable will write a frozen `DFCM` model and, optionally, a
+`DFCA` R-assignment file. The planned `impute` executable will load `DFCM` and
+perform only target inference. Until that work is complete, the combined flow
+above is authoritative.
+
 ## Input Formats
 
 ### Haplotype sequence file
@@ -309,6 +319,57 @@ This format is used by the currently inactive evaluation sources, not by
 The parser expects an integer count followed by comma-separated integer
 positions. `--variant_start_pos` is a zero-based index into this list, not a
 genomic coordinate, despite the option name.
+
+### fastsimcoal genotype table
+
+`scripts/fsc_sim/prep_data.py` consumes the haploid `.gen` table produced by
+fastsimcoal with `-G` but without diploid `-g`. Its header begins with `Chrom`,
+`Pos`, `Anc_all`, and `Der_all`; every remaining column is one haplotype. Each
+data row becomes one locus in the sequence file, and `Pos` becomes the matching
+entry in `variant_pos.txt`.
+
+The converter supports one chromosome, binary haploid allele columns, and
+nondecreasing positions. Equal adjacent positions are preserved because the
+fastsimcoal infinite-sites model can place independent mutations at the same
+physical coordinate. The `.gen` file, rather than the `.arp` file, is the
+authoritative source for both positions and alleles so the outputs cannot
+become misaligned.
+
+Run and prepare the current simulation with:
+
+```bash
+scripts/fsc_sim/run.sh
+```
+
+`FSC`, `THREADS`, `SEED`, `TEMPLATE`, and `EST` can override the defaults. The
+script uses `-x` because the `.arp` output is not consumed. To prepare an
+existing genotype table without rerunning fastsimcoal:
+
+```bash
+python3 scripts/fsc_sim/prep_data.py \
+  data/fsc/ex_0_pop_1/ex_0_pop_1_1_1.gen \
+  data/fsc/prepared
+```
+
+This writes `data/fsc/prepared/ref.bin` and
+`data/fsc/prepared/variant_pos.txt`.
+
+### Planned cluster assignment file
+
+The planned assignment format begins with magic `DFCA`, followed by
+little-endian `uint32` values `N` and `L`, then row-major `[N][L]` R-cluster
+IDs. IDs are equality labels and need not be dense. The evaluator will remap
+them densely at each locus rather than sizing bitsets from
+`Clusters::next_cluster_id`, which also covers Q nodes and deleted ID slots.
+
+### Planned frozen model file
+
+The planned `DFCM` format will contain the dimensions, emission mode, fitted
+parameters, and file-local R and Q cluster records required for Viterbi and
+forward-backward inference. Each Q record will identify its single parent and
+child R; R adjacency, active-locus vectors, and hard-emission indexes will be
+rebuilt while loading. It will omit training assignments. A later checkpoint
+extension may optionally include R and Q assignments for resumable training.
 
 ### Tree file
 
@@ -379,6 +440,18 @@ Evaluate the probabilities with:
 
 The evaluator expects each completed window's probability file under `impute/`
 to have the requested run name and a `.bin` extension.
+
+The planned split interface is:
+
+```bash
+./build/train REF_FILE MODEL_FILE [OPTION VALUE]...
+./build/impute MODEL_FILE TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE [OPTION VALUE]...
+```
+
+Training-only options will remain on `train`; `--viterbi_impute` will remain on
+`impute`. `train` will accept an optional path-valued
+`--output_clusters FILE` option. Do not document this as active until the split
+is implemented and verified.
 
 ## Output
 
@@ -480,6 +553,10 @@ Required for the executable:
 - Boost headers for special functions, logistic sigmoid, and Brent minimization.
 - `bcftools` for windowed imputation evaluation.
 
+fastsimcoal is needed only to generate new simulated fixtures. The checked
+`.gen` and tree outputs can be prepared and evaluated without the fastsimcoal
+executable.
+
 The build enables `-Wall -Wextra -Wpedantic -O3`. There is no install target,
 library target, automated test target, or CI configuration.
 
@@ -495,6 +572,9 @@ After a C++ change, at minimum run:
 ```bash
 ./build.sh
 ```
+
+After changing fastsimcoal preparation, regenerate a temporary fixture and
+compare every decoded allele and position with the source `.gen` table.
 
 For changes involving fitting or tree metrics, run the representative command
 above. Redirect stdout only when JSON contents are not under test; diagnostics
@@ -522,6 +602,9 @@ Use a fixed nonzero `--seed` for deterministic validation and mask selection.
 - The bitpacked sequence format does not represent missing or multiallelic
   observations. Missing target loci are represented by the separate mapping
   from full reference loci to columns in the compact target `SeqArray`.
+- fastsimcoal `.gen` files may contain multiple records at one physical
+  position. Preparation preserves them in their original order; consumers must
+  not assume positions are unique.
 - The executable assumes `L >= 2`; adjacent-locus metrics divide by `L-1`.
 - Numeric argument parsing accepts a valid numeric prefix followed by junk.
 - The transformed Laplace searches use fixed bounds `[-10,10]` and fixed

@@ -1,204 +1,180 @@
 # DFCP TODO
 
-The immediate goal is to make maximization fast enough for routine development. Make and benchmark one
-optimization at a time. Model persistence, resumable training, and cluster evaluation remain planned work,
-but should wait until the fitting loop is fast enough to test reliably.
+## Current objective
+
+Separate model fitting from imputation, serialize frozen models and final R assignments, and restore
+`eval_clusters` against a reproducible fastsimcoal fixture. Complete and test one stage before starting the
+next.
 
 ## Current state
 
-- The chr20 pipeline windows aligned VCFs first, then bitpacks each generated window.
-- `DFIP` probability output, pooled window-aware imputation evaluation, and its visualization are working.
-- Reusing `ViterbiBuffers` and indexing inference messages by reusable cluster IDs removed allocation and
-  hashing from Viterbi and forward-backward scoring.
-- `FwdBkwdBuffers` and one shared probability row remove per-target message and row allocations. On the full
-  104-target input, five alternating initialization-only runs reduced mean forward-backward imputation by
-  13.4% at PBWT match length 5 and 3.2% at match length 20; Viterbi row reuse was below timing noise.
-- The first window from a 5,000-window plan with overlap 32 is the development input: 4,904 reference
-  haplotypes, 376 reference loci, 10 observed loci, and 366 masked loci. Hard PBWT training plus Viterbi
-  imputation takes about 4.2 seconds with four OpenMP threads after the current Viterbi optimizations.
-- The first window from a 500-window plan is the representative performance input: 4,904 reference
-  haplotypes and 3,535 loci. A run took roughly four minutes before the current optimization baseline was
-  fully recorded.
-
-Do not compare timings from different inputs, modes, initialization methods, thread counts, compilers, or
-commits.
+- `scripts/fsc_sim/run.sh` reproducibly runs fastsimcoal with an explicit seed, then
+  `prep_data.py` converts its haploid `.gen` file into `ref.bin` and `variant_pos.txt`. The
+  `.gen` file is the single source for both alleles and positions.
+- The active `impute` executable still trains and imputes in one invocation. Models and cluster assignments
+  are not serialized.
+- `src/eval_clusters.cpp` is legacy code, uses removed interfaces, and is not built by CMake.
+- The 1000 Genomes VCF preparation, windowed imputation, `DFIP` output, pooled `eval_impute`, and
+  `impute_viz.py` pipeline are active.
+- Viterbi and forward-backward messages, paths, and probability rows reuse dense buffers indexed by stable
+  cluster IDs. Active cluster collections are dense vectors, while ID-indexed ownership uses reusable slots.
 
 ## Decisions
 
-### Training order
+### fastsimcoal preparation
 
-- Initialization constructs the first cluster graph using the prior parameter values.
-- Each training iteration runs expectation, maximization, then ELBO evaluation.
-- Do not add a separate expectation step between initialization and the loop. That extra update is not worth
-  another full pass over the model.
-- Sequential Viterbi initialization does not make the first maximization redundant: early sequences were
-  inserted into a partial graph and may move after all reference sequences have been added.
+- Use the `.gen` file rather than parsing positions from `.arp` and alleles from `.gen`. The two position
+  lists are identical in the current simulation, and one source cannot drift out of alignment with itself.
+- Preserve repeated positions. The current fastsimcoal output has nine, and the tree lookup supports
+  nondecreasing positions.
+- Keep all haplotypes in their generated order so assignment row `i` corresponds to fastsimcoal tree leaf
+  `i + 1` before the tree parser converts leaves to zero-based indexes.
+- Do not create a synthetic VCF for cluster evaluation. Add one later only if a simulated end-to-end VCF
+  imputation fixture becomes useful.
 
-### Assignments and cluster identity
+### Executable split
 
-- Keep both `r_assign` and `q_assign` during training. Removing a sequence requires its exact `R_l` and `Q_l`
-  clusters; a `Q_l` cannot be recovered uniquely from its parent and child `R` clusters.
-- Replace assignment pointers with stable `uint32_t` cluster IDs when live cluster storage is redesigned.
-- Do not renumber live IDs. Use reusable object slots, a free-ID list, and dense per-locus active vectors.
-- Active vectors use swap-and-pop after a linear pointer search. At about 7.3 R clusters per locus, storing
-  positions made maximization 5.6% slower and added about 1.3 MB peak RSS. On a fixed 376-locus input,
-  linear and indexed removal remained effectively tied at PBWT match lengths 10 and 20, with about 13.9 and
-  31.9 final R clusters per locus; indexed removal still used more memory, so retain the simpler search.
-- Keep the hard-emission filtering supplied by the dense `rs_by_emit` vectors.
-- Consider `uint16_t` IDs only after measuring the maximum live ID and cluster count per locus.
+- `train` will take a reference sequence file and model output path. It will optionally write final R
+  assignments when an assignment path is provided.
+- `impute` will take a frozen model, compact target sequence file, observed-loci file, and probability output
+  path. It will not fit or mutate the model.
+- Keep training diagnostics and one compact JSON result on stdout. Imputation should report only its own
+  inputs, dimensions, method, and timing.
+- Update the 1000 Genomes scripts and maintained Python wrappers only after both executables work directly.
 
-### Model persistence
+### Binary outputs
 
-- The first model format will use magic `DFCM` and contain only dimensions, emission mode, fitted parameters,
-  `R` and `Q` clusters, and graph edges.
-- Do not add a version number or reference/window identity while the format is still changing rapidly.
-- Use file-local cluster IDs. The serialized representation must not depend on live in-memory IDs.
-- Rebuild derived data such as active vectors and `rs_by_emit` after loading.
-- A frozen inference model does not need assignments. A resumable checkpoint needs both `r_assign` and
-  `q_assign`, enabled by an explicit file flag.
-- Store fitted `Params` in `DFCM`; do not create a second required parameter file. Once model output exists,
-  remove the large parameter arrays from stdout JSON.
+- `DFCM` is a frozen inference model. It stores dimensions, emission mode, fitted parameters, file-local
+  dense cluster records, and R-Q graph links. It does not store training assignments.
+- Derived containers such as per-locus active vectors and hard-emission indexes are rebuilt when loading.
+- `DFCA` stores final R assignments as magic, `uint32 N`, `uint32 L`, then row-major `[N][L]` little-endian
+  `uint32` cluster IDs.
+- Do not store `next_cluster_id` in `DFCA`. It is an allocation high-water mark shared by R and Q nodes, not
+  the number of live R clusters. `eval_clusters` will remap IDs densely at each locus.
+- Use a path-valued training option such as `--output_clusters FILE`; omitting it disables assignment output.
 
-## Active performance work
+## Current plan: restore cluster evaluation
 
-### 1. Lock down correctness and measurement
-
-Status: next.
-
-- Compare the reused-message implementation with the implementation before message reuse on one small,
-  deterministic input in hard, noisy, and soft modes. Compare selected paths or final assignments, not only
-  aggregate JSON.
-- Confirm Viterbi imputation probabilities are unchanged.
-- Run AddressSanitizer and UndefinedBehaviorSanitizer. Reused dense message entries may be read only when
-  current-candidate traversal proves that the entry was written during the current inference pass.
-- Record initialization, expectation, maximization, ELBO, and imputation times for both fixed inputs.
-- Profile maximization as removal, Viterbi scoring/backtracking, and reinsertion. Also record active `R` and
-  `Q` counts, compatible hard-emission candidates, visited `Q` edges, cluster churn, dense message capacity,
-  allocation counts, peak memory, and cache misses.
-
-### 2. Remove redundant Viterbi work
+### 1. Prepare fastsimcoal data
 
 Status: complete.
 
-Apply and benchmark these independently, in this order:
+- Run fastsimcoal with `-G`, `-T`, and an explicit seed. Suppress the unused Arlequin output;
+  retain the haploid genotype table and true marginal trees.
+- Convert `.gen` positions to the count-plus-comma-separated format consumed by the tree evaluator.
+- Bitpack haploid allele columns locus-major into the existing `DFCP` sequence format.
+- Reject incompatible `.gen` inputs at this I/O boundary: unexpected columns, multiple chromosomes,
+  decreasing positions, nonbinary alleles, or empty data.
+- Verify every decoded bit and position against `data/fsc/ex_0_pop_1/ex_0_pop_1_1_1.gen`.
 
-1. Reuse the `2L-1` Viterbi path buffer across sequences. Complete: this removed about 54,000 allocation and
-   free pairs from the development run, but changed wall and maximization time by less than 0.2%.
-2. Remove existing-cluster `b_msgs`. Complete: existing `Q_l` clusters now read their sole child's `a`
-   message directly, leaving one `new_b_msg` per transition. Development-window maximization became 22.6%
-   faster and wall time became 22.2% faster.
-3. Skip hard-mode `Q` edges whose child emission cannot match the next observed allele. Complete: the early
-   skip and direct current-message lookup made development-window maximization 4.4% faster and wall time
-   4.3% faster.
-4. Benchmark `boost::unordered_flat_map` for the remaining `a` messages. Complete, not retained: ten
-   alternating development-window runs improved mean maximization time by 1.2% and median time by 0.6%,
-   with no memory reduction. This is too small to carry into the cluster-ID redesign.
+### 2. Specify and implement frozen model I/O
 
-### 3. Replace hash-based live cluster storage
+Status: next.
 
-Status: in progress. Clusters now have reusable `uint32_t` IDs, and inference messages use dense ID-indexed
-vectors. Five alternating development-window runs reduced mean maximization time by 16.4%. On the
-representative window, one run reduced maximization from 91.6 to 63.7 seconds; excluding one baseline
-outlier gives a 26.6% per-iteration reduction. Dense forward-backward messages reduced mean representative
-imputation time by 33.2%. Replacing active hash sets with dense vectors and linear removal reduced mean
-representative maximization time another 20.6%, from 5,628 to 4,467 ms per iteration. Hard, noisy, and soft
-probability files were byte-identical across the applicable changes. ID-indexed ownership and direct Q links
-then reduced default representative maximization from 4,467 to 4,139 ms per iteration and wall time from
-about 59.1 to 54.8 seconds, while lowering peak RSS by about 3.7 MB.
+- Write the exact `DFCM` byte layout beside its reader and writer before changing either executable.
+- Store every fitted `Params` value used by Viterbi and forward-backward inference.
+- Serialize only state needed for frozen inference: R and Q locus, size, emission/count state, and
+  graph links, using dense file-local IDs. Each Q record can identify its one parent and child R;
+  do not also serialize redundant R adjacency arrays.
+- Load ownership first, resolve Q links and rebuild R adjacency second, then rebuild active locus
+  vectors and `rs_by_emit`.
+- Validate dimensions, IDs, cluster types, loci, and links once while reading.
+- Prove that inference from the in-memory model and the saved-then-loaded model produces byte-identical
+  probability output in hard, noisy, and soft modes.
 
-- The pointer-keyed ownership map has been replaced by reusable ID-indexed `unique_ptr` slots. At PBWT match
-  length 20 this reduced mean maximization and wall time by 2.4% and peak RSS by about 1.1 MB.
-- Convert both assignment arrays to `uint32_t` IDs.
-- `rs`, `qs`, and the hard-emission index are dense vectors. Linear removal beat stored vector positions on
-  the representative window, and every training iteration now records the mean R-cluster count per locus.
-- Q clusters store their one parent and one child directly. At PBWT match length 20 this reduced mean
-  maximization and wall time by another 6.8%, with effectively unchanged peak RSS.
-- Viterbi and forward-backward message maps have been replaced by dense arrays indexed by stable ID.
-  Current-candidate traversal guarantees that every accessed hard-mode message was overwritten during the
-  current inference pass.
-- Preserve stable identity and hard-emission filtering.
-- Test sequential and PBWT initialization, all emission modes, validation splitting, singleton deletion,
-  cluster-ID reuse, graph mutations, and temporary changes to `HP.N`.
-- Measure assignment memory, total cluster memory, churn, and runtime before considering narrower IDs.
+### 3. Split training and imputation
 
-### 4. Optimize scoring only if profiling supports it
+Status: pending after model I/O.
+
+- Build `train REF_FILE MODEL_FILE [OPTION VALUE]...` from the current initialization and ME loop.
+- Build `impute MODEL_FILE TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE [OPTION VALUE]...` around frozen model
+  loading and the existing Viterbi or forward-backward target pass.
+- Keep initialization, prior, batching, and stopping options on `train`; keep only inference options on
+  `impute`.
+- Remove fitted parameter arrays from training JSON once `DFCM` is authoritative.
+- Update `scripts/1000g_phase3_v5b/impute.sh`, `scripts/dfcp.py`, `scripts/init.py`, and
+  `scripts/tune.py` to the split interface where they are still maintained.
+
+### 4. Add optional R-assignment output
+
+Status: pending after `train` exists.
+
+- Add shared little-endian `uint32` array I/O if the model and assignment formats both need it.
+- Stream or write one sequence row at a time through `AtomicBinaryWriter`.
+- Write assignments after the final fitted state, including after initialization when `--init_only 1` is
+  used.
+- Add a `DFCA` reader that checks its dimensions and payload size at the I/O boundary.
+- Verify every written ID equals `clusters.r_assign[idx2d(i, l, L)]->id` before relying on the file in
+  evaluation.
+
+### 5. Rewrite `eval_clusters`
+
+Status: pending after assignment output.
+
+- Make it a standalone executable taking `ref.bin`, assignments, `variant_pos.txt`, and the fastsimcoal true
+  tree file. The prepared position file already has exactly `L` entries, so remove `variant_start_pos`.
+- Dense-remap raw assignment IDs independently at every locus and derive cluster counts and sizes from the
+  assignments.
+- Restore adjacent-locus cluster IoU, mean clusters per locus, excess parsimony, importance-weighted
+  cluster-to-clade IoU, purity, emission IoU, emission parsimony, and emission clade IoU.
+- Keep tree visualization optional and separate from scalar evaluation output.
+- Replace avoidable `O(LN^2)` pair enumeration with contingency counts if that can be done without obscuring
+  the metric.
+- Emit one JSON document to stdout and diagnostics to stderr.
+
+### 6. Verify the simulated pipeline
 
 Status: pending.
 
-- Separate time spent in container traversal and hashing from time spent in numeric scoring.
-- If logarithms and `delta_Elogx` are material, precompute integer `log(n)` values and cache transition terms
-  that remain fixed during one maximization pass.
-- Invalidate only values affected by cluster size or degree changes during removal and reinsertion.
-- Compute repeated emission terms once per locus or active cluster where possible.
-- Avoid an `L x N` cache unless its measured speedup justifies its memory and cache cost.
-
-### 5. Parallelize only independent or sufficiently large work
-
-Status: pending after dense serial storage is measured.
-
-- Parallelize frozen target imputation across target sequences first; it does not mutate the fitted graph.
-- Keep training-sequence reassignment serial unless the inference algorithm is deliberately changed.
-- If cluster scoring remains expensive, benchmark the loops in maximization and forward/backward using a
-  persistent OpenMP region rather than starting a region at every locus.
-- Preserve deterministic reductions and compare serial and parallel probability files byte for byte.
-
-### 6. Establish the post-optimization baseline
-
-Status: pending.
-
-- Run hard, noisy, and soft training on both fixed inputs, followed by Viterbi and forward-backward
-  imputation.
-- Record exact commands, commit, compiler, thread count, dimensions, initialization, iteration count, output
-  sizes, wall time, peak resident memory, and per-stage timings.
-- Confirm stdout remains one small JSON document, diagnostics remain on stderr, probability files decode,
-  evaluation succeeds, and reports rebuild from saved output.
-- Set a concrete maximization-time target before beginning model persistence.
-
-## Completion rule
-
-Do not combine independent optimizations in one benchmark change. Retain a change only when it builds without
-warnings, passes its focused correctness comparison, and improves the same representative input or provides
-a clearly measured memory benefit worth its runtime cost.
+- Train on all 100 generated haplotypes so assignment rows map directly to the 100 tree leaves.
+- Evaluate all 13,624 generated variants against `ex_0_pop_1_1_true_trees.trees`.
+- Test tree selection immediately before, at, and after recombination boundaries, including repeated variant
+  positions.
+- Compare tree routines with brute force on exact clades, sibling-split clusters, singleton and full-sample
+  clusters, dominated ancestors, and random small binary trees.
+- Record exact commands, dimensions, runtime, peak memory, and the resulting metrics.
 
 ## Later backlog
 
 ### Automated regression coverage
 
-- Add a small synthetic VCF fixture that checks overlapping windows, `--n-generate`, the manifest, VCF record
-  alignment, window-local `observed_loci.txt`, bitpacked alleles, and all output dimensions.
-- Add focused `DFIP` and pooled-evaluator tests for exact decoding, fixed-point tolerance, overlap ownership,
-  minor-allele orientation, malformed inputs, mismatched dimensions, constant bins, and the `0.5` accuracy
-  threshold.
+- Add a small VCF fixture covering overlapping windows, `--n-generate`, manifest rows, aligned records,
+  observed-locus indexes, bitpacked alleles, and output dimensions.
+- Add focused `DFIP` and pooled-evaluator tests for fixed-point decoding, overlap ownership, minor-allele
+  orientation, mismatched dimensions, constant bins, and the `0.5` hard-call threshold.
 - Keep one deterministic end-to-end fixture covering hard, noisy, and soft modes and both imputation methods.
-- Verify masked indexes are the complement of observed indexes and VCF `min(AC, AN-AC)` agrees with counts
-  decoded from `ref.bin`.
-
-### Frozen model save and load
-
-- Specify the exact `DFCM` byte layout beside its reader and writer.
-- Save fitted parameters, cluster records, and graph edges with file-local IDs; stream and atomically replace
-  the output where practical.
-- Load a frozen model, rebuild ownership and derived indexes, and validate all dimensions and graph links at
-  the I/O boundary.
-- Require imputation from an in-memory model and the same saved-then-loaded model to be byte-identical.
-- Replace parameter arrays in stdout JSON with the model output once this path is stable.
+- Verify masked indexes are the complement of observed indexes and VCF `min(AC, AN-AC)` agrees with decoded
+  reference counts.
 
 ### Resumable training checkpoints
 
-- Extend `DFCM` with an explicit assignments-present flag only after frozen loading works.
-- Store and restore both assignment arrays and every state value required to continue training exactly.
+- Extend model serialization with an explicit assignments-present flag only after frozen loading works.
+- Store both R and Q assignments and all mutable state needed to resume training exactly.
 - Verify that an uninterrupted run and a save/load/resume run produce the same next iteration.
 
-### Cluster and tree evaluation
+### Internal assignment representation
 
-- Restore the inactive evaluator against the saved-model representation and current tree APIs.
-- Test exact clades, sibling-split clusters, singleton and full-sample clusters, dominated ancestors, random
-  small trees against brute force, and validation runs with held-out leaves.
-- Restore excess parsimony, importance-weighted cluster-to-clade IoU, adjacent-locus IoU, emission IoU,
-  purity, and tree visualization only after the focused tests pass.
+- Consider replacing pointer-valued `r_assign` and `q_assign` with stable `uint32_t` IDs only after model and
+  evaluator work is stable.
+- Do not renumber live IDs. Keep reusable object slots, a free-ID list, and dense per-locus active vectors.
+- Retain linear swap-and-pop removal unless larger-cluster benchmarks show that position indexes repay their
+  bookkeeping and memory cost.
+- Consider `uint16_t` IDs only after measuring the maximum required live-ID capacity.
+
+### Remaining performance work
+
+- Profile maximization as removal, Viterbi scoring/backtracking, and reinsertion on fixed development and
+  representative inputs.
+- Record active R/Q counts, candidate counts, visited Q edges, cluster churn, allocation counts, peak memory,
+  and cache misses.
+- If numeric scoring dominates, benchmark cached transition terms, repeated emission terms, and integer
+  `log(n)` values with precise invalidation rules.
+- Run AddressSanitizer and UndefinedBehaviorSanitizer over hard, noisy, soft, sequential-init, PBWT-init,
+  singleton-deletion, ID-reuse, and batched-maximization paths.
+- Establish a final post-optimization baseline with exact commands, commit, compiler, threads, dimensions,
+  output sizes, per-stage timings, and peak RSS.
 
 ### External imputation evaluation
 
-- Compare DFCP with Beagle on the same reference, target, observed-marker mask, and windows.
-- Compare pooled MAC-stratified r-squared and accuracy, and record runtime and peak memory under matched
-  conditions.
+- Compare DFCP with Beagle using the same reference, target, observed-marker mask, and windows.
+- Compare pooled MAC-stratified r-squared and accuracy, runtime, and peak memory under matched conditions.
