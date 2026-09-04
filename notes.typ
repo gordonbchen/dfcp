@@ -1960,6 +1960,9 @@ metrics
 #pagebreak()
 = TODO
 
+= read
+- The Power of Amnesia: Ron et al
+
 = longer clusters (better imputation)
 - set d very very low
 - dfcp on pbwt match blocks instead of locs
