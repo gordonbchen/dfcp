@@ -41,7 +41,7 @@ def prepare(gen_file: Path, output_dir: Path) -> tuple[int, int]:
                 raise ValueError("invalid fastsimcoal .gen header")
 
             n_haplotypes = len(header) - 4
-            positions = []
+            variant_pos = []
             chromosome = None
             sequences.write(SEQ_HEADER.pack(b"DFCP", n_haplotypes, 0))
 
@@ -58,22 +58,22 @@ def prepare(gen_file: Path, output_dir: Path) -> tuple[int, int]:
                     raise ValueError("DFCP position files support one chromosome")
 
                 position = int(fields[1])
-                if positions and position < positions[-1]:
+                if variant_pos and position < variant_pos[-1]:
                     raise ValueError("variant positions are not sorted")
-                positions.append(position)
+                variant_pos.append(position)
                 pack_locus(fields[4:], sequences)
 
-            if not positions:
+            if not variant_pos:
                 raise ValueError("fastsimcoal .gen file has no variants")
             sequences.seek(0)
-            sequences.write(SEQ_HEADER.pack(b"DFCP", n_haplotypes, len(positions)))
+            sequences.write(SEQ_HEADER.pack(b"DFCP", n_haplotypes, len(variant_pos)))
 
-        with pos_tmp.open("w") as positions_file:
-            positions_file.write(f"{len(positions)}\n{', '.join(map(str, positions))}\n")
+        with pos_tmp.open("w") as variant_pos_file:
+            variant_pos_file.write(f"{len(variant_pos)}\n{', '.join(map(str, variant_pos))}\n")
 
         os.replace(seq_tmp, seq_output)
         os.replace(pos_tmp, pos_output)
-        return n_haplotypes, len(positions)
+        return n_haplotypes, len(variant_pos)
     finally:
         seq_tmp.unlink(missing_ok=True)
         pos_tmp.unlink(missing_ok=True)

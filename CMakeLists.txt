@@ -16,12 +16,12 @@ add_executable(impute
     src/max.cpp
     src/expect.cpp
     src/elbo.cpp
-    src/tree.cpp
     src/math.cpp
     src/util.cpp
     src/pbwt.cpp
     src/fwd_bkwd.cpp
     src/impute_io.cpp
+    src/r_assign_io.cpp
     src/io.cpp
 )
 
@@ -52,6 +52,26 @@ target_include_directories(eval_impute PRIVATE
 )
 
 target_compile_options(eval_impute PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -O3
+)
+
+add_executable(eval_clusters
+    src/eval_clusters.cpp
+    src/r_assign_io.cpp
+    src/seq_array.cpp
+    src/tree.cpp
+    src/util.cpp
+    src/io.cpp
+)
+
+target_include_directories(eval_clusters PRIVATE
+    include
+)
+
+target_compile_options(eval_clusters PRIVATE
     -Wall
     -Wextra
     -Wpedantic

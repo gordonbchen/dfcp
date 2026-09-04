@@ -31,7 +31,9 @@ ImputeProbReader::ImputeProbReader(const char* filename) : input(filename, std::
         throw std::runtime_error("Invalid imputation probability magic.");
     }
 
-    file_header = {read_uint32_le(input), read_uint32_le(input)};
+    std::array<std::uint32_t, 2> dimensions;
+    read_bytes(input, dimensions.data(), sizeof(dimensions));
+    file_header = {dimensions[0], dimensions[1]};
     if (file_header.n_sequences == 0 || file_header.n_loci == 0) {
         throw std::runtime_error("Imputation probability dimensions must be positive.");
     }
@@ -49,7 +51,7 @@ const ImputeProbHeader& ImputeProbReader::header() const {
 }
 
 void ImputeProbReader::read_row(std::span<std::uint16_t> values) {
-    read_uint16s_le(input, values);
+    read_bytes(input, values.data(), values.size_bytes());
 }
 
 
@@ -57,8 +59,8 @@ ImputeProbWriter::ImputeProbWriter(const char* filename, int n_sequences_, int n
     output(filename), n_sequences(n_sequences_), n_loci(n_loci_), row_buffer(n_loci)
 {
     write_bytes(output.stream(), prob_magic.data(), prob_magic.size());
-    write_uint32_le(output.stream(), n_sequences);
-    write_uint32_le(output.stream(), n_loci);
+    std::array<std::uint32_t, 2> dimensions{n_sequences, n_loci};
+    write_bytes(output.stream(), dimensions.data(), sizeof(dimensions));
 }
 
 void ImputeProbWriter::write_row(std::span<const double> allele_probs) {
@@ -69,7 +71,7 @@ void ImputeProbWriter::write_row(std::span<const double> allele_probs) {
         }
         row_buffer[l] = static_cast<std::uint16_t>(std::lround(probability * fixed_point_max));
     }
-    write_uint16s_le(output.stream(), row_buffer);
+    write_bytes(output.stream(), row_buffer.data(), row_buffer.size() * sizeof(std::uint16_t));
     ++rows_written;
 }
 

@@ -27,7 +27,8 @@ current executable.
 ### Root files
 
 - `notes.typ`: model derivations, inference notes, metrics, and research TODOs.
-- `CMakeLists.txt`: builds the `impute` and `eval_impute` C++20 executables.
+- `CMakeLists.txt`: builds the `impute`, `eval_impute`, and `eval_clusters`
+  C++20 executables.
 - `build.sh`: configures `build/`, links `compile_commands.json`, and builds.
 - `README.md`: short project title only; use this guide for operational docs.
 - `.clangd`: strict unused-include and missing-include diagnostics.
@@ -44,6 +45,7 @@ current executable.
   sequence-file reader.
 - `include/io.hpp`: shared little-endian binary I/O and atomic output writing.
 - `include/impute_io.hpp`: streamed fixed-point imputation probability I/O.
+- `include/r_assign_io.hpp`: streamed R-assignment I/O.
 - `include/clusters.hpp`: `R`/`Q` graph nodes, ownership, assignments, and
   cluster mutation interface, including the emission-mode enum.
 - `include/max.hpp`: serial and batched sequence reassignment and insertion entry points.
@@ -63,8 +65,11 @@ current executable.
   from locus-major file words to sequence-major memory words.
 - `src/io.cpp`: exact binary reads/writes, endian conversion, and atomic file output.
 - `src/impute_io.cpp`: little-endian imputation probability I/O.
+- `src/r_assign_io.cpp`: R-assignment I/O.
 - `src/eval_impute.cpp`: pooled minor-allele r-squared and accuracy across
   materialized VCF windows.
+- `src/eval_clusters.cpp`: standalone partition and tree evaluation from
+  assignments, reference alleles, positions, and fastsimcoal trees.
 - `src/clusters.cpp`: cluster creation/deletion, graph links, assignments,
   hard-emission indexes, and soft-emission counts.
 - `src/max.cpp`: hard and soft sequencewise Viterbi maximization, including
@@ -233,31 +238,30 @@ Important invariants:
 - Use `idx2d` for flat indexing rather than reproducing index arithmetic.
 
 `Clusters` stores a reference to `HyperParams`. `HP.N` is deliberately changed
-during sequential initialization and validation splitting, so understand the
-current value before using it.
+during sequential initialization, so understand the current value before using
+it.
 
 ## Runtime Data Flow
 
 `src/impute.cpp` performs these steps:
 
-1. Read locus-major bitpacked reference and target files and transpose each
-   into an in-memory sequence-major `SeqArray`.
-2. Read the map from full reference loci to compact observed-target columns.
+1. Read the locus-major bitpacked reference file and transpose it into an
+   in-memory sequence-major `SeqArray`.
+2. If target imputation was requested, read the target and observed-loci files.
 3. Parse all optional arguments as option/value pairs.
 4. Initialize parameters and clusters, either as one block, with PBWT groups,
    or by adding sequences through Viterbi.
 5. Unless `--init_only 1` is set, run Expectation-Maximization until early
    stopping.
-6. Impute target loci absent from the observed-target map without inserting
-   target sequences into the fitted reference cluster graph, streaming one
-   fixed-point probability row at a time.
-7. Write diagnostics to stderr and one JSON object to stdout.
+6. Optionally write the final R assignment at every reference sequence and
+   locus.
+7. If target inputs were provided, impute loci absent from the observed-target
+   map without inserting target sequences into the fitted graph.
+8. Write diagnostics to stderr and one JSON object to stdout.
 
-This combined fitting-and-imputation interface is scheduled to be split. The
-planned `train` executable will write a frozen `DFCM` model and, optionally, a
-`DFCA` R-assignment file. The planned `impute` executable will load `DFCM` and
-perform only target inference. Until that work is complete, the combined flow
-above is authoritative.
+Target sequence, observed-loci, and probability output paths are one optional
+positional group: either provide all three or none. A frozen-model split remains
+a possible later change, not part of the active interface.
 
 ## Input Formats
 
@@ -313,12 +317,9 @@ above is authoritative.
 
 ### Variant position file
 
-This format is used by the currently inactive evaluation sources, not by
-`dfcp`'s active command line.
-
-The parser expects an integer count followed by comma-separated integer
-positions. `--variant_start_pos` is a zero-based index into this list, not a
-genomic coordinate, despite the option name.
+This format is consumed by `eval_clusters`. It contains a positive integer
+count followed by that many comma-separated integer positions. The position
+file prepared from fastsimcoal has exactly one entry for each reference locus.
 
 ### fastsimcoal genotype table
 
@@ -354,9 +355,9 @@ python3 scripts/fsc_sim/prep_data.py \
 This writes `data/fsc/prepared/ref.bin` and
 `data/fsc/prepared/variant_pos.txt`.
 
-### Planned cluster assignment file
+### R assignment file
 
-The planned assignment format begins with magic `DFCA`, followed by
+The R-assignment format begins with magic `DFRA`, followed by
 little-endian `uint32` values `N` and `L`, then row-major `[N][L]` R-cluster
 IDs. IDs are equality labels and need not be dense. The evaluator will remap
 them densely at each locus rather than sizing bitsets from
@@ -393,11 +394,11 @@ at exactly that position.
 
 ## Command-Line Interface
 
-Build and run from the repository root:
+Build and run from the repository root. Target imputation is optional:
 
 ```bash
 ./build.sh
-./build/impute REF_FILE TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE [OPTION VALUE]...
+./build/impute REF_FILE [TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE] [OPTION VALUE]...
 ```
 
 Every option requires a value, including booleans. There is no `--help` path.
@@ -418,6 +419,7 @@ Every option requires a value, including booleans. There is no `--help` path.
   sequential reinsertion; defaults to `1`, which preserves serial maximization.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
   imputation only when the value is exactly `1`.
+- `--output_r_assign`: write final reference R assignments to the given path.
 
 A prepared 1000 Genomes invocation is:
 
@@ -441,17 +443,17 @@ Evaluate the probabilities with:
 The evaluator expects each completed window's probability file under `impute/`
 to have the requested run name and a `.bin` extension.
 
-The planned split interface is:
+Train without target imputation and evaluate the fastsimcoal clusters with:
 
 ```bash
-./build/train REF_FILE MODEL_FILE [OPTION VALUE]...
-./build/impute MODEL_FILE TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE [OPTION VALUE]...
+./build/impute data/fsc/prepared/ref.bin \
+  --output_r_assign data/fsc/prepared/r_assign.bin
+./build/eval_clusters \
+  data/fsc/prepared/ref.bin \
+  data/fsc/prepared/r_assign.bin \
+  data/fsc/prepared/variant_pos.txt \
+  data/fsc/ex_0_pop_1/ex_0_pop_1_1_true_trees.trees
 ```
-
-Training-only options will remain on `train`; `--viterbi_impute` will remain on
-`impute`. `train` will accept an optional path-valued
-`--output_clusters FILE` option. Do not document this as active until the split
-is implemented and verified.
 
 ## Output
 
@@ -460,17 +462,20 @@ one JSON object suitable for scripts.
 
 Always-present fields include:
 
-- `ref_file`, `target_file`, and `observed_loci_file`
-- `t_init` and `t_impute`
+- `ref_file`
+- `t_init`
+
+`target_file`, `observed_loci_file`, and `t_impute` are present only when
+imputation was requested.
 
 Unless `--init_only 1` is set, output also includes `train_log` and the fitted
 parameter moments under `params`. Each training record includes `mean_nR`, the
 mean number of active R clusters per locus. Probabilities are written to
-`PROB_FILE` and are not accumulated in JSON. Cluster assignments are not serialized.
+`PROB_FILE` and are not accumulated in JSON. `--output_r_assign` writes the
+final reference R assignments independently of whether imputation was requested.
 
-The cluster and tree metrics below describe intended behavior in inactive
-evaluation sources. Imputation r-squared and accuracy are active in
-`eval_impute`; they are not emitted by `dfcp`.
+Cluster and tree metrics are emitted by `eval_clusters`. Imputation r-squared
+and accuracy are emitted by `eval_impute`.
 
 ## Evaluation Metrics
 
@@ -514,11 +519,7 @@ downweight singleton and full-sample clusters. Shapes below `1` are rejected
 because their density is infinite at those endpoints. If every cluster has
 zero weight, the executable reports `-1` to mark the aggregate as undefined.
 
-The clade maximization uses a postorder traversal for each cluster. With
-validation enabled, held-out leaves contribute neither intersections nor clade
-sizes, which is equivalent to evaluating descendant-leaf sets on the tree
-induced by training leaves. Unary ancestors created by pruning are dominated
-by their retained child.
+The clade maximization uses a postorder traversal for each cluster.
 
 ### Adjacent-locus IoU
 
@@ -529,9 +530,9 @@ emissions.
 
 ### Purity
 
-Hard clusters are emission-pure by construction, so hard-mode purity is `1`.
-Soft-mode purity sums each cluster's majority observed allele count and divides
-by `L * n_train_seqs`.
+`eval_clusters` sums the majority reference allele in each inferred cluster and
+divides by `N * L`. Hard clusters are emission-pure by construction, so their
+empirical purity is `1`.
 
 ### Minor-allele imputation r²
 
@@ -592,10 +593,6 @@ cases are:
   by that child.
 - Random small binary trees and partitions checked against every explicit
   descendant-leaf set.
-- Validation-enabled runs, to exercise `train_idxs` and pruning of held-out
-  tree leaves.
-
-Use a fixed nonzero `--seed` for deterministic validation and mask selection.
 
 ## Known Caveats
 
@@ -612,8 +609,7 @@ Use a fixed nonzero `--seed` for deterministic validation and mask selection.
 - Unordered containers and exact score ties can make fitting nondeterministic.
 - Tree parsing is intentionally specialized and does not validate arbitrary
   Newick trees.
-- DOT output is written as a 16-locus graph. Inputs shorter than 16 loci
-  do not reach the expected closing-locus condition.
+- DOT output contains at most the first 16 evaluated loci.
 - `Json` rejects NaN and infinity, so metrics must define finite edge-case
   behavior.
 - `notes.typ` contains both current soft-model work and superseded hard-model
