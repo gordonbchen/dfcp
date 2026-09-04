@@ -2,11 +2,13 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 #include "hyperparams.hpp"
+#include "r_assign_io.hpp"
 #include "impute_io.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
@@ -204,17 +206,29 @@ std::unordered_map<int, int> read_obs_ls(const char *filename, int n_obs_ls, int
 int main(int argc, char *argv[]) {
     Json json;
 
-    // Read ref and target files.
-    if (argc < 5) {
-        throw std::invalid_argument("Requires ref bin, target obs bin, observed loci, and prob output file.");
+    if (argc < 2) { throw std::invalid_argument("Requires a reference sequence file."); }
+
+    bool run_imputation = argc > 2 && argv[2][0] != '-';
+    if (run_imputation && argc < 5) {
+        throw std::invalid_argument("Imputation requires target, observed loci, and probability files.");
     }
-    std::cerr << "ref_file=" << argv[1] << " target_file=" << argv[2]
-        << " observed_loci_file=" << argv[3] << " prob_file=" << argv[4] << '\n';
-    json.add("ref_file", argv[1]).add("target_file", argv[2]).add("observed_loci_file", argv[3]);
 
     SeqArray x_train{read_seq_file(argv[1])};
-    SeqArray x_val{read_seq_file(argv[2])};
-    std::unordered_map<int, int> obs_ls{read_obs_ls(argv[3], x_val.L, x_train.L)};
+    std::optional<SeqArray> x_val;
+    std::unordered_map<int, int> obs_ls;
+    if (run_imputation) {
+        x_val.emplace(read_seq_file(argv[2]));
+        obs_ls = read_obs_ls(argv[3], x_val->L, x_train.L);
+    }
+
+    std::cerr << "ref_file=" << argv[1];
+    json.add("ref_file", argv[1]);
+    if (run_imputation) {
+        std::cerr << " target_file=" << argv[2] << " observed_loci_file=" << argv[3]
+            << " prob_file=" << argv[4];
+        json.add("target_file", argv[2]).add("observed_loci_file", argv[3]);
+    }
+    std::cerr << '\n';
 
     HyperParams HP{.N=x_train.N, .L=x_train.L, .K=2};
 
@@ -230,8 +244,9 @@ int main(int argc, char *argv[]) {
     int max_train_steps = std::numeric_limits<int>::max();
 
     bool viterbi_impute = false;
+    const char* r_assign_file = nullptr;
 
-    int i = 5;
+    int i = run_imputation ? 5 : 2;
     while (i < argc) {
         if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
 
@@ -268,6 +283,7 @@ int main(int argc, char *argv[]) {
         else if (arg == "--max_train_steps") { max_train_steps = parse_int(argv[i+1]); }
 
         else if (arg == "--viterbi_impute") { viterbi_impute = (parse_int(argv[i+1]) == 1); }
+        else if (arg == "--output_r_assign") { r_assign_file = argv[i+1]; }
 
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
@@ -285,16 +301,17 @@ int main(int argc, char *argv[]) {
         json
     );
 
-    auto t0 = std::chrono::steady_clock::now();
-    impute(
-        x_val, obs_ls,
-        viterbi_impute,
-        clusters, params, HP,
-        argv[4]
-    );
-    auto t1 = std::chrono::steady_clock::now();
-    auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    std::cerr << "t_impute=" << t_impute << "ms\n";
-    json.add("t_impute", t_impute);
+    if (r_assign_file != nullptr) {
+        write_r_assign(r_assign_file, clusters);
+    }
+
+    if (run_imputation) {
+        auto t0 = std::chrono::steady_clock::now();
+        impute(*x_val, obs_ls, viterbi_impute, clusters, params, HP, argv[4]);
+        auto t1 = std::chrono::steady_clock::now();
+        auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        std::cerr << "t_impute=" << t_impute << "ms\n";
+        json.add("t_impute", t_impute);
+    }
     std::cout << json.str() << '\n';
 }

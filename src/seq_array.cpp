@@ -6,7 +6,6 @@
 #include <fstream>
 #include <ios>
 #include <limits>
-#include <span>
 #include <stdexcept>
 #include <vector>
 #include "io.hpp"
@@ -53,8 +52,9 @@ SeqArray read_seq_file(const char *filename) {
         throw std::runtime_error("Invalid seq file magic.");
     }
 
-    std::uint32_t n_file = read_uint32_le(file);
-    std::uint32_t l_file = read_uint32_le(file);
+    std::array<std::uint32_t, 2> dimensions;
+    read_bytes(file, dimensions.data(), sizeof(dimensions));
+    auto [n_file, l_file] = dimensions;
     constexpr auto int_max = static_cast<std::uint32_t>(std::numeric_limits<int>::max());
     if (n_file == 0 || n_file > int_max || l_file == 0 || l_file > int_max) {
         throw std::runtime_error("Seq file dimensions must fit in positive int values.");
@@ -78,7 +78,7 @@ SeqArray read_seq_file(const char *filename) {
     for (int first_locus = 0; first_locus < L; first_locus += word_bits) {
         int block_loci = std::min(word_bits, L - first_locus);
         std::size_t block_words = static_cast<std::size_t>(block_loci) * words_per_locus;
-        read_uint64s_le(file, std::span(locus_block.data(), block_words));
+        read_bytes(file, locus_block.data(), block_words * sizeof(std::uint64_t));
 
         int used_bits = N % word_bits;
         if (used_bits != 0) {
