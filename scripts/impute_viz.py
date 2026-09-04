@@ -7,21 +7,23 @@ import sys
 from pathlib import Path
 
 import plotly.graph_objects as go
+from plotly.colors import qualitative
 from plotly_html import ensure_plotly_asset
 
 FIELDS = ["mac", "n_loci", "n_predictions", "r2", "accuracy"]
+Evaluation = tuple[list[int], list[int], list[float], list[float]]
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Plot imputation accuracy and r-squared by reference minor-allele count.",
     )
-    parser.add_argument("evaluation", type=Path, help="aggregate TSV written by eval_impute")
+    parser.add_argument("evaluations", type=Path, nargs="+", help="aggregate imputation TSV files")
     parser.add_argument("--output", type=Path, default=Path("impute.html"))
     return parser.parse_args()
 
 
-def read_evaluation(path: Path) -> tuple[list[int], list[int], list[float], list[float]]:
+def read_evaluation(path: Path) -> Evaluation:
     macs = []
     n_loci = []
     r2 = []
@@ -56,35 +58,24 @@ def read_evaluation(path: Path) -> tuple[list[int], list[int], list[float], list
     return macs, n_loci, r2, accuracy
 
 
-def make_figure(
-    macs: list[int],
-    n_loci: list[int],
-    r2: list[float],
-    accuracy: list[float],
-) -> go.Figure:
+def make_figure(evaluations: list[tuple[Path, Evaluation]]) -> go.Figure:
     hover = (
         "reference MAC=%{x}<br>%{fullData.name}=%{y:.4f}"
         "<br>n_loci=%{customdata:,}<extra></extra>"
     )
     figure = go.Figure()
-    figure.add_trace(go.Scatter(
-        x=macs,
-        y=[None if value < 0.0 else value for value in r2],
-        customdata=n_loci,
-        mode="lines",
-        name="r²",
-        line={"color": "#3366cc", "width": 2},
-        hovertemplate=hover,
-    ))
-    figure.add_trace(go.Scatter(
-        x=macs,
-        y=accuracy,
-        customdata=n_loci,
-        mode="lines",
-        name="Accuracy",
-        line={"color": "#ef8a35", "width": 2},
-        hovertemplate=hover,
-    ))
+    for i, (path, (macs, n_loci, r2, accuracy)) in enumerate(evaluations):
+        color = qualitative.Plotly[i % len(qualitative.Plotly)]
+        for metric, values, dash in (("r²", r2, "solid"), ("accuracy", accuracy, "dash")):
+            figure.add_trace(go.Scatter(
+                x=macs,
+                y=[None if value < 0.0 else value for value in values],
+                customdata=n_loci,
+                mode="lines",
+                name=f"{path.name} {metric}",
+                line={"color": color, "width": 2, "dash": dash},
+                hovertemplate=hover,
+            ))
     figure.update_layout(
         title="Imputation performance by reference minor-allele count",
         xaxis_title="Reference minor-allele count (haplotypes)",
@@ -93,16 +84,16 @@ def make_figure(
         yaxis_range=[0, 1],
         template="plotly_white",
         hovermode="x unified",
-        legend={"orientation": "h", "y": 1.08, "x": 1, "xanchor": "right"},
-        margin={"l": 70, "r": 30, "t": 80, "b": 65},
+        legend={"y": 1, "x": 1.02, "xanchor": "left"},
+        margin={"l": 70, "r": 300, "t": 80, "b": 65},
     )
     return figure
 
 
 def main() -> None:
     args = parse_args()
-    values = read_evaluation(args.evaluation)
-    figure = make_figure(*values)
+    evaluations = [(path, read_evaluation(path)) for path in args.evaluations]
+    figure = make_figure(evaluations)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     figure.write_html(
         args.output,
@@ -110,7 +101,7 @@ def main() -> None:
         config={"responsive": True, "displaylogo": False},
     )
     print(
-        f"wrote {args.output}: mac_bins={len(values[0])} n_masked_loci={sum(values[1])}",
+        f"wrote {args.output}: evaluations={len(evaluations)}",
         file=sys.stderr,
     )
 

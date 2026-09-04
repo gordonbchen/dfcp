@@ -109,10 +109,12 @@ current executable.
 - `scripts/1000g_phase3_v5b/impute.sh`: builds and imputes every materialized
   window with configurable process concurrency, writing named `.bin`, `.json`,
   and buffered `.log` files under each window's `impute/` directory.
+- `scripts/1000g_phase3_v5b/beagle.py`: runs full-chromosome Beagle imputation
+  and writes pooled accuracy and r-squared by reference minor-allele count.
 - `scripts/1000g_phase3_v5b/window_viz.py`: interactive physical/genetic
   window-selection report using the same boundary formula as `window.py`.
-- `scripts/impute_viz.py`: plots pooled imputation r-squared and accuracy by
-  reference minor-allele count from `eval_impute` TSV output.
+- `scripts/impute_viz.py`: compares one or more pooled imputation TSV files by
+  reference minor-allele count.
 - `scripts/fsc_sim/prep_data.py`: converts one haploid fastsimcoal `.gen` table
   into a locus-major bitpacked `ref.bin` and aligned `variant_pos.txt`.
 - `scripts/fsc_sim/run.sh`: reproducibly runs the configured fastsimcoal
