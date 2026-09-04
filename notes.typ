@@ -1960,9 +1960,14 @@ metrics
 #pagebreak()
 = TODO
 
+= longer clusters (better imputation)
+- set d very very low
+- dfcp on pbwt match blocks instead of locs
+- coreset w/ pbwt
+- dynamic coreset, throwing away people not in same clusters after first dfcp run?
+
 = evals
-- dfcp vs beagle imputation
-- ancestral tree time sampling: density plot of best clade time for each cluster
+- dfcp vs beagle ancestral tree time sampling: density plot of best clade time for each cluster
 
 == model changes
 - $d_l$ depending on genetic dist or the other way, estimating dist via $d_l$
@@ -1971,7 +1976,6 @@ metrics
 - $epsilon$ per location for noisy
 
 == ideas
-- multiple sequences (cluster?) taken out during maximization / stochastic updates
 - phasing?
 - saving dfcp after training, loading for inference
 - beagle-like composite / coreset to compress reference
