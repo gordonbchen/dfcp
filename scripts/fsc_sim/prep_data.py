@@ -69,9 +69,7 @@ def prepare(gen_file: Path, output_dir: Path) -> tuple[int, int]:
             sequences.write(SEQ_HEADER.pack(b"DFCP", n_haplotypes, len(positions)))
 
         with pos_tmp.open("w") as positions_file:
-            positions_file.write(f"{len(positions)}\n")
-            positions_file.write(", ".join(map(str, positions)))
-            positions_file.write("\n")
+            positions_file.write(f"{len(positions)}\n{', '.join(map(str, positions))}\n")
 
         os.replace(seq_tmp, seq_output)
         os.replace(pos_tmp, pos_output)
