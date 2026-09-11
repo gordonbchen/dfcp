@@ -1960,6 +1960,7 @@ metrics
 #pagebreak()
 = TODO
 - faster pbwt
+- shapeit eval
 
 = read
 - The Power of Amnesia: Ron et al
