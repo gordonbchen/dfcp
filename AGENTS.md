@@ -119,6 +119,10 @@ current executable.
   into a locus-major bitpacked `ref.bin` and aligned `variant_pos.txt`.
 - `scripts/fsc_sim/run.sh`: reproducibly runs the configured fastsimcoal
   template with an explicit seed and then prepares its `.gen` output.
+- `scripts/fsc_sim/benchmark.py`: benchmarks PBWT initialization and training
+  on the prepared fastsimcoal fixture and evaluates every R assignment.
+- `scripts/cluster_viz.py`: compares clade-weighted best-clade-time and exact
+  R-cluster-tract densities from multiple `eval_clusters` runs.
 
 ### Deprecated Python
 
@@ -419,6 +423,7 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--init_only`: skip ME training only when the value is exactly `1`.
 - `--max_batch_size`: sequences removed before parallel Viterbi searches and
   sequential reinsertion; defaults to `1`, which preserves serial maximization.
+- `--max_train_steps`: maximum ME iterations; defaults to no fixed limit.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
   imputation only when the value is exactly `1`.
 - `--output_r_assign`: write final reference R assignments to the given path.
@@ -479,6 +484,12 @@ final reference R assignments independently of whether imputation was requested.
 Cluster and tree metrics are emitted by `eval_clusters`. Imputation r-squared
 and accuracy are emitted by `eval_impute`.
 
+`eval_clusters` accepts `--clade_times FILE` to write one row per inferred
+cluster and locus with its best-matching true-clade time, IoU, size, and clade
+weight. `--cluster_tracts FILE` writes maximal runs over which an R cluster has
+exactly the same member set. Each tract records its locus length and physical
+span. Both outputs are TSVs and are written atomically.
+
 ## Evaluation Metrics
 
 ### Excess parsimony
@@ -525,10 +536,19 @@ The clade maximization uses a postorder traversal for each cluster.
 
 ### Adjacent-locus IoU
 
-`mean_iou` compares the relations "sequence pair is co-clustered" at adjacent
-loci. It is not a mean of Jaccard scores between individual clusters.
-`mean_emission_iou` applies the same pairwise relation to equal observed
+`mean_adj_iou` compares the relations "sequence pair is co-clustered" at
+adjacent loci. It is not a mean of Jaccard scores between individual clusters.
+`mean_adj_emission_iou` applies the same pairwise relation to equal observed
 emissions.
+
+### Exact R-cluster tracts
+
+An exact R-cluster tract is a maximal consecutive run of loci containing a
+cluster with precisely the same member set. Cluster IDs are ignored. The
+evaluator reports mean tract lengths in loci and base-pair span. A one-locus
+tract has a zero-base-pair span. This is a strict, directly interpretable
+length; adjacent-locus IoU is its flexible companion because a small membership
+change lowers IoU gradually but breaks an exact tract.
 
 ### Purity
 
