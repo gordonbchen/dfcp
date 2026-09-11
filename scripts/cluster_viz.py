@@ -56,6 +56,8 @@ def densities(
 
 
 def display_name(name: str) -> str:
+    if name == "beagle4":
+        return "Beagle 4 DAG"
     return name.replace("pbwt", "PBWT ").replace("_", " ")
 
 

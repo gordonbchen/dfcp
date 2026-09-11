@@ -13,8 +13,9 @@
   trees. It reports partition continuity, exact cluster-tract length, cluster count, purity, excess
   parsimony, and cluster-to-clade IoU, with optional per-cluster clade-time and tract TSVs.
 - The complete 100-haplotype, 13,624-locus fastsimcoal fixture trains and evaluates successfully.
-- `scripts/fsc_sim/benchmark.py` compares PBWT match lengths and training stages on that fixture;
-  `scripts/cluster_viz.py` compares their clade-time and exact-tract densities.
+- `scripts/fsc_sim/benchmark.py` compares PBWT match lengths, training stages,
+  and the Beagle 4 DAG baseline on that fixture; `scripts/cluster_viz.py`
+  compares their clade-time and exact-tract densities.
 - The final fastsimcoal comparison retains PBWT 50/100/200 initialization, PBWT-200 training stages,
   and strong low-`d`/high-`alpha` controls. Low `d` lengthens exact tracts but does not improve clade IoU;
   strong `alpha` priors do not materially alter the three-step result.
@@ -29,9 +30,8 @@
 - Compare random small-tree results with brute-force descendant sets and parsimony enumeration.
 - Consider a lagged pairwise-IoU decay curve if exact tract lengths and adjacent-locus IoU do not adequately
   describe partition persistence.
-- Revisit Beagle cluster evaluation only if the intended older algorithm and a true partition of all
-  reference haplotypes are identified. Current Beagle marker clusters, local sequence codes, and composite
-  reference states are not comparable to DFCP's `R_l`.
+- Keep the Beagle 4 DAG-edge baseline separate from Beagle 5: its local DAG
+  partitions all haplotypes, whereas Beagle 5 composite-reference states do not.
 
 ## Later backlog
 
