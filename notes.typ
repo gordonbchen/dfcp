@@ -1959,18 +1959,18 @@ metrics
 
 #pagebreak()
 = TODO
+- faster pbwt
 
 = read
 - The Power of Amnesia: Ron et al
 
-= longer clusters (better imputation)
-- dfcp on pbwt match blocks instead of locs
-- coreset w/ pbwt
-- dynamic coreset, throwing away people not in same clusters after first dfcp run?
-
+= coresets
+- beagle composite
+- ref filtering w/ pbwt
+- coreset based on dfcp clustering?
 
 == ideas
-- beagle-like composite / coreset to compress reference
-- $d_l$ depending on genetic dist or the other way, estimating dist via $d_l$
-- phasing?
+- dfcp on pbwt match blocks instead of locs
+- correlation b/t $d_l$ and genetic dist (then adding to model)
+- phasing
 - clustering on transformer embeddings
