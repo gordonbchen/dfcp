@@ -236,12 +236,12 @@ int main(int argc, char *argv[]) {
     EmitMode emit_mode = EmitMode::hard;
 
     InitMode init_mode = InitMode::pbwt;
-    int pbwt_match_len = 5;
+    int pbwt_match_len = 20;
     bool pbwt_match_curr = true;
-    int max_batch_size = 1;
+    int max_batch_size = 4;
     bool init_only = false;
 
-    int max_train_steps = std::numeric_limits<int>::max();
+    int max_train_steps = 3;
 
     bool viterbi_impute = false;
     const char* r_assign_file = nullptr;

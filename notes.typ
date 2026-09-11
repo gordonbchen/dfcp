@@ -1964,22 +1964,13 @@ metrics
 - The Power of Amnesia: Ron et al
 
 = longer clusters (better imputation)
-- set d very very low
 - dfcp on pbwt match blocks instead of locs
 - coreset w/ pbwt
 - dynamic coreset, throwing away people not in same clusters after first dfcp run?
 
-= evals
-- dfcp vs beagle ancestral tree time sampling: density plot of best clade time for each cluster
-
-== model changes
-- $d_l$ depending on genetic dist or the other way, estimating dist via $d_l$
-- K at each position
-- $alpha$ per location: is this well justified (maintain CRP marginals?), is changing $d$? GP prior?
-- $epsilon$ per location for noisy
 
 == ideas
-- phasing?
-- saving dfcp after training, loading for inference
 - beagle-like composite / coreset to compress reference
+- $d_l$ depending on genetic dist or the other way, estimating dist via $d_l$
+- phasing?
 - clustering on transformer embeddings

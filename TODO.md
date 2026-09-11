@@ -10,10 +10,17 @@
 - `--output_r_assign FILE` writes final reference R assignments in the `DFRA` format without requiring
   target imputation.
 - `eval_clusters` reads reference alleles, `DFRA` R assignments, variant positions, and fastsimcoal true
-  trees. It reports partition continuity, cluster count, purity, excess parsimony, and cluster-to-clade IoU.
+  trees. It reports partition continuity, exact cluster-tract length, cluster count, purity, excess
+  parsimony, and cluster-to-clade IoU, with optional per-cluster clade-time and tract TSVs.
 - The complete 100-haplotype, 13,624-locus fastsimcoal fixture trains and evaluates successfully.
+- `scripts/fsc_sim/benchmark.py` compares PBWT match lengths, training stages,
+  and the Beagle 4 DAG baseline on that fixture; `scripts/cluster_viz.py`
+  compares their clade-time and exact-tract densities.
+- The final fastsimcoal comparison retains PBWT 50/100/200 initialization, PBWT-200 training stages,
+  and strong low-`d`/high-`alpha` controls. Low `d` lengthens exact tracts but does not improve clade IoU;
+  strong `alpha` priors do not materially alter the three-step result.
 
-## Next cluster-evaluation work
+## Later cluster-evaluation work
 
 - Review which scalar metrics should remain in the stable `eval_clusters` JSON interface.
 - Update or replace the legacy `scripts/parsimony.py`, which still targets the removed text-sequence
@@ -21,7 +28,10 @@
 - Add a small permanent fixture for sparse cluster IDs, exact clades, split clades, singleton clusters,
   full-sample clusters, repeated positions, and recombination-boundary selection.
 - Compare random small-tree results with brute-force descendant sets and parsimony enumeration.
-- Decide whether tree visualization belongs in `eval_clusters` or a separate visualization tool.
+- Consider a lagged pairwise-IoU decay curve if exact tract lengths and adjacent-locus IoU do not adequately
+  describe partition persistence.
+- Keep the Beagle 4 DAG-edge baseline separate from Beagle 5: its local DAG
+  partitions all haplotypes, whereas Beagle 5 composite-reference states do not.
 
 ## Later backlog
 

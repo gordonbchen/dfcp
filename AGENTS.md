@@ -12,10 +12,6 @@ At locus `l`, `R_l` partitions the sequences. Between adjacent loci, `R_l` is
 fragmented into `Q_l`, then `Q_l` is coagulated into `R_(l+1)`.
 
 The active implementation is the C++20 executable in `src/` and `include/`.
-The files in `py/` are the deprecated prototype. They can help explain the
-history of an algorithm, but new behavior belongs in C++ and should not be
-ported from Python without checking it against the current model.
-
 `notes.typ` is the main mathematical notebook. It includes derivations,
 experiments, corrections to earlier derivations, and future ideas. In
 particular, note the explicit corrections and warnings near the slice-sampling,
@@ -83,53 +79,20 @@ current executable.
 
 ### Scripts
 
-- `scripts/init.py`: compares initialization methods across DFCP modes, training
-  phases, masks, and simulated datasets, saves reusable JSON results, and can
-  rebuild its interactive Plotly report without rerunning DFCP.
-- `scripts/dfcp.py`: shared Python interface for building and running the C++
-  executable and parsing its JSON output.
-- `scripts/tune.py`: JSON-only noisy BoTorch optimization of interpretable prior
-  parameters for hard, noisy, and soft PBWT-initialized DFCP, independently for
-  each sequence file, with learned observation noise and adaptive recommendations.
-- `scripts/tune_viz.py`: reads tuning JSON and builds the interactive Plotly
-  hyperparameter-sensitivity report without rerunning DFCP.
-- `scripts/seq_file_name.py`: parses injected bit-flip and switch-error rates from
-  simulated haplotype filenames for consistent labels and ordering.
-- `scripts/plotly_html.py`: writes one shared `docs/assets/plotly.min.js` for generated
-  reports and can externalize the Plotly bundle from an existing report.
-- `scripts/parsimony.py`: evaluates simulated error files against true trees
-  and plots excess parsimony.
-- `scripts/viz.py`: reads one result JSON document from stdin or a file and
-  builds an interactive Plotly report; it renders DFCP's DOT tree output as
-  locus-selectable Graphviz SVGs with zoom controls.
-- `scripts/1000g_phase3_v5b/window.py`: writes aligned, equal-locus overlapping
-  reference and target VCF windows before DFCP bitpacking.
-- `scripts/1000g_phase3_v5b/prep_data.sh`: runs the complete 1000 Genomes data
-  preparation pipeline.
-- `scripts/1000g_phase3_v5b/impute.sh`: builds and imputes every materialized
-  window with configurable process concurrency, writing named `.bin`, `.json`,
-  and buffered `.log` files under each window's `impute/` directory.
-- `scripts/1000g_phase3_v5b/beagle.py`: runs full-chromosome Beagle imputation
-  and writes pooled accuracy and r-squared by reference minor-allele count.
-- `scripts/1000g_phase3_v5b/window_viz.py`: interactive physical/genetic
-  window-selection report using the same boundary formula as `window.py`.
-- `scripts/impute_viz.py`: compares one or more pooled imputation TSV files by
-  reference minor-allele count.
-- `scripts/fsc_sim/prep_data.py`: converts one haploid fastsimcoal `.gen` table
-  into a locus-major bitpacked `ref.bin` and aligned `variant_pos.txt`.
-- `scripts/fsc_sim/run.sh`: reproducibly runs the configured fastsimcoal
-  template with an explicit seed and then prepares its `.gen` output.
-
-### Deprecated Python
-
-- `py/generate.py`: historical simulator and a concise executable description
-  of the original generative process.
-- `py/me.py`: original hard-emission Maximization-Expectation prototype.
-- `py/impute.py`: old elementwise-masking imputation benchmark.
-
-Do not extend `py/`. The C++ version has different storage, sequential
-initialization, soft emissions, validation behavior, tree evaluation, and JSON
-output.
+- `scripts/1000g_phase3_v5b/README.md`: complete data preparation, windowing,
+  imputation, evaluation, and visualization instructions for the 1000 Genomes
+  chromosome 20 pipeline.
+- `scripts/fsc_sim/run.sh` and `prep_data.py`: run the configured fastsimcoal
+  simulation and convert its haploid `.gen` table to `ref.bin` and
+  `variant_pos.txt`.
+- `scripts/fsc_sim/benchmark.py`: train the final DFCP comparison configurations,
+  export the Beagle 4 DAG baseline, and evaluate every R assignment.
+- `scripts/fsc_sim/beagle4.py`: creates a temporary phased VCF from the `.gen`
+  table, compiles the local Beagle 4 source, and exports its DAG-edge assignments
+  in DFRA format.
+- `scripts/impute_viz.py` and `cluster_viz.py`: Plotly reports for pooled
+  imputation and cluster metrics, respectively.
+- `scripts/plotly_html.py`: shared local Plotly bundle support for reports.
 
 ## Mathematical Model
 
@@ -419,6 +382,7 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--init_only`: skip ME training only when the value is exactly `1`.
 - `--max_batch_size`: sequences removed before parallel Viterbi searches and
   sequential reinsertion; defaults to `1`, which preserves serial maximization.
+- `--max_train_steps`: maximum ME iterations; defaults to no fixed limit.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
   imputation only when the value is exactly `1`.
 - `--output_r_assign`: write final reference R assignments to the given path.
@@ -457,6 +421,29 @@ Train without target imputation and evaluate the fastsimcoal clusters with:
   data/fsc/ex_0_pop_1/ex_0_pop_1_1_true_trees.trees
 ```
 
+`scripts/fsc_sim/benchmark.py` includes the Beagle 4 DAG baseline. It requires
+`javac`, `java`, and the locally modified source under `beagle/src`; use
+`--javac` and `--java` when they are not on `PATH`. Run `beagle4.py` directly
+only to regenerate that baseline without rerunning the DFCP configurations:
+
+```bash
+python3 scripts/fsc_sim/beagle4.py \
+  data/fsc/ex_0_pop_1/ex_0_pop_1_1_1.gen \
+  output/fsc_clusters
+./build/eval_clusters \
+  data/fsc/prepared/ref.bin \
+  output/fsc_clusters/beagle4.r_assign.bin \
+  data/fsc/prepared/variant_pos.txt \
+  data/fsc/ex_0_pop_1/ex_0_pop_1_1_true_trees.trees \
+  --clade_times output/fsc_clusters/beagle4.clade_times.tsv \
+  --cluster_tracts output/fsc_clusters/beagle4.cluster_tracts.tsv \
+  > output/fsc_clusters/beagle4.eval.json
+```
+
+Beagle 4 rejects equal-position VCF records, so the temporary VCF raises only
+duplicate coordinates to the next unused base. DFCP evaluation still uses the
+original positions and locus order.
+
 ## Output
 
 The executable emits progress and human-readable metrics to stderr. Stdout is
@@ -478,6 +465,12 @@ final reference R assignments independently of whether imputation was requested.
 
 Cluster and tree metrics are emitted by `eval_clusters`. Imputation r-squared
 and accuracy are emitted by `eval_impute`.
+
+`eval_clusters` accepts `--clade_times FILE` to write one row per inferred
+cluster and locus with its best-matching true-clade time, IoU, size, and clade
+weight. `--cluster_tracts FILE` writes maximal runs over which an R cluster has
+exactly the same member set. Each tract records its locus length and physical
+span. Both outputs are TSVs and are written atomically.
 
 ## Evaluation Metrics
 
@@ -525,10 +518,19 @@ The clade maximization uses a postorder traversal for each cluster.
 
 ### Adjacent-locus IoU
 
-`mean_iou` compares the relations "sequence pair is co-clustered" at adjacent
-loci. It is not a mean of Jaccard scores between individual clusters.
-`mean_emission_iou` applies the same pairwise relation to equal observed
+`mean_adj_iou` compares the relations "sequence pair is co-clustered" at
+adjacent loci. It is not a mean of Jaccard scores between individual clusters.
+`mean_adj_emission_iou` applies the same pairwise relation to equal observed
 emissions.
+
+### Exact R-cluster tracts
+
+An exact R-cluster tract is a maximal consecutive run of loci containing a
+cluster with precisely the same member set. Cluster IDs are ignored. The
+evaluator reports mean tract lengths in loci and base-pair span. A one-locus
+tract has a zero-base-pair span. This is a strict, directly interpretable
+length; adjacent-locus IoU is its flexible companion because a small membership
+change lowers IoU gradually but breaks an exact tract.
 
 ### Purity
 
@@ -675,7 +677,7 @@ Active scripts are small command-line programs rather than a package.
 - Parse executable stdout as JSON; do not scrape stderr diagnostics.
 - Keep scripts runnable from the repository root, matching current paths.
 - Do not add dependencies for tasks the standard library handles clearly.
-- Do not add new logic to `py/`; place maintained utilities in `scripts/`.
+- Place maintained utilities in `scripts/`.
 
 ## Change Checklist
 
