@@ -91,7 +91,8 @@ current executable.
   table, compiles the local Beagle 4 source, and exports its DAG-edge assignments
   in DFRA format.
 - `scripts/impute_viz.py` and `cluster_viz.py`: Plotly reports for pooled
-  imputation and cluster metrics, respectively.
+  imputation and cluster metrics; the latter switches exact-tract units between
+  bp and loci.
 - `scripts/plotly_html.py`: shared local Plotly bundle support for reports.
 
 ## Mathematical Model
