@@ -89,46 +89,31 @@ struct PairPointerHash {
     }
 };
 
-void Clusters::pbwt_init(const SeqArray& x, int match_len, bool match_curr) {
+void Clusters::pbwt_init(const SeqArray& x, int match_len) {
     r_assign.resize(HP.N * HP.L, nullptr);
     q_assign.resize(HP.N * (HP.L-1), nullptr);
 
     auto [a, d] = pbwt(x);
-    auto [a_rev, d_rev] = reverse_pbwt(x);
-
-    std::vector<int> forward_group(HP.N, 0);
-    std::vector<int> backward_group(HP.N, 0);
-    int forward_group_idx;
-    int backward_group_idx;
+    std::vector<int> group(HP.N, 0);
+    std::vector<Cluster*> r_by_group(HP.N, nullptr);
 
     for (int l = 0; l < HP.L; ++l) {
-        forward_group_idx = 0;
-        backward_group_idx = 0;
+        int start = std::max(0, l-match_len+1);
+        int end = std::min(HP.L, l+match_len);
+        int group_idx = 0;
 
         for (int i = 0; i < HP.N; ++i) {
-            if ((i != 0) && (d[idx2d(i,l+match_curr,HP.L+1)] > std::max(l+match_curr-match_len, 0))) {
-                ++forward_group_idx;
+            if (i != 0 && d[idx2d(i,end,HP.L+1)] > start) {
+                ++group_idx;
             }
-            forward_group[a[idx2d(i,l+match_curr,HP.L+1)]] = forward_group_idx;
-
-            if ((i != 0) && (d_rev[idx2d(i,l+1-match_curr,HP.L+1)]
-                             < std::min(l+1-match_curr+match_len, HP.L))) {
-                ++backward_group_idx;
-            }
-            backward_group[a_rev[idx2d(i,l+1-match_curr,HP.L+1)]] = backward_group_idx;
+            group[a[idx2d(i,end,HP.L+1)]] = group_idx;
         }
 
-        std::unordered_map<uint64_t, Cluster*> r_map;
+        std::fill(r_by_group.begin(), r_by_group.end(), nullptr);
         for (int i = 0; i < HP.N; ++i) {
-            uint64_t r_key = (static_cast<uint64_t>(forward_group[i]) << 32)
-                | static_cast<uint64_t>(backward_group[i]);
-            Cluster *c;
-            if (r_map.contains(r_key)) {
-                c = r_map.at(r_key);
-            }
-            else {
+            Cluster*& c = r_by_group[group[i]];
+            if (c == nullptr) {
                 c = create_empty_cluster(true, l, x(i, l));
-                r_map.emplace(r_key, c);
             }
             cluster_add(c, i, x(i, l));
         }

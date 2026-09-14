@@ -6,4 +6,3 @@
 
 
 std::pair<std::vector<int>, std::vector<int>> pbwt(const SeqArray& x);
-std::pair<std::vector<int>, std::vector<int>> reverse_pbwt(const SeqArray& x);

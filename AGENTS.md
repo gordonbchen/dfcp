@@ -376,9 +376,8 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--lambda_1`, `--lambda_2`: Beta shapes for the noisy-emission error rate.
 - `--init`: initialization method, one of `viterbi`, `block`, or `pbwt`;
   defaults to `pbwt`.
-- `--pbwt_match_len`: PBWT initialization match length; defaults to `5`.
-- `--pbwt_match_curr`: include the current locus in PBWT matching only when the
-  value is exactly `1`; defaults to enabled.
+- `--pbwt_match_len`: PBWT match radius; an interior cluster matches
+  `2 * match_len - 1` loci centered on its locus. Defaults to `20`.
 - `--init_only`: skip ME training only when the value is exactly `1`.
 - `--max_batch_size`: sequences removed before parallel Viterbi searches and
   sequential reinsertion; defaults to `1`, which preserves serial maximization.

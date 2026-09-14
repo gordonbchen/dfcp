@@ -59,7 +59,7 @@ class EarlyStopping {
 
 void train_dfcp(
     Clusters& clusters, Params& params, HyperParams& HP,
-    InitMode init_mode, int pbwt_match_len, bool pbwt_match_curr, bool init_only,
+    InitMode init_mode, int pbwt_match_len, bool init_only,
     const SeqArray& x_train, int max_batch_size, int max_train_steps,
     Json& json
 ) {
@@ -71,7 +71,7 @@ void train_dfcp(
             break;
         case InitMode::pbwt:
             if (HP.K != 2) { throw std::invalid_argument("PBWT init only supported for K=2."); }
-            clusters.pbwt_init(x_train, pbwt_match_len, pbwt_match_curr);
+            clusters.pbwt_init(x_train, pbwt_match_len);
             break;
         case InitMode::viterbi:
             HP.N = 0;
@@ -237,7 +237,6 @@ int main(int argc, char *argv[]) {
 
     InitMode init_mode = InitMode::pbwt;
     int pbwt_match_len = 20;
-    bool pbwt_match_curr = true;
     int max_batch_size = 4;
     bool init_only = false;
 
@@ -276,7 +275,6 @@ int main(int argc, char *argv[]) {
             else { throw std::invalid_argument("init must be viterbi, block, or pbwt."); }
         }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
-        else if (arg == "--pbwt_match_curr") { pbwt_match_curr = (parse_int(argv[i+1]) == 1); }
         else if (arg == "--max_batch_size") { max_batch_size = parse_int(argv[i+1]); }
         else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
 
@@ -296,7 +294,7 @@ int main(int argc, char *argv[]) {
 
     train_dfcp(
         clusters, params, HP,
-        init_mode, pbwt_match_len, pbwt_match_curr, init_only,
+        init_mode, pbwt_match_len, init_only,
         x_train, max_batch_size, max_train_steps,
         json
     );

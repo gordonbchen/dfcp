@@ -62,7 +62,7 @@ struct Clusters {
     Clusters(const HyperParams& HP_, EmitMode emit_mode_);
 
     void block_init(const SeqArray& x);
-    void pbwt_init(const SeqArray& x, int match_len, bool match_curr);
+    void pbwt_init(const SeqArray& x, int match_len);
 
     Cluster* create_cluster(const std::vector<int>& seqs, const SeqArray& x, bool is_r, int l, int emission);
 
