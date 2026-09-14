@@ -1957,13 +1957,53 @@ metrics
 
 
 
+
+#pagebreak()
+= DFCP PBWT
+
+== Problem
+- DFCP imputation is poor. Longer clusters make imputation better, since longer match history means
+  more likely to be related, more likely to share allele.
+- Ewens sampling should be on genes, not individual snps. DFCP on pbwt matches (related snsps) more closely
+  matches that interpretation.
+- Scalability: Will drastically reduce effective DFCP length, since we will work over sections instead
+  of individual snp locations.
+
+== DFCP
+$
+alpha ~& "Gamma"(tau_1, tau_2) \
+
+d_l ~& "Beta"(v_1, v_2) \ \
+
+
+R_0 ~& "CRP"(R, alpha, 0) \
+
+Q_l ~& "Frag"(R_l, 0, d_l) \
+
+R_(l+1) ~& "Coag"(Q_l, alpha\/d_l, 0) \ \ \
+
+
+gamma_l ~& "Gamma"(phi.alt_1, phi.alt_2) \
+
+beta_l ~& "Dirichlet"(gamma_l) \
+
+theta_(a l) ~& "Categorical"(beta_l) \ \
+
+x_(i l) =& theta_(a_(i l), l)
+$
+
+DFCP PBWT: Same but with cluster $l$ over blocks instead of loci.
+           and a sequence must hard match to the entire block.
+
+
+
 #pagebreak()
 = TODO
-- faster pbwt
 - shapeit eval
 
 = read
 - The Power of Amnesia: Ron et al
+- Eagle
 
 = coresets
 - beagle composite
