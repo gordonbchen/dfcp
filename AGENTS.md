@@ -216,8 +216,7 @@ it.
 3. Parse all optional arguments as option/value pairs.
 4. Initialize parameters and clusters, either as one block, with PBWT groups,
    or by adding sequences through Viterbi.
-5. Unless `--init_only 1` is set, run Expectation-Maximization until early
-   stopping.
+5. Run Expectation-Maximization until early stopping or `--max_train_steps`.
 6. Optionally write the final R assignment at every reference sequence and
    locus.
 7. If target inputs were provided, impute loci absent from the observed-target
@@ -378,10 +377,10 @@ Every option requires a value, including booleans. There is no `--help` path.
   defaults to `pbwt`.
 - `--pbwt_match_len`: PBWT match radius; an interior cluster matches
   `2 * match_len - 1` loci centered on its locus. Defaults to `20`.
-- `--init_only`: skip ME training only when the value is exactly `1`.
 - `--max_batch_size`: sequences removed before parallel Viterbi searches and
   sequential reinsertion; defaults to `1`, which preserves serial maximization.
-- `--max_train_steps`: maximum ME iterations; defaults to no fixed limit.
+- `--max_train_steps`: maximum ME iterations; `0` keeps the initialization
+  unchanged. Defaults to `3`.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
   imputation only when the value is exactly `1`.
 - `--output_r_assign`: write final reference R assignments to the given path.
@@ -456,11 +455,11 @@ Always-present fields include:
 `target_file`, `observed_loci_file`, and `t_impute` are present only when
 imputation was requested.
 
-Unless `--init_only 1` is set, output also includes `train_log` and the fitted
-parameter moments under `params`. Each training record includes `mean_nR`, the
-mean number of active R clusters per locus. Probabilities are written to
-`PROB_FILE` and are not accumulated in JSON. `--output_r_assign` writes the
-final reference R assignments independently of whether imputation was requested.
+Output includes `train_log` and the fitted parameter moments under `params`.
+Each training record includes `mean_nR`, the mean number of active R clusters
+per locus. Probabilities are written to `PROB_FILE` and are not accumulated in
+JSON. `--output_r_assign` writes the final reference R assignments independently
+of whether imputation was requested.
 
 Cluster and tree metrics are emitted by `eval_clusters`. Imputation r-squared
 and accuracy are emitted by `eval_impute`.

@@ -59,7 +59,7 @@ class EarlyStopping {
 
 void train_dfcp(
     Clusters& clusters, Params& params, HyperParams& HP,
-    InitMode init_mode, int pbwt_match_len, bool init_only,
+    InitMode init_mode, int pbwt_match_len,
     const SeqArray& x_train, int max_batch_size, int max_train_steps,
     Json& json
 ) {
@@ -70,7 +70,7 @@ void train_dfcp(
             clusters.block_init(x_train);
             break;
         case InitMode::pbwt:
-            if (HP.K != 2) { throw std::invalid_argument("PBWT init only supported for K=2."); }
+            if (HP.K != 2) { throw std::invalid_argument("PBWT init supports K=2 only."); }
             clusters.pbwt_init(x_train, pbwt_match_len);
             break;
         case InitMode::viterbi:
@@ -82,8 +82,6 @@ void train_dfcp(
     auto t_init = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cerr << "t_init=" << t_init << '\n';
     json.add("t_init", t_init);
-
-    if (init_only) { return; }
 
     // Train.
     EarlyStopping early_stop{2, false, 1.0, max_train_steps};
@@ -238,7 +236,6 @@ int main(int argc, char *argv[]) {
     InitMode init_mode = InitMode::pbwt;
     int pbwt_match_len = 20;
     int max_batch_size = 4;
-    bool init_only = false;
 
     int max_train_steps = 3;
 
@@ -276,7 +273,6 @@ int main(int argc, char *argv[]) {
         }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
         else if (arg == "--max_batch_size") { max_batch_size = parse_int(argv[i+1]); }
-        else if (arg == "--init_only") { init_only = (parse_int(argv[i+1]) == 1); }
 
         else if (arg == "--max_train_steps") { max_train_steps = parse_int(argv[i+1]); }
 
@@ -294,7 +290,7 @@ int main(int argc, char *argv[]) {
 
     train_dfcp(
         clusters, params, HP,
-        init_mode, pbwt_match_len, init_only,
+        init_mode, pbwt_match_len,
         x_train, max_batch_size, max_train_steps,
         json
     );

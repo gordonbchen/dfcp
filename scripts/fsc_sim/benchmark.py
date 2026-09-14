@@ -48,7 +48,7 @@ def run_one(root: Path, output: Path, name: str, match_len: int, stage: str,
         "--output_r_assign", str(r_assign),
     ]
     if stage == "init":
-        command += ["--init_only", "1"]
+        command += ["--max_train_steps", "0"]
     elif stage == "step1":
         command += ["--max_train_steps", "1"]
     elif stage == "step3":
