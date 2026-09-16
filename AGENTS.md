@@ -39,17 +39,19 @@ current executable.
 - `include/params.hpp`: moments for the continuous variational approximation.
 - `include/seq_array.hpp`: sequence-major bitpacked observations and the binary
   sequence-file reader.
-- `include/io.hpp`: shared little-endian binary I/O and atomic output writing.
+- `include/io.hpp`: shared binary I/O and atomic output writing.
 - `include/impute_io.hpp`: streamed fixed-point imputation probability I/O.
 - `include/r_assign_io.hpp`: streamed R-assignment I/O.
 - `include/clusters.hpp`: `R`/`Q` graph nodes, ownership, assignments, and
   cluster mutation interface, including the emission-mode enum.
 - `include/max.hpp`: serial and batched sequence reassignment and insertion entry points.
+- `include/pbwt.hpp`: PBWT initialization entry point.
+- `include/fwd_bkwd.hpp`: forward-backward imputation entry point and reusable buffers.
 - `include/expect.hpp`: continuous-parameter update entry point.
 - `include/elbo.hpp`: approximate ELBO entry point.
 - `include/math.hpp`: second-order delta-method helpers.
 - `include/tree.hpp`: reference-tree parsing and tree-based metrics.
-- `include/util.hpp`: flat indexing, early stopping, held-out observations,
+- `include/util.hpp`: flat indexing, observed-target mapping, emission counts,
   modes, and numeric argument parsing.
 - `include/json.hpp`: small write-only JSON builder used for stdout results.
 
@@ -59,7 +61,7 @@ current executable.
   imputation, timings, and JSON output.
 - `src/seq_array.cpp`: binary sequence loading and the 64-by-64 bit transpose
   from locus-major file words to sequence-major memory words.
-- `src/io.cpp`: exact binary reads/writes, endian conversion, and atomic file output.
+- `src/io.cpp`: exact binary reads/writes and atomic file output.
 - `src/impute_io.cpp`: little-endian imputation probability I/O.
 - `src/r_assign_io.cpp`: R-assignment I/O.
 - `src/eval_impute.cpp`: pooled minor-allele r-squared and accuracy across
@@ -70,6 +72,8 @@ current executable.
   hard-emission indexes, and soft-emission counts.
 - `src/max.cpp`: hard and soft sequencewise Viterbi maximization, including
   parallel read-only path searches within an optional sequence batch.
+- `src/pbwt.cpp`: forward PBWT construction and radius-based initialization.
+- `src/fwd_bkwd.cpp`: forward-backward imputation with reusable message buffers.
 - `src/expect.cpp`: Laplace updates for `alpha`, `gamma_l`, and `d_l`.
 - `src/elbo.cpp`: approximate ELBO and variational entropy.
 - `src/math.cpp`: reusable delta approximations.
@@ -82,6 +86,8 @@ current executable.
 - `scripts/1000g_phase3_v5b/README.md`: complete data preparation, windowing,
   imputation, evaluation, and visualization instructions for the 1000 Genomes
   chromosome 20 pipeline.
+- `scripts/1000g_phase3_v5b/beagle.py`: full-chromosome Beagle imputation and
+  pooled MAC-stratified evaluation using the same target truth panel.
 - `scripts/fsc_sim/run.sh` and `prep_data.py`: run the configured fastsimcoal
   simulation and convert its haploid `.gen` table to `ref.bin` and
   `variant_pos.txt`.
@@ -151,8 +157,8 @@ logit-space Laplace approximation. Several expectations use second-order delta
 approximations. This is a MAP partition path with approximate continuous
 posteriors, not a full posterior over partitions.
 
-Early stopping has patience 2 and improvement tolerance `1e-3`. There is no
-hard iteration limit.
+Early stopping has patience 2 and improvement tolerance `1.0`; training is
+also capped by `--max_train_steps`, which defaults to 3.
 
 ## Core Data Structures And Invariants
 
@@ -271,8 +277,9 @@ a possible later change, not part of the active interface.
 
 - `eval_impute` reads a window root containing `windows.tsv` and a run name,
   then evaluates each generated window that contains `impute/NAME.bin`.
-- Each global locus is retained from the available window in which it is
-  farthest from an edge. Ties go to the lower window index.
+- The evaluator trims `floor(overlap / 2)` loci from each shared edge of an
+  interior window. With an even overlap, each shared locus is retained once.
+  With an odd overlap, the central shared locus is retained twice.
 - Reference `AC` and `AN` are read from each window's `ref.vcf.gz` with
   `bcftools`. Probability and truth alleles are flipped when REF is minor.
 - The output columns are `mac`, `n_loci`, `n_predictions`, `r2`, and `accuracy`.
@@ -379,7 +386,8 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--pbwt_match_len`: PBWT match radius; an interior cluster matches
   `2 * match_len - 1` loci centered on its locus. Defaults to `20`.
 - `--max_batch_size`: sequences removed before parallel Viterbi searches and
-  sequential reinsertion; defaults to `1`, which preserves serial maximization.
+  sequential reinsertion; defaults to `4`. Batches above one use paths computed
+  against the same reduced graph, so they are an approximate maximization step.
 - `--max_train_steps`: maximum ME iterations; `0` keeps the initialization
   unchanged. Defaults to `3`.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
@@ -564,10 +572,11 @@ executable.
 The build enables `-Wall -Wextra -Wpedantic -O3`. There is no install target,
 library target, automated test target, or CI configuration.
 
-The active analysis scripts require Python, Matplotlib, Plotly, PyTorch,
-BoTorch, and GPyTorch. Historical and notebook work may additionally require
-NumPy, SciPy, Graphviz, Jupyter, and line-profiler. There is no tracked Python
-package or lock manifest.
+The maintained Plotly reports require Python, NumPy, SciPy, and Plotly.
+`window_viz.py` additionally uses `bcftools`; `beagle.py` requires Java and
+the local Beagle JAR. Historical notebook work may additionally require
+Matplotlib, PyTorch, BoTorch, GPyTorch, Graphviz, Jupyter, and line-profiler.
+There is no tracked Python package or lock manifest.
 
 ## Testing And Verification
 

@@ -1,30 +1,8 @@
 # DFCP TODO
 
-## Current state
-
-- `scripts/fsc_sim/run.sh` runs fastsimcoal with an explicit seed and prepares its output.
-- `scripts/fsc_sim/prep_data.py` converts one haploid `.gen` file into aligned `ref.bin` and
-  `variant_pos.txt` files.
-- `impute` can train with only a reference file. The target, observed-loci, and probability files are one
-  optional positional group.
-- `--output_r_assign FILE` writes final reference R assignments in the `DFRA` format without requiring
-  target imputation.
-- `eval_clusters` reads reference alleles, `DFRA` R assignments, variant positions, and fastsimcoal true
-  trees. It reports partition continuity, exact cluster-tract length, cluster count, purity, excess
-  parsimony, and cluster-to-clade IoU, with optional per-cluster clade-time and tract TSVs.
-- The complete 100-haplotype, 13,624-locus fastsimcoal fixture trains and evaluates successfully.
-- `scripts/fsc_sim/benchmark.py` compares PBWT match lengths, training stages,
-  and the Beagle 4 DAG baseline on that fixture; `scripts/cluster_viz.py`
-  compares their clade-time and exact-tract densities.
-- The final fastsimcoal comparison retains PBWT 50/100/200 initialization, PBWT-200 training stages,
-  and strong low-`d`/high-`alpha` controls. Low `d` lengthens exact tracts but does not improve clade IoU;
-  strong `alpha` priors do not materially alter the three-step result.
-
 ## Later cluster-evaluation work
 
 - Review which scalar metrics should remain in the stable `eval_clusters` JSON interface.
-- Update or replace the legacy `scripts/parsimony.py`, which still targets the removed text-sequence
-  executable interface.
 - Add a small permanent fixture for sparse cluster IDs, exact clades, split clades, singleton clusters,
   full-sample clusters, repeated positions, and recombination-boundary selection.
 - Compare random small-tree results with brute-force descendant sets and parsimony enumeration.
@@ -51,12 +29,6 @@
 - Extend model serialization with assignments only after frozen inference works.
 - Store both R and Q assignments and all mutable state needed to resume training exactly.
 - Verify that uninterrupted and save/load/resume runs produce the same next iteration.
-
-### Maintained script interfaces
-
-- Update `scripts/dfcp.py`, `scripts/init.py`, and `scripts/tune.py` to the current binary-sequence interface
-  where they remain useful.
-- Keep generated reports rebuildable without rerunning DFCP.
 
 ### Automated imputation regression coverage
 

@@ -84,10 +84,24 @@ scripts/1000g_phase3_v5b/impute.sh data/1000g_phase3_v5b/windows_200_o32 \
 `NAME.json`, and `NAME.log` under each window's `impute/` directory; it defaults to `probs`. Pass the same
 name to `eval_impute`. `--n-parallel` controls the number of simultaneous DFCP processes and defaults to one.
 Each process's stderr is printed as one block when it finishes. `Ctrl-C` stops every active process.
-`eval_impute` reads `AC` and `AN` from each reference VCF, keeps each overlap locus from the window where it
-is farthest from an edge, and pools r-squared and accuracy over all retained target alleles at each MAC.
+`eval_impute` reads `AC` and `AN` from each reference VCF, discards half of every internal overlap at each
+window edge, and pools r-squared and accuracy over all retained target alleles at each MAC. Use an even
+overlap to retain every shared locus exactly once; an odd overlap retains the central shared locus twice.
 
-`--max_batch_size` defaults to one. Larger batches compute Viterbi paths in parallel using
+`--max_batch_size` defaults to four. Larger batches compute Viterbi paths in parallel using
 `OMP_NUM_THREADS`, but make the maximization update approximate because every path in a batch sees the same
 reduced cluster graph. Account for both levels of parallelism: simultaneous processes times OpenMP threads
 should not greatly exceed the available hardware threads.
+
+## Beagle baseline
+
+Run full-chromosome Beagle imputation with the same reference, observed target markers, genetic map, and
+masked target truth panel:
+
+```bash
+python3 scripts/1000g_phase3_v5b/beagle.py --nthreads 8
+```
+
+The script writes Beagle's VCF under `data/1000g_phase3_v5b/windows/` and pooled MAC statistics to
+`data/1000g_phase3_v5b/windows/eval_impute_beagle.tsv`. Use `--eval-only` to re-evaluate an existing Beagle
+VCF without rerunning Java. Pass that TSV alongside DFCP TSVs to `impute_viz.py` to compare the curves.
