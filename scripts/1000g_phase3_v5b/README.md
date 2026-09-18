@@ -100,7 +100,7 @@ requires `emission` or `viterbi` initialization.
 name to `eval_impute`. `--n-parallel` controls the number of simultaneous DFCP processes and defaults to one.
 Each process's stderr is printed as one block when it finishes. `Ctrl-C` stops every active process.
 `eval_impute` reads `AC` and `AN` from each reference VCF, discards half of every internal overlap at each
-window edge, and pools r-squared and accuracy over all retained target alleles at each MAC. Use an even
+window edge, and pools r-squared over all retained target alleles at each MAC. Use an even
 overlap to retain every shared locus exactly once; an odd overlap retains the central shared locus twice.
 
 `--max_batch_size` defaults to four. Larger batches compute Viterbi paths in parallel using

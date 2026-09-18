@@ -109,7 +109,6 @@ struct MaskedLocus {
 struct MacStats {
     std::uint64_t n_loci = 0;
     std::uint64_t n_predictions = 0;
-    std::uint64_t n_correct = 0;
     long double mean_q = 0.0;
     long double mean_y = 0.0;
     long double m2_q = 0.0;
@@ -126,7 +125,6 @@ struct MacStats {
         m2_q += dq * (q - mean_q);
         m2_y += dy * (y - mean_y);
         covariance += dq * (y - mean_y);
-        n_correct += (static_cast<int>(q >= (std::uint16_t{1} << 15)) == y);
     }
 
     double r2() const {
@@ -135,9 +133,6 @@ struct MacStats {
         return static_cast<double>(std::clamp(value, 0.0L, 1.0L));
     }
 
-    double accuracy() const {
-        return static_cast<double>(n_correct) / n_predictions;
-    }
 };
 
 std::string shell_quote(const std::filesystem::path& path) {
@@ -248,12 +243,11 @@ void evaluate_window(
 void write_tsv(const std::filesystem::path& path, const std::vector<MacStats>& stats) {
     AtomicBinaryWriter output(path.c_str());
     std::ostream& stream = output.stream();
-    stream << "mac\tn_loci\tn_predictions\tr2\taccuracy\n" << std::setprecision(10);
+    stream << "mac\tn_loci\tn_predictions\tr2\n" << std::setprecision(10);
     for (std::size_t mac = 0; mac < stats.size(); ++mac) {
         const MacStats& stat = stats[mac];
         if (stat.n_predictions == 0) { continue; }
-        stream << mac << '\t' << stat.n_loci << '\t' << stat.n_predictions << '\t'
-            << stat.r2() << '\t' << stat.accuracy() << '\n';
+        stream << mac << '\t' << stat.n_loci << '\t' << stat.n_predictions << '\t' << stat.r2() << '\n';
     }
     output.finish();
 }

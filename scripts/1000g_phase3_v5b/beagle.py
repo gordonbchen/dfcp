@@ -21,7 +21,6 @@ JAR = Path("beagle/beagle.27Feb25.75f.jar")
 class Stats:
     n_loci: int = 0
     n: int = 0
-    n_correct: int = 0
     sum_q: float = 0.0
     sum_y: int = 0
     sum_qq: float = 0.0
@@ -29,7 +28,6 @@ class Stats:
 
     def add(self, q: float, y: int) -> None:
         self.n += 1
-        self.n_correct += (q >= 0.5) == y
         self.sum_q += q
         self.sum_y += y
         self.sum_qq += q * q
@@ -103,12 +101,9 @@ def evaluate(vcf: Path, output: Path) -> None:
                 raise subprocess.CalledProcessError(process.returncode, process.args)
 
     with output.open("w") as stream:
-        stream.write("mac\tn_loci\tn_predictions\tr2\taccuracy\n")
+        stream.write("mac\tn_loci\tn_predictions\tr2\n")
         for mac, stat in sorted(stats.items()):
-            stream.write(
-                f"{mac}\t{stat.n_loci}\t{stat.n}\t{stat.r2():.10g}"
-                f"\t{stat.n_correct / stat.n:.10g}\n"
-            )
+            stream.write(f"{mac}\t{stat.n_loci}\t{stat.n}\t{stat.r2():.10g}\n")
 
 
 def main() -> None:

@@ -67,7 +67,7 @@
   clade IoU, exact tract loci/bp, fit time, and peak RSS. Include initialization-only and trained runs so the
   model update is distinguishable from the PBWT partition itself.
 - [x] Across all 1000 Genomes windows, compare maximum K values `4, 8, 16, 32, 64, 128, 256` using pooled
-  MAC-stratified imputation r-squared and accuracy, initialization/training/imputation time, and peak RSS. Use
+  MAC-stratified imputation r-squared, initialization/training/imputation time, and peak RSS. Use
   the same target, mask, overlap ownership, priors, batch size, threads, and train steps for every run.
 - [x] Scale the 1000 Genomes reference by joining prepared windows or generating larger windows only after
   single-window correctness. Test increasing SNP counts until memory or time is clearly limiting; do not
@@ -114,7 +114,7 @@ Across the panel, initialization/maximization/imputation totals in seconds were 
 `67.7/357.0/133.2`, `31.7/172.4/121.5`, `15.5/89.5/139.6`, `8.2/46.5/184.7`, `4.5/24.5/256.4`,
 `2.6/14.0/359.6`, and `1.8/8.4/484.0` as maximum K increased. The fastest end-to-end region is therefore
 `K_b=16--32`; larger maxima trade more forward-backward work and reference specificity for much stronger
-imputation r-squared. Accuracy changed little because rare major-allele calls dominate it. A repeat of the
+imputation r-squared. A repeat of the
 three smallest maxima after cleanup produced the wall-time ranges shown above; maximum RSS was stable, while
 concurrent stage timings varied by 8--25%, so small timing differences should not be overinterpreted.
 
@@ -139,6 +139,45 @@ haplotypes in 287.9 s wall (`t_impute=259.6 s`) at 5.15 GiB peak RSS and wrote 3
 r-squared at MAC `1,10,20` was `0.00186,0.0555,0.164`. Thus adaptive construction makes unwindowed imputation
 valid, but windowed parallel execution is substantially faster. Against windowed one-step `K_b=64`, the
 no-window initialization was lower at MAC 1 (`0.00186` versus `0.00648`) and similar at MAC 10/20.
+
+### PBWT comparison
+
+Full-panel PBWT initialization-only imputation at radii `10`, `20`, and `50` gave pooled r-squared at MAC
+`1/10/20` of `1.71e-6/0.00353/0.0158`, `2.13e-6/0.00587/0.0351`, and
+`5.49e-6/0.00816/0.0743`, respectively. Larger PBWT radii improve common-variant imputation but remain below
+the corresponding larger greedy blocks in the table above.
+
+Current single-thread measurements on 1000 Genomes window 0007 (`N_ref=4,904`, 3,535 SNPs, 104 targets) used
+the same initialization-only PBWT setup and one ME step for greedy blocks:
+
+| method | parameter | model loci | wall s | peak RSS MiB | init ms | ME ms | impute ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| PBWT | radius 10 | 3,535 | 1.71 | 430 | 389 | 0 | 1309 |
+| PBWT | radius 20 | 3,535 | 4.22 | 468 | 397 | 0 | 3806 |
+| PBWT | radius 50 | 3,535 | 13.64 | 636 | 510 | 0 | 13061 |
+| greedy | `K_b=4` | 1,202 | 0.78 | 122 | 91 | 506 | 118 |
+| greedy | `K_b=16` | 268 | 0.36 | 35 | 17 | 124 | 171 |
+| greedy | `K_b=64` | 80 | 0.41 | 18 | 7 | 49 | 310 |
+| greedy | `K_b=256` | 29 | 0.62 | 14 | 4 | 31 | 539 |
+
+Current fastsimcoal three-step runs (`N=100`, 13,624 loci, one thread) show that PBWT's reference-radius
+initialization is much more memory-intensive than greedy blocks, while its cluster quality lies between the
+small and large greedy maxima:
+
+| method | parameter | wall s | RSS MiB | adjacent IoU | mean clusters | excess | clade IoU | tract bp |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| PBWT | radius 50, init | 0.24 | 237 | 0.9797 | 47.97 | 0.162 | 0.8717 | 48,533 |
+| PBWT | radius 100, init | 0.26 | 305 | 0.9899 | 64.35 | 0.047 | 0.9037 | 140,534 |
+| PBWT | radius 200, init | 0.31 | 375 | 0.9952 | 77.75 | 0.010 | 0.9326 | 449,504 |
+| PBWT | radius 200, 3 steps | 18.16 | 399 | 0.9861 | 29.39 | 2.238 | 0.8698 | 29,660 |
+| greedy | `K_b=4`, 3 steps | 0.55 | 22 | 0.8563 | 4.23 | 0.185 | 0.9057 | 2,012 |
+| greedy | `K_b=16`, 3 steps | 0.09 | 13 | 0.9663 | 17.70 | 0.745 | 0.8341 | 18,866 |
+| greedy | `K_b=64`, 3 steps | 0.02 | 7 | 0.9975 | 72.46 | 0.025 | 0.9211 | 646,869 |
+| greedy | `K_b=128`, 3 steps | <0.01 | 5 | 1.0000 | 99.00 | 0 | 1.0000 | 9,997,970 |
+
+Generated comparisons are `output/benchmarks/imputation/comparison.html` for all 500-window imputation
+curves and `output/fsc_blocks/comparison.html` for clade-time and tract-length densities. The latter includes
+PBWT radii `50/100/200`, PBWT radius 200 after three steps, and greedy `K_b=4...128` after three steps.
 
 ## Backlog
 
@@ -212,4 +251,4 @@ no-window initialization was lower at MAC 1 (`0.00186` versus `0.00648`) and sim
 ### External imputation evaluation
 
 - Compare DFCP with Beagle using the same reference, target, observed-marker mask, and windows.
-- Compare pooled MAC-stratified r-squared and accuracy, runtime, and peak memory under matched conditions.
+- Compare pooled MAC-stratified r-squared, runtime, and peak memory under matched conditions.

@@ -71,7 +71,7 @@ current executable.
 - `src/io.cpp`: exact binary reads/writes and atomic file output.
 - `src/impute_io.cpp`: little-endian imputation probability I/O.
 - `src/r_assign_io.cpp`: R-assignment I/O.
-- `src/eval_impute.cpp`: pooled minor-allele r-squared and accuracy across
+- `src/eval_impute.cpp`: pooled minor-allele r-squared across
   materialized VCF windows.
 - `src/eval_clusters.cpp`: standalone partition and tree evaluation from
   assignments, reference alleles, positions, and fastsimcoal trees.
@@ -296,7 +296,7 @@ a possible later change, not part of the active interface.
   With an odd overlap, the central shared locus is retained twice.
 - Reference `AC` and `AN` are read from each window's `ref.vcf.gz` with
   `bcftools`. Probability and truth alleles are flipped when REF is minor.
-- The output columns are `mac`, `n_loci`, `n_predictions`, `r2`, and `accuracy`.
+- The output columns are `mac`, `n_loci`, `n_predictions`, and `r2`.
   Statistics are pooled over all retained target alleles in each exact MAC bin.
 - An r-squared value of `-1` means the truth or probability had zero variance
   within that MAC bin.
@@ -494,7 +494,7 @@ JSON. `--output_r_assign` writes the final reference R assignments independently
 of whether imputation was requested.
 
 Cluster and tree metrics are emitted by `eval_clusters`. Imputation r-squared
-and accuracy are emitted by `eval_impute`.
+is emitted by `eval_impute`.
 
 `eval_clusters` accepts `--clade_times FILE` to write one row per inferred
 cluster and locus with its best-matching true-clade time, IoU, size, and clade
@@ -573,9 +573,8 @@ empirical purity is `1`.
 For binary data, the minor allele at each masked locus is defined from the
 reference panel. `eval_impute` pools predicted minor-allele probabilities and
 true minor-allele indicators across every retained target allele at the same
-reference MAC, then reports their squared Pearson correlation. It likewise
-reports pooled hard-call accuracy rather than a mean of per-locus accuracies.
-The online covariance calculation returns `-1` when either value is constant
+reference MAC, then reports their squared Pearson correlation. The online
+covariance calculation returns `-1` when either value is constant
 within a MAC bin.
 
 ## Build And Dependencies
