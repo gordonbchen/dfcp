@@ -1,13 +1,17 @@
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
+#include "obs.hpp"
 #include "hyperparams.hpp"
+#include "pbwt.hpp"
 #include "r_assign_io.hpp"
 #include "impute_io.hpp"
 #include "params.hpp"
@@ -17,61 +21,52 @@
 #include "expect.hpp"
 #include "elbo.hpp"
 #include "json.hpp"
+#include "model_array.hpp"
 #include "seq_array.hpp"
 #include "util.hpp"
 
 
-enum class InitMode { viterbi, block, pbwt };
+enum class InitMode { viterbi, emission, pbwt };
 
-class EarlyStopping {
-    private:
-        double min_val = std::numeric_limits<double>::infinity();
-        int steps_since_min = 0;
+void add_block_stats(Json& json, const ModelArray& model) {
+    if (!model.is_blocked()) {
+        return;
+    }
 
-    public:
-        int step = 0;
-        const int patience;
-        const bool minimize;
-        const double tol;
-        const int max_steps;
-
-        EarlyStopping(int patience_, bool minimize_, double tol_, int max_steps_) :
-            patience(patience_), minimize(minimize_), tol(tol_), max_steps(max_steps_)
-        {}
-
-        void update(double x) {
-            ++step;
-            if (!minimize) {
-                x = -x;
-            }
-            if (min_val-x > tol) {
-                steps_since_min = 0;
-                min_val = x;
-                return;
-            }
-            ++steps_since_min;
+    const PbwtBlocks& blocks = *model.blocks;
+    std::size_t total_n_emissions = 0;
+    std::size_t n_singleton_emissions = 0;
+    for (int l = 0; l < model.L; ++l) {
+        int n_emissions = model.n_emissions(l);
+        total_n_emissions += n_emissions;
+        for (int emission = 0; emission < n_emissions; ++emission) {
+            std::uint32_t emission_size = blocks.emission_size(l, emission);
+            n_singleton_emissions += emission_size == 1;
         }
+    }
 
-        bool converged() const {
-            return (step >= max_steps) || (steps_since_min >= patience);
-        }
-};
+    json.add("mean_block_emissions", static_cast<double>(total_n_emissions) / model.L)
+        .add("mean_block_snps", static_cast<double>(model.snps.L) / model.L)
+        .add("singleton_block_frac",
+             static_cast<double>(n_singleton_emissions) / (static_cast<double>(model.snps.N) * model.L))
+        .add("n_block_max_k_cuts", blocks.n_max_k_cuts)
+        .add("n_block_compatibility_cuts", blocks.n_compat_cuts);
+}
 
 void train_dfcp(
     Clusters& clusters, Params& params, HyperParams& HP,
     InitMode init_mode, int pbwt_match_len,
-    const SeqArray& x_train, int max_batch_size, int max_train_steps,
+    const ModelArray& x_train, int max_batch_size, int max_train_steps,
     Json& json
 ) {
     // Init clusters.
     auto t0 = std::chrono::steady_clock::now();
     switch (init_mode) {
-        case InitMode::block:
-            clusters.block_init(x_train);
+        case InitMode::emission:
+            clusters.emission_init(x_train);
             break;
         case InitMode::pbwt:
-            if (HP.K != 2) { throw std::invalid_argument("PBWT init supports K=2 only."); }
-            clusters.pbwt_init(x_train, pbwt_match_len);
+            clusters.pbwt_init(x_train.snps, pbwt_match_len);
             break;
         case InitMode::viterbi:
             HP.N = 0;
@@ -84,7 +79,7 @@ void train_dfcp(
     json.add("t_init", t_init);
 
     // Train.
-    EarlyStopping early_stop{2, false, 1.0, max_train_steps};
+    EarlyStopping early_stop{2, 1.0, max_train_steps};
     double elbo = 0.0;
 
     std::vector<Json> train_log;
@@ -93,9 +88,6 @@ void train_dfcp(
         expect_step(HP, params, clusters);
         auto t1 = std::chrono::steady_clock::now();
         max_step(x_train, clusters, params, HP, max_batch_size);
-        if (clusters.emit_mode == EmitMode::noisy) {
-            max_cluster_emissions(clusters, params, HP);
-        }
         auto t2 = std::chrono::steady_clock::now();
         elbo = calc_elbo(HP, params, clusters);
         auto t3 = std::chrono::steady_clock::now();
@@ -116,42 +108,41 @@ void train_dfcp(
     json.add("train_log", train_log);
 
     Json param_log;
-    param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d)
-        .add("alpha_eps", params.alpha_eps).add("beta_eps", params.beta_eps);
+    param_log.add("mu_alpha", params.mu_alpha).add("mu_gamma", params.mu_gamma).add("mu_d", params.mu_d);
     json.add("params", param_log);
 }
 
 
-void get_viterbi_impute_probs(
-    const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
-    ViterbiBuffers& viterbi_bufs, std::vector<double>& seq_probs,
-    const Clusters& clusters, const Params& params, const HyperParams& HP
-) {
-    get_viterbi_path(x, i, &obs_ls, viterbi_bufs, clusters, params, HP);
-    int n_masked_ls = HP.L - obs_ls.size();
-    int masked_l = 0;
-    for (int l = 0; l < HP.L; ++l) {
-        if (obs_ls.contains(l)) { continue; }
-        for (int k = 0; k < HP.K; ++k) {
-            double p = get_cluster_emission_ll(viterbi_bufs.path[2 * l], k, l, clusters, params, HP);
-            seq_probs[idx2d(masked_l, k, HP.K)] = p;
-        }
-        ++masked_l;
-    }
-    normalize_ll(seq_probs, n_masked_ls, HP.K);
-}
-
 void impute(
     const SeqArray& x_val, const std::unordered_map<int, int>& obs_ls,
     bool viterbi,
+    const ModelArray& ref,
     const Clusters& clusters, const Params& params, const HyperParams& HP,
     const char* prob_file
 ) {
-    int n_masked_ls = HP.L - static_cast<int>(obs_ls.size());
+    int n_masked_ls = ref.snps.L - static_cast<int>(obs_ls.size());
     ImputeProbWriter prob_writer(prob_file, x_val.N, n_masked_ls);
-    std::vector<double> seq_probs(n_masked_ls * HP.K);
+    std::vector<double> seq_probs(n_masked_ls * 2);
 
-    if (viterbi) {
+    if (ref.is_blocked() && viterbi) {
+        ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
+        for (int i = 0; i < x_val.N; ++i) {
+            BlockObs obs{ref, x_val, i, obs_ls, clusters, params, HP};
+            get_blocked_viterbi_impute_probs(
+                ref, obs, obs_ls, viterbi_bufs, seq_probs, clusters, params, HP
+            );
+            prob_writer.write_row(seq_probs);
+        }
+    }
+    else if (ref.is_blocked()) {
+        FwdBkwdBuffers fwd_bkwd_bufs(clusters.next_cluster_id, HP.L);
+        for (int i = 0; i < x_val.N; ++i) {
+            BlockObs obs{ref, x_val, i, obs_ls, clusters, params, HP};
+            fwd_bkwd_blocks(ref, obs, obs_ls, fwd_bkwd_bufs, seq_probs, clusters, params, HP);
+            prob_writer.write_row(seq_probs);
+        }
+    }
+    else if (viterbi) {
         ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
         for (int i = 0; i < x_val.N; ++i) {
             get_viterbi_impute_probs(x_val, i, obs_ls, viterbi_bufs, seq_probs, clusters, params, HP);
@@ -228,16 +219,20 @@ int main(int argc, char *argv[]) {
     }
     std::cerr << '\n';
 
-    HyperParams HP{.N=x_train.N, .L=x_train.L, .K=2};
-
     // Parse optional args.
-    EmitMode emit_mode = EmitMode::hard;
+    double tau_1 = 1.0;
+    double tau_2 = 1.0;
+    double v_1 = 1.0;
+    double v_2 = 1.0;
+    double phi_1 = 2.0;
+    double phi_2 = 2.0;
 
     InitMode init_mode = InitMode::pbwt;
     int pbwt_match_len = 20;
     int max_batch_size = 4;
 
     int max_train_steps = 3;
+    int block_max_k = 0;
 
     bool viterbi_impute = false;
     const char* r_assign_file = nullptr;
@@ -247,31 +242,22 @@ int main(int argc, char *argv[]) {
         if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
 
         std::string_view arg{argv[i]};
-        if (arg == "--tau_1") { HP.tau_1 = parse_double(argv[i+1]); }
-        else if (arg == "--tau_2") { HP.tau_2 = parse_double(argv[i+1]); }
-        else if (arg == "--v_1") { HP.v_1 = parse_double(argv[i+1]); }
-        else if (arg == "--v_2") { HP.v_2 = parse_double(argv[i+1]); }
-        else if (arg == "--phi_1") { HP.phi_1 = parse_double(argv[i+1]); }
-        else if (arg == "--phi_2") { HP.phi_2 = parse_double(argv[i+1]); }
-
-        else if (arg == "--mode") {
-            std::string_view value{argv[i+1]};
-            if (value == "hard") { emit_mode = EmitMode::hard; }
-            else if (value == "noisy") { emit_mode = EmitMode::noisy; }
-            else if (value == "soft") { emit_mode = EmitMode::soft; }
-            else { throw std::invalid_argument("mode must be hard, noisy, or soft."); }
-        }
-        else if (arg == "--lambda_1") { HP.lambda_1 = parse_double(argv[i+1]); }
-        else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
+        if (arg == "--tau_1") { tau_1 = parse_double(argv[i+1]); }
+        else if (arg == "--tau_2") { tau_2 = parse_double(argv[i+1]); }
+        else if (arg == "--v_1") { v_1 = parse_double(argv[i+1]); }
+        else if (arg == "--v_2") { v_2 = parse_double(argv[i+1]); }
+        else if (arg == "--phi_1") { phi_1 = parse_double(argv[i+1]); }
+        else if (arg == "--phi_2") { phi_2 = parse_double(argv[i+1]); }
 
         else if (arg == "--init") {
             std::string_view value{argv[i+1]};
             if (value == "viterbi") { init_mode = InitMode::viterbi; }
-            else if (value == "block") { init_mode = InitMode::block; }
+            else if (value == "emission") { init_mode = InitMode::emission; }
             else if (value == "pbwt") { init_mode = InitMode::pbwt; }
-            else { throw std::invalid_argument("init must be viterbi, block, or pbwt."); }
+            else { throw std::invalid_argument("init must be viterbi, emission, or pbwt."); }
         }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
+        else if (arg == "--block_max_k") { block_max_k = parse_int(argv[i+1]); }
         else if (arg == "--max_batch_size") { max_batch_size = parse_int(argv[i+1]); }
 
         else if (arg == "--max_train_steps") { max_train_steps = parse_int(argv[i+1]); }
@@ -282,26 +268,48 @@ int main(int argc, char *argv[]) {
         else { throw std::invalid_argument("Arg not recognized."); }
         i += 2;
     }
+
+    if (block_max_k > 0 && init_mode == InitMode::pbwt) {
+        throw std::invalid_argument("PBWT initialization does not support blocks.");
+    }
+    ModelArray model_x{
+        x_train, block_max_k,
+        run_imputation ? &*x_val : nullptr, run_imputation ? &obs_ls : nullptr
+    };
+    std::vector<int> n_emissions(model_x.L);
+    for (int l = 0; l < model_x.L; ++l) {
+        n_emissions[l] = model_x.n_emissions(l);
+    }
+    HyperParams HP{x_train.N, std::move(n_emissions)};
+    HP.tau_1 = tau_1;
+    HP.tau_2 = tau_2;
+    HP.v_1 = v_1;
+    HP.v_2 = v_2;
+    HP.phi_1 = phi_1;
+    HP.phi_2 = phi_2;
     std::cerr << HP << '\n';
+
+    json.add("n_snps", x_train.L).add("n_blocks", model_x.L).add("block_max_k", block_max_k);
+    add_block_stats(json, model_x);
 
     // Init params and clusters.
     Params params{HP};
-    Clusters clusters{HP, emit_mode};
+    Clusters clusters{HP};
 
     train_dfcp(
         clusters, params, HP,
         init_mode, pbwt_match_len,
-        x_train, max_batch_size, max_train_steps,
+        model_x, max_batch_size, max_train_steps,
         json
     );
 
     if (r_assign_file != nullptr) {
-        write_r_assign(r_assign_file, clusters);
+        write_r_assign(r_assign_file, clusters, model_x);
     }
 
     if (run_imputation) {
         auto t0 = std::chrono::steady_clock::now();
-        impute(*x_val, obs_ls, viterbi_impute, clusters, params, HP, argv[4]);
+        impute(*x_val, obs_ls, viterbi_impute, model_x, clusters, params, HP, argv[4]);
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
         std::cerr << "t_impute=" << t_impute << "ms\n";

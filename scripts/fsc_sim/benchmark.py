@@ -11,9 +11,9 @@ from pathlib import Path
 
 
 FIELDS = [
-    "run", "pbwt_match_len", "stage", "tau_1", "tau_2", "v_1", "v_2", "wall_s", "t_init_ms",
-    "steps", "t_max_ms", "mean_nR", "mean_adj_iou", "mean_clusters", "mean_excess_parsimony",
-    "clade_iou", "mean_tract_bp",
+    "run", "init", "pbwt_match_len", "block_max_k", "stage", "tau_1", "tau_2", "v_1", "v_2",
+    "wall_s", "peak_rss_mib", "t_init_ms", "steps", "t_max_ms", "mean_nR", "mean_adj_iou",
+    "mean_clusters", "mean_excess_parsimony", "clade_iou", "mean_tract_bp",
 ]
 
 
@@ -34,19 +34,24 @@ def evaluate(root: Path, output: Path, name: str, log_file: Path) -> dict[str, o
     return json.loads(eval_file.read_text())
 
 
-def run_one(root: Path, output: Path, name: str, match_len: int, stage: str,
+def run_one(root: Path, output: Path, name: str, init: str, match_len: int, block_max_k: int, stage: str,
             tau_1: float = 1.0, tau_2: float = 1.0,
             v_1: float = 1.0, v_2: float = 1.0) -> dict[str, object]:
     ref = root / "data/fsc/prepared/ref.bin"
     r_assign = output / f"{name}.r_assign.bin"
     result_file = output / f"{name}.json"
     log_file = output / f"{name}.log"
+    rss_file = output / f"{name}.rss_kib"
 
     command = [
-        str(root / "build/impute"), str(ref), "--init", "pbwt", "--pbwt_match_len", str(match_len),
+        str(root / "build/impute"), str(ref), "--init", init,
         "--tau_1", str(tau_1), "--tau_2", str(tau_2), "--v_1", str(v_1), "--v_2", str(v_2),
         "--output_r_assign", str(r_assign),
     ]
+    if init == "pbwt":
+        command += ["--pbwt_match_len", str(match_len)]
+    else:
+        command += ["--block_max_k", str(block_max_k)]
     if stage == "init":
         command += ["--max_train_steps", "0"]
     elif stage == "step1":
@@ -58,7 +63,10 @@ def run_one(root: Path, output: Path, name: str, match_len: int, stage: str,
     env["OMP_NUM_THREADS"] = "1"
     start = time.perf_counter()
     with result_file.open("w") as stdout, log_file.open("w") as stderr:
-        subprocess.run(command, cwd=root, env=env, stdout=stdout, stderr=stderr, check=True)
+        subprocess.run(
+            ["/usr/bin/time", "-f", "%M", "-o", str(rss_file), *command],
+            cwd=root, env=env, stdout=stdout, stderr=stderr, check=True,
+        )
     wall_s = time.perf_counter() - start
     fit = json.loads(result_file.read_text())
 
@@ -67,13 +75,16 @@ def run_one(root: Path, output: Path, name: str, match_len: int, stage: str,
     train_log = fit.get("train_log", [])
     return {
         "run": name,
+        "init": init,
         "pbwt_match_len": match_len,
+        "block_max_k": block_max_k,
         "stage": stage,
         "tau_1": tau_1,
         "tau_2": tau_2,
         "v_1": v_1,
         "v_2": v_2,
         "wall_s": f"{wall_s:.3f}",
+        "peak_rss_mib": f"{int(rss_file.read_text()) / 1024:.1f}",
         "t_init_ms": fit["t_init"],
         "steps": len(train_log),
         "t_max_ms": sum(step["t_max"] for step in train_log),
@@ -100,13 +111,16 @@ def run_beagle4(root: Path, output: Path, javac: str, java: str) -> dict[str, ob
     evaluation = evaluate(root, output, name, log_file)
     return {
         "run": name,
+        "init": "beagle4",
         "pbwt_match_len": "",
+        "block_max_k": "",
         "stage": "dag",
         "tau_1": "",
         "tau_2": "",
         "v_1": "",
         "v_2": "",
         "wall_s": f"{time.perf_counter() - start:.3f}",
+        "peak_rss_mib": "",
         "t_init_ms": "",
         "steps": "",
         "t_max_ms": "",
@@ -137,24 +151,27 @@ def main() -> None:
     high_alpha = (1000.0, 1.0, 1.0, 1.0)
     low_d_high_alpha = (1000.0, 1.0, 100.0, 999900.0)
     runs = [
-        ("pbwt50_init", 50, "init", *default),
-        ("pbwt100_init", 100, "init", *default),
-        ("pbwt200_init", 200, "init", *default),
-        ("pbwt200_step1", 200, "step1", *default),
-        ("pbwt200_step3", 200, "step3", *default),
-        ("pbwt200_converged", 200, "converged", *default),
-        ("pbwt200_low_d_step3", 200, "step3", *low_d),
-        ("pbwt200_high_alpha_step3", 200, "step3", *high_alpha),
-        ("pbwt200_low_d_high_alpha_step3", 200, "step3", *low_d_high_alpha),
+        ("pbwt50_init", "pbwt", 50, 0, "init", *default),
+        ("pbwt100_init", "pbwt", 100, 0, "init", *default),
+        ("pbwt200_init", "pbwt", 200, 0, "init", *default),
+        ("pbwt200_step1", "pbwt", 200, 0, "step1", *default),
+        ("pbwt200_step3", "pbwt", 200, 0, "step3", *default),
+        ("pbwt200_converged", "pbwt", 200, 0, "converged", *default),
+        ("pbwt200_low_d_step3", "pbwt", 200, 0, "step3", *low_d),
+        ("pbwt200_high_alpha_step3", "pbwt", 200, 0, "step3", *high_alpha),
+        ("pbwt200_low_d_high_alpha_step3", "pbwt", 200, 0, "step3", *low_d_high_alpha),
+        *((f"greedy{k}_step3", "emission", 0, k, "step3", *default) for k in (4, 8, 16, 32, 64, 128)),
     ]
 
     summary = output / "summary.tsv"
     with summary.open("w", newline="") as stream:
         writer = csv.DictWriter(stream, FIELDS, delimiter="\t")
         writer.writeheader()
-        for name, match_len, stage, tau_1, tau_2, v_1, v_2 in runs:
+        for name, init, match_len, block_max_k, stage, tau_1, tau_2, v_1, v_2 in runs:
             print(f"running {name}", flush=True)
-            row = run_one(root, output, name, match_len, stage, tau_1, tau_2, v_1, v_2)
+            row = run_one(
+                root, output, name, init, match_len, block_max_k, stage, tau_1, tau_2, v_1, v_2
+            )
             writer.writerow(row)
             stream.flush()
         print("running beagle4", flush=True)

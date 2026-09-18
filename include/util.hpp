@@ -2,8 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <unordered_map>
-#include <vector>
 #include "seq_array.hpp"
 
 
@@ -22,5 +22,31 @@ inline int8_t get_xil(const SeqArray& x, int i, int l, const std::unordered_map<
 double parse_double(const char* value);
 int parse_int(const char* value);
 
-std::vector<size_t> count_emissions(const SeqArray& x, int K);
-std::vector<int8_t> get_emission_modes(const std::vector<size_t>& emission_counts, const int L, const int K);
+class EarlyStopping {
+    double best;
+    int steps_since_best = 0;
+
+    public:
+        int step = 0;
+        const int patience;
+        const double tol;
+        const int max_steps;
+
+        EarlyStopping(int patience, double tol, int max_steps) :
+            best(-std::numeric_limits<double>::infinity()),
+            patience(patience), tol(tol), max_steps(max_steps) {}
+
+        void update(double value) {
+            ++step;
+            if (value - best > tol) {
+                best = value;
+                steps_since_best = 0;
+                return;
+            }
+            ++steps_since_best;
+        }
+
+        bool converged() const {
+            return step >= max_steps || steps_since_best >= patience;
+        }
+};

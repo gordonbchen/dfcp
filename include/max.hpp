@@ -3,16 +3,15 @@
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
-#include "hyperparams.hpp"
-#include "params.hpp"
+
 #include "clusters.hpp"
+#include "hyperparams.hpp"
+#include "model_array.hpp"
+#include "params.hpp"
 #include "seq_array.hpp"
 
-
-double get_cluster_emission_ll(
-    Cluster* a, int8_t xil, int l,
-    const Clusters& clusters, const Params& params, const HyperParams& HP
-);
+struct ScalarObs;
+struct BlockObs;
 
 
 struct ViterbiMsg {
@@ -30,23 +29,32 @@ struct ViterbiBuffers {
 };
 
 void get_viterbi_path(
-    const SeqArray& x, int i, const std::unordered_map<int, int> *obs_ls,
-    ViterbiBuffers& viterbi_bufs,
+    const ScalarObs& obs, ViterbiBuffers& viterbi_bufs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
 
-
-int get_new_cluster_emission(
-    int8_t xil, int l,
+void get_viterbi_path(
+    const BlockObs& obs, ViterbiBuffers& viterbi_bufs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );
+
 
 void max_step(
-    const SeqArray& x, Clusters& clusters, const Params& params, const HyperParams& HP,
+    const ModelArray& x, Clusters& clusters, const Params& params, const HyperParams& HP,
     int batch_size
 );
 
-void add_seqs(const SeqArray& x, Clusters& clusters, const Params& params, HyperParams& HP);
+void add_seqs(const ModelArray& x, Clusters& clusters, const Params& params, HyperParams& HP);
 
 
-void max_cluster_emissions(Clusters& clusters, const Params& params, const HyperParams& HP);
+void get_viterbi_impute_probs(
+    const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
+    ViterbiBuffers& viterbi_bufs, std::vector<double>& seq_probs,
+    const Clusters& clusters, const Params& params, const HyperParams& HP
+);
+
+void get_blocked_viterbi_impute_probs(
+    const ModelArray& ref, const BlockObs& obs, const std::unordered_map<int, int>& obs_ls,
+    ViterbiBuffers& viterbi_bufs, std::vector<double>& seq_probs,
+    const Clusters& clusters, const Params& params, const HyperParams& HP
+);

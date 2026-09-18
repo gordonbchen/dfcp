@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import re
 from pathlib import Path
 
 import numpy as np
@@ -58,7 +59,13 @@ def densities(
 def display_name(name: str) -> str:
     if name == "beagle4":
         return "Beagle 4 DAG"
-    return name.replace("pbwt", "PBWT ").replace("_", " ")
+    if match := re.fullmatch(r"pbwt(\d+)(?:_(init|step\d+|converged))?", name):
+        stage = f", {match.group(2)}" if match.group(2) else ""
+        return f"PBWT r={match.group(1)}{stage}"
+    if match := re.fullmatch(r"greedy(\d+)(?:_(init|step\d+|converged))?", name):
+        stage = f", {match.group(2)}" if match.group(2) else ""
+        return f"Greedy K={match.group(1)}{stage}"
+    return name.replace("_", " ")
 
 
 def make_figure(

@@ -73,19 +73,34 @@ Use `--physical-only` to build the report in Mb without the genetic map.
 
 ```bash
 scripts/1000g_phase3_v5b/impute.sh data/1000g_phase3_v5b/windows_200_o32 \
-  --name soft_pbwt10 --n-parallel 1 --mode soft --init pbwt --pbwt_match_len 10 \
+  --name pbwt10 --n-parallel 1 --init pbwt --pbwt_match_len 10 \
   --max_batch_size 64
 ./build/eval_impute \
-  data/1000g_phase3_v5b/windows_200_o32 soft_pbwt10 output/imputation.tsv
+  data/1000g_phase3_v5b/windows_200_o32 pbwt10 output/imputation.tsv
 .venv/bin/python scripts/impute_viz.py output/imputation.tsv --output output/imputation.html
 ```
+
+The experimental target-aware PBWT-block model limits the reference pattern
+alphabet rather than fixing the number of SNPs:
+
+```bash
+OMP_NUM_THREADS=1 scripts/1000g_phase3_v5b/impute.sh \
+  data/1000g_phase3_v5b/windows \
+  --name greedy64 --n-parallel 4 --block_max_k 64 --init emission
+```
+
+It takes the longest prefix with at most 64 reference patterns for which every
+target haplotype matches at least one pattern at its observed markers. Masked
+target truth is never consulted. The fitted boundaries are consequently
+specific to the supplied observed target panel. A positive `--block_max_k`
+requires `emission` or `viterbi` initialization.
 
 `impute.sh` builds DFCP once and runs the same options on every window. `--name NAME` writes `NAME.bin`,
 `NAME.json`, and `NAME.log` under each window's `impute/` directory; it defaults to `probs`. Pass the same
 name to `eval_impute`. `--n-parallel` controls the number of simultaneous DFCP processes and defaults to one.
 Each process's stderr is printed as one block when it finishes. `Ctrl-C` stops every active process.
 `eval_impute` reads `AC` and `AN` from each reference VCF, discards half of every internal overlap at each
-window edge, and pools r-squared and accuracy over all retained target alleles at each MAC. Use an even
+window edge, and pools r-squared over all retained target alleles at each MAC. Use an even
 overlap to retain every shared locus exactly once; an odd overlap retains the central shared locus twice.
 
 `--max_batch_size` defaults to four. Larger batches compute Viterbi paths in parallel using
