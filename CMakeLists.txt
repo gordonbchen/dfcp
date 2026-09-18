@@ -12,6 +12,7 @@ find_package(OpenMP REQUIRED)
 add_executable(impute
     src/impute.cpp
     src/seq_array.cpp
+    src/obs.cpp
     src/clusters.cpp
     src/max.cpp
     src/expect.cpp

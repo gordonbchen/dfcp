@@ -110,7 +110,9 @@ struct Json {
         }
 
         template<typename V>
-        static void write_val(std::stringstream& out, const std::unordered_map<std::string, V>& xs, int depth) {
+        static void write_val(
+            std::stringstream& out, const std::unordered_map<std::string, V>& xs, int depth
+        ) {
             out << '{';
 
             bool first = true;
@@ -128,4 +130,3 @@ struct Json {
             out << '}';
         }
 };
-

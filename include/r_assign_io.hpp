@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <vector>
 #include "clusters.hpp"
+#include "model_array.hpp"
 
 
 struct RAssign {
@@ -18,4 +19,4 @@ struct RAssign {
 
 
 RAssign read_r_assign(const char* fname);
-void write_r_assign(const char* fname, const Clusters& clusters);
+void write_r_assign(const char* fname, const Clusters& clusters, const ModelArray& x);

@@ -7,7 +7,6 @@
 #include "clusters.hpp"
 #include "math.hpp"
 #include "elbo.hpp"
-#include "util.hpp"
 
 
 double betaln(double a, double b) {
@@ -15,28 +14,14 @@ double betaln(double a, double b) {
 }
 
 double calc_gammal_elbo_Ell(const HyperParams& HP, const Params& params, const Clusters& clusters, int l) {
-    if (clusters.emit_mode == EmitMode::soft) {
-        double Ell = clusters.rs[l].size() * (
-            delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, 0.0)
-            - HP.K * delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, 0.0)
-        );
-        for (Cluster* a : clusters.rs[l]) {
-            Ell -= delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, a->n_obs);
-            for (int k = 0; k < HP.K; ++k) {
-                Ell += delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, a->nk[k]);
-            }
-        }
-        return Ell;
+    int K = HP.n_emissions(l);
+    double Ell = delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], K, 0.0);
+    Ell -= delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], K, clusters.rs[l].size());
+    for (int k = 0; k < K; ++k) {
+        Ell += delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0,
+                                 clusters.rs_by_emit[HP.emission_idx(l, k)].size());
     }
-
-    double Ell = delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, 0.0);
-    Ell -= delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], HP.K, clusters.rs[l].size());
-    for (int k = 0; k < HP.K; ++k) {
-        Ell += delta_ElogGamma_x(
-            params.mu_gamma[l], params.sigma2_gamma[l], 1.0, clusters.rs_by_emit[idx2d(l, k, HP.K)].size()
-        );
-    }
-    Ell -= HP.K * delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, 0.0);
+    Ell -= K * delta_ElogGamma_x(params.mu_gamma[l], params.sigma2_gamma[l], 1.0, 0.0);
     return Ell;
 }
 
@@ -112,10 +97,5 @@ double calc_elbo(const HyperParams& HP, const Params& params, const Clusters& cl
         elbo += normal_entropy(params.sigma2_logit_d[l]);
     }
 
-    if (clusters.emit_mode == EmitMode::noisy) {
-        // eps.
-        elbo += betaln(params.alpha_eps, params.beta_eps) - betaln(HP.lambda_1, HP.lambda_2)
-            - (clusters.n_obs - clusters.n_matches) * std::log(HP.K-1.0);
-    }
     return elbo;
 }

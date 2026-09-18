@@ -11,7 +11,6 @@
 #include "clusters.hpp"
 #include "math.hpp"
 #include "params.hpp"
-#include "util.hpp"
 
 
 template <typename F_nll, typename F_d2>
@@ -75,50 +74,28 @@ double ll_log_alpha_d2(double alpha, const HyperParams& HP, const Params& params
 
 double ll_log_gammal(double log_gamma, int l, const HyperParams& HP, const Clusters& clusters) {
     double gamma = std::exp(log_gamma);
+    int K = HP.n_emissions(l);
     double ll = (HP.phi_1-1)*std::log(gamma) - HP.phi_2*gamma;
 
-    if (clusters.emit_mode == EmitMode::soft) {
-        ll += clusters.rs[l].size() * (std::lgamma(HP.K*gamma) - HP.K*std::lgamma(gamma));
-        for (Cluster* a : clusters.rs[l]) {
-            ll -= std::lgamma(HP.K*gamma + a->n_obs);
-            for (int k = 0; k < HP.K; ++k) {
-                ll += std::lgamma(gamma + a->nk[k]);
-            }
-        }
-        return ll + log_gamma;
+    ll += std::lgamma(K*gamma) - std::lgamma(K*gamma + clusters.rs[l].size());
+    for (int k = 0; k < K; ++k) {
+        ll += std::lgamma(gamma + clusters.rs_by_emit[HP.emission_idx(l, k)].size());
     }
-
-    ll += std::lgamma(HP.K*gamma) - std::lgamma(HP.K*gamma + clusters.rs[l].size());
-    for (int k = 0; k < HP.K; ++k) {
-        ll += std::lgamma(gamma + clusters.rs_by_emit[idx2d(l, k, HP.K)].size());
-    }
-    ll -= HP.K * std::lgamma(gamma);
+    ll -= K * std::lgamma(gamma);
     return ll + log_gamma;
 }
 
 double ll_log_gammal_d2(double gamma, int l, const HyperParams& HP, const Clusters& clusters) {
+    int K = HP.n_emissions(l);
     double d2 = (1.0 - HP.phi_1) / (gamma*gamma);
 
-    if (clusters.emit_mode == EmitMode::soft) {
-        d2 += clusters.rs[l].size() * (
-            HP.K*HP.K * boost::math::trigamma(HP.K*gamma) - HP.K*boost::math::trigamma(gamma)
-        );
-        for (Cluster* a : clusters.rs[l]) {
-            d2 -= HP.K*HP.K * boost::math::trigamma(HP.K*gamma + a->n_obs);
-            for (int k = 0; k < HP.K; ++k) {
-                d2 += boost::math::trigamma(gamma + a->nk[k]);
-            }
-        }
-        return gamma*gamma * d2 - 1;
-    }
-
-    d2 += HP.K*HP.K * (
-        boost::math::trigamma(HP.K*gamma)-boost::math::trigamma(HP.K*gamma + clusters.rs[l].size())
+    d2 += K*K * (
+        boost::math::trigamma(K*gamma)-boost::math::trigamma(K*gamma + clusters.rs[l].size())
     );
-    for (int k = 0; k < HP.K; ++k) {
-        d2 += boost::math::trigamma(gamma + clusters.rs_by_emit[idx2d(l, k, HP.K)].size());
+    for (int k = 0; k < K; ++k) {
+        d2 += boost::math::trigamma(gamma + clusters.rs_by_emit[HP.emission_idx(l, k)].size());
     }
-    d2 -= HP.K * boost::math::trigamma(gamma);
+    d2 -= K * boost::math::trigamma(gamma);
     return gamma*gamma * d2 - 1;
 }
 
@@ -217,16 +194,5 @@ void expect_step(const HyperParams& HP, Params& params, const Clusters& clusters
             params.sigma2_d[l] = std::pow(dl_mode * (1.0-dl_mode), 2.0) * params.sigma2_logit_d[l];
         };
         params.mu_log_d[l] = delta_Elogx(params.mu_d[l], params.sigma2_d[l], 1.0, 0.0);
-    }
-
-    if (clusters.emit_mode == EmitMode::noisy) {
-        // eps update.
-        params.alpha_eps = HP.lambda_1 + clusters.n_obs - clusters.n_matches;
-        params.beta_eps = HP.lambda_2 + clusters.n_matches;
-
-        params.mu_eps = calc_beta_mean(params.alpha_eps, params.beta_eps);
-        params.sigma2_eps = calc_beta_var(params.alpha_eps, params.beta_eps);
-
-        params.update_Eeps_log_match_mismatch();
     }
 }

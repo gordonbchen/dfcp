@@ -39,20 +39,25 @@ current executable.
 - `include/params.hpp`: moments for the continuous variational approximation.
 - `include/seq_array.hpp`: sequence-major bitpacked observations and the binary
   sequence-file reader.
+- `include/model_array.hpp`: SNP-locus or PBWT-block model observations and the
+  mapping from model blocks back to source SNPs.
+- `include/obs.hpp`: scalar and compatible-block observations for one target
+  haplotype.
 - `include/io.hpp`: shared binary I/O and atomic output writing.
 - `include/impute_io.hpp`: streamed fixed-point imputation probability I/O.
 - `include/r_assign_io.hpp`: streamed R-assignment I/O.
 - `include/clusters.hpp`: `R`/`Q` graph nodes, ownership, assignments, and
-  cluster mutation interface, including the emission-mode enum.
+  cluster mutation interface.
 - `include/max.hpp`: serial and batched sequence reassignment and insertion entry points.
-- `include/pbwt.hpp`: PBWT initialization entry point.
+- `include/pbwt.hpp`: PBWT initialization plus streaming target-compatible
+  greedy block labeling.
 - `include/fwd_bkwd.hpp`: forward-backward imputation entry point and reusable buffers.
 - `include/expect.hpp`: continuous-parameter update entry point.
 - `include/elbo.hpp`: approximate ELBO entry point.
 - `include/math.hpp`: second-order delta-method helpers.
 - `include/tree.hpp`: reference-tree parsing and tree-based metrics.
-- `include/util.hpp`: flat indexing, observed-target mapping, emission counts,
-  modes, and numeric argument parsing.
+- `include/util.hpp`: flat indexing, observed-target mapping, and numeric
+  argument parsing.
 - `include/json.hpp`: small write-only JSON builder used for stdout results.
 
 ### C++ sources
@@ -61,6 +66,8 @@ current executable.
   imputation, timings, and JSON output.
 - `src/seq_array.cpp`: binary sequence loading and the 64-by-64 bit transpose
   from locus-major file words to sequence-major memory words.
+- `src/obs.cpp`: reads scalar target alleles and matches block observations to
+  compatible reference patterns.
 - `src/io.cpp`: exact binary reads/writes and atomic file output.
 - `src/impute_io.cpp`: little-endian imputation probability I/O.
 - `src/r_assign_io.cpp`: R-assignment I/O.
@@ -68,11 +75,13 @@ current executable.
   materialized VCF windows.
 - `src/eval_clusters.cpp`: standalone partition and tree evaluation from
   assignments, reference alleles, positions, and fastsimcoal trees.
-- `src/clusters.cpp`: cluster creation/deletion, graph links, assignments,
-  hard-emission indexes, and soft-emission counts.
-- `src/max.cpp`: hard and soft sequencewise Viterbi maximization, including
-  parallel read-only path searches within an optional sequence batch.
-- `src/pbwt.cpp`: forward PBWT construction and radius-based initialization.
+- `src/clusters.cpp`: cluster creation/deletion, graph links, assignments, and
+  emission indexes.
+- `src/max.cpp`: sequencewise Viterbi maximization, including parallel
+  read-only path searches within an optional sequence batch.
+- `src/pbwt.cpp`: forward PBWT construction, radius-based initialization, and
+  `O(N)`-working-memory PBWT passes that select greedy blocks and label their
+  exact patterns.
 - `src/fwd_bkwd.cpp`: forward-backward imputation with reusable message buffers.
 - `src/expect.cpp`: Laplace updates for `alpha`, `gamma_l`, and `d_l`.
 - `src/elbo.cpp`: approximate ELBO and variational entropy.
@@ -120,25 +129,22 @@ The priors used by the current executable are:
 
 Defaults are `tau=(1,1)`, `v=(1,1)`, and `phi=(2,2)`.
 
-### Hard emissions
+### Emissions
 
 Each `R` cluster has one fixed allele. Existing clusters are feasible only
 when their emission matches the observation. Missing observations do not
 constrain the cluster. New-cluster emission probabilities integrate the
 locus-level categorical probabilities under the symmetric Dirichlet prior.
 
-### Soft emissions
-
-Each `R` cluster has its own categorical distribution with symmetric
-Dirichlet concentration `gamma_l`. The distribution is integrated out, so the
-predictive likelihood for observed allele `k` in cluster `a` is based on
-
-```text
-(gamma_l + n_(a,l,k)) / (K gamma_l + n_(a,l,observed)).
-```
-
-A new soft cluster predicts each category with probability `1/K`. Missing
-observations do not contribute to `nk` or `n_obs`.
+In block mode, a model locus is a consecutive SNP interval and its emission
+is the dense PBWT group labeling one exact reference haplotype pattern in that
+interval. `--block_max_k` greedily takes the longest interval whose number of
+patterns does not exceed that maximum and, when targets are present, for which
+every target has at least one compatible reference pattern. Only observed target
+alleles affect those boundaries. The alphabet size `K_l` is ragged. The
+implementation stores one representative reference haplotype and its count per
+emission and uses the representative to recover SNP alleles without copying
+patterns.
 
 ### Inference
 
@@ -177,7 +183,7 @@ this ID; proposed-new-cluster messages remain separate by locus. `ViterbiBuffers
 owns the reusable Viterbi messages and path. `FwdBkwdBuffers` owns reusable
 forward and backward message arrays. Imputation also overwrites one probability
 row for every target sequence in both inference modes.
-Active `R` and `Q` clusters and the hard-emission index are dense pointer
+Active `R` and `Q` clusters and the emission index are dense pointer
 vectors. Empty-cluster deletion finds the pointer linearly and uses
 swap-and-pop; the vectors average only a few entries per locus.
 
@@ -199,13 +205,18 @@ Important invariants:
 - Batched maximization does not mutate the graph while its parallel Viterbi
   searches run. Existing cluster pointers in the saved paths remain valid while
   those paths are subsequently inserted in sequence order.
-- Use `Clusters::get_matching_as` for R candidates: hard observed emissions
-  select `rs_by_emit`, while missing, noisy, and soft emissions select all `rs`.
+- Use `Clusters::get_matching_as` for R candidates: observed emissions select
+  `rs_by_emit`, while missing observations select all `rs`.
 - `Cluster::n` counts all assigned sequences.
-- In soft mode, `n_obs` excludes missing values and `nk[k]` counts observed
-  allele `k` values only.
-- In hard mode, only `R` clusters have emissions; `Q` emissions are `-1`.
+- Only `R` clusters have emissions; `Q` emissions are `-1`.
 - `SeqArray::x` is bitpacked sequence-major `[N][ceil(L/64)]`.
+- `ModelArray` leaves that representation unchanged when block mode is disabled.
+  In block mode it stores sequence-major `[N][B]` `uint32` PBWT
+  labels, ragged emission counts, representative reference indexes, and
+  explicit source-SNP offsets for variable-length blocks.
+- In block mode, `HP.L`, parameters, graph loci, and assignments use `B` model
+  blocks. Probability files and written R assignments remain on the original
+  SNP grid; each block R ID is repeated over its source SNPs in `DFRA` output.
 - `r_assign` is flat `[N][L]`; `q_assign` is flat `[N][L-1]`.
 - Use `idx2d` for flat indexing rather than reproducing index arithmetic.
 
@@ -218,11 +229,14 @@ it.
 `src/impute.cpp` performs these steps:
 
 1. Read the locus-major bitpacked reference file and transpose it into an
-   in-memory sequence-major `SeqArray`.
+   in-memory sequence-major `SeqArray`. If requested, stream PBWT over it and
+   label exact haplotype patterns at greedy block boundaries. Greedy
+   construction first finds boundaries and then makes a second streaming pass
+   to write sequence-major labels without retaining full PBWT tables.
 2. If target imputation was requested, read the target and observed-loci files.
 3. Parse all optional arguments as option/value pairs.
-4. Initialize parameters and clusters, either as one block, with PBWT groups,
-   or by adding sequences through Viterbi.
+4. Initialize parameters and clusters as one cluster per emission, with SNP
+   PBWT groups, or by adding sequences through Viterbi.
 5. Run Expectation-Maximization until early stopping or `--max_train_steps`.
 6. Optionally write the final R assignment at every reference sequence and
    locus.
@@ -337,10 +351,10 @@ them densely at each locus rather than sizing bitsets from
 
 ### Planned frozen model file
 
-The planned `DFCM` format will contain the dimensions, emission mode, fitted
-parameters, and file-local R and Q cluster records required for Viterbi and
+The planned `DFCM` format will contain the dimensions, fitted parameters, and
+file-local R and Q cluster records required for Viterbi and
 forward-backward inference. Each Q record will identify its single parent and
-child R; R adjacency, active-locus vectors, and hard-emission indexes will be
+child R; R adjacency, active-locus vectors, and emission indexes will be
 rebuilt while loading. It will omit training assignments. A later checkpoint
 extension may optionally include R and Q assignments for resumable training.
 
@@ -378,13 +392,15 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--tau_1`, `--tau_2`: Gamma shape/rate for `alpha`.
 - `--v_1`, `--v_2`: Beta shapes for each `d_l`.
 - `--phi_1`, `--phi_2`: Gamma shape/rate for each `gamma_l`.
-- `--mode`: emission model, one of `hard`, `noisy`, or `soft`; defaults to
-  `hard`.
-- `--lambda_1`, `--lambda_2`: Beta shapes for the noisy-emission error rate.
-- `--init`: initialization method, one of `viterbi`, `block`, or `pbwt`;
+- `--init`: initialization method, one of `viterbi`, `emission`, or `pbwt`;
   defaults to `pbwt`.
 - `--pbwt_match_len`: PBWT match radius; an interior cluster matches
   `2 * match_len - 1` loci centered on its locus. Defaults to `20`.
+- `--block_max_k`: enable variable-length greedy PBWT blocks and cap the
+  number of exact reference patterns in every block. A value of `0` disables
+  it. With target inputs, a block is also extended only while every target has
+  a compatible reference pattern. It supports `emission` or `viterbi`
+  initialization; SNP PBWT initialization is invalid on the block grid.
 - `--max_batch_size`: sequences removed before parallel Viterbi searches and
   sequential reinsertion; defaults to `4`. Batches above one use paths computed
   against the same reduced graph, so they are an approximate maximization step.
@@ -460,6 +476,13 @@ Always-present fields include:
 
 - `ref_file`
 - `t_init`
+- `n_snps`
+- `n_blocks`
+- `block_max_k`
+
+Block runs report mean block length, mean emissions per block, the singleton
+block fraction, and the numbers of maximum-K and target-compatibility cuts.
+One boundary can satisfy both cut reasons.
 
 `target_file`, `observed_loci_file`, and `t_impute` are present only when
 imputation was requested.
@@ -624,8 +647,8 @@ cases are:
 - DOT output contains at most the first 16 evaluated loci.
 - `Json` rejects NaN and infinity, so metrics must define finite edge-case
   behavior.
-- `notes.typ` contains both current soft-model work and superseded hard-model
-  derivations. Check nearby correction notes and the C++ implementation.
+- `notes.typ` contains both current and superseded derivations. Check nearby
+  correction notes and the C++ implementation.
 
 ## C++ Style Guide
 
@@ -654,6 +677,7 @@ Match the existing code unless a local cleanup is required for correctness.
   inputs when their compatibility is required for safe interpretation.
 - Braces are required for multi-line blocks. Existing one-line throw guards are
   acceptable.
+- Keep lines at or below 110 columns when they can be wrapped cleanly.
 - Use four spaces for indentation and keep blank-line spacing consistent with
   neighboring code.
 - Include the standard header that declares every directly used symbol. Keep
@@ -691,7 +715,6 @@ Active scripts are small command-line programs rather than a package.
 
 Before editing:
 
-- Identify whether the behavior is hard mode, soft mode, or shared.
 - Trace sequence indexing through validation and `train_idxs`.
 - Check graph ownership and deletion if cluster pointers are involved.
 - Check `notes.typ` for a correction near the relevant derivation.

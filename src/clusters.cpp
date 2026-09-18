@@ -8,15 +8,16 @@
 #include <functional>
 #include <stdexcept>
 #include "clusters.hpp"
+#include "model_array.hpp"
 #include "seq_array.hpp"
 #include "hyperparams.hpp"
 #include "pbwt.hpp"
 #include "util.hpp"
 
 
-Cluster::Cluster(uint32_t id_, bool is_r_, int l_, int emission_, int K)
+Cluster::Cluster(uint32_t id_, bool is_r_, int l_, int emission_)
     : id(id_), is_r(is_r_), l(l_), emission(emission_),
-      n(0), nk(K, 0), n_obs(0), q_parent(nullptr), q_child(nullptr) {}
+      n(0), q_parent(nullptr), q_child(nullptr) {}
 
 void Cluster::add_child(Cluster *child) {
     if (is_r) {
@@ -34,51 +35,13 @@ void Cluster::add_child(Cluster *child) {
     child->parents.push_back(this);
 }
 
-Mode Cluster::mode() const {
-    Mode mode{0, nk[0]};
-    for (size_t k = 1; k < nk.size(); ++k) {
-        if (nk[k] > mode.count) {
-            mode.idx = k;
-            mode.count = nk[k];
-        }
-    }
-    return mode;
-}
-
-
-Clusters::Clusters(const HyperParams& HP_, EmitMode emit_mode_) :
+Clusters::Clusters(const HyperParams& HP_) :
     next_cluster_id(0),
     HP(HP_),
-    emit_mode(emit_mode_),
     nR(0),
     rs(HP.L), qs(HP.L-1),
-    rs_by_emit(emit_mode == EmitMode::soft ? 0 : HP_.L * HP_.K),
-    n_matches(0), n_obs(0)
+    rs_by_emit(HP_.total_emissions())
 {}
-
-void Clusters::block_init(const SeqArray& x) {
-    r_assign.resize(HP.N * HP.L, nullptr);
-    q_assign.resize(HP.N * (HP.L-1), nullptr);
-
-    // Block init.
-    std::vector<int> seqs;
-    seqs.reserve(HP.N);
-    for (int i = 0; i < HP.N; ++i) {
-        seqs.push_back(i);
-    }
-
-    std::vector<int8_t> modes{get_emission_modes(count_emissions(x, HP.K), HP.L, HP.K)};
-
-    Cluster* r = create_cluster(seqs, x, true, 0, modes[0]);
-    Cluster* q = nullptr;
-    for (int l = 0; l < HP.L-1; ++l) {
-        q = create_cluster(seqs, x, false, l, -1);
-        r->add_child(q);
-
-        r = create_cluster(seqs, x, true, l+1, modes[l+1]);
-        q->add_child(r);
-    }
-}
 
 struct PairPointerHash {
     template <typename T, typename U>
@@ -88,6 +51,49 @@ struct PairPointerHash {
         return hash1 ^ (hash2 + 0x9e3779b9 + (hash1 << 6) + (hash1 >> 2));
     }
 };
+
+void init_q_clusters(Clusters& clusters) {
+    const HyperParams& HP = clusters.HP;
+    for (int l = 0; l < HP.L-1; ++l) {
+        std::unordered_map<std::pair<Cluster*, Cluster*>, Cluster*, PairPointerHash> q_map;
+        for (int i = 0; i < HP.N; ++i) {
+            Cluster* c = clusters.r_assign[idx2d(i, l, HP.L)];
+            Cluster* c_next = clusters.r_assign[idx2d(i, l + 1, HP.L)];
+            std::pair<Cluster*, Cluster*> cs{c, c_next};
+
+            Cluster* q;
+            auto existing = q_map.find(cs);
+            if (existing != q_map.end()) {
+                q = existing->second;
+            }
+            else {
+                q = clusters.create_empty_cluster(false, l, -1);
+                q_map.emplace(cs, q);
+                c->add_child(q);
+                q->add_child(c_next);
+            }
+            clusters.cluster_add(q, i);
+        }
+    }
+}
+
+void Clusters::emission_init(const ModelArray& x) {
+    r_assign.resize(static_cast<std::size_t>(HP.N) * HP.L, nullptr);
+    q_assign.resize(static_cast<std::size_t>(HP.N) * (HP.L - 1), nullptr);
+
+    for (int l = 0; l < HP.L; ++l) {
+        std::vector<Cluster*> r_by_emission(HP.n_emissions(l), nullptr);
+        for (int i = 0; i < HP.N; ++i) {
+            int emission = x(i, l);
+            Cluster*& c = r_by_emission[emission];
+            if (c == nullptr) {
+                c = create_empty_cluster(true, l, emission);
+            }
+            cluster_add(c, i);
+        }
+    }
+    init_q_clusters(*this);
+}
 
 void Clusters::pbwt_init(const SeqArray& x, int match_len) {
     r_assign.resize(HP.N * HP.L, nullptr);
@@ -115,45 +121,15 @@ void Clusters::pbwt_init(const SeqArray& x, int match_len) {
             if (c == nullptr) {
                 c = create_empty_cluster(true, l, x(i, l));
             }
-            cluster_add(c, i, x(i, l));
+            cluster_add(c, i);
         }
     }
 
-    for (int l = 0; l < HP.L-1; ++l) {
-        std::unordered_map<std::pair<Cluster*, Cluster*>, Cluster*, PairPointerHash> q_map;
-        for (int i = 0; i < HP.N; ++i) {
-            Cluster* c = r_assign[idx2d(i,l,HP.L)];
-            Cluster* c_next = r_assign[idx2d(i,l+1,HP.L)];
-
-            std::pair<Cluster*, Cluster*> cs{c, c_next};
-            Cluster* q;
-            if (q_map.contains(cs)) {
-                q = q_map.at(cs);
-            }
-            else {
-                q = create_empty_cluster(false, l, -1);
-                q_map.emplace(cs, q);
-
-                c->add_child(q);
-                q->add_child(c_next);
-            }
-            cluster_add(q, i, -1);
-        }
-    }
-}
-
-Cluster* Clusters::create_cluster(
-    const std::vector<int>& seqs, const SeqArray& x, bool is_r, int l, int emission
-) {
-    Cluster* c = create_empty_cluster(is_r, l, emission);
-    for (const int& i : seqs) {
-        cluster_add(c, i, x(i, l));
-    }
-    return c;
+    init_q_clusters(*this);
 }
 
 Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
-    if (emit_mode != EmitMode::soft && (is_r != (emission != -1))) {
+    if (is_r != (emission != -1)) {
         throw std::invalid_argument("only r cluster can have emissions.");
     }
 
@@ -166,7 +142,7 @@ Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
         free_cluster_ids.pop_back();
     }
 
-    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(id, is_r, l, emission, HP.K);
+    std::unique_ptr<Cluster> u_ptr = std::make_unique<Cluster>(id, is_r, l, emission);
     Cluster* ptr = u_ptr.get();
     if (id == all_clusters.size()) { all_clusters.push_back(std::move(u_ptr)); }
     else { all_clusters[id] = std::move(u_ptr); }
@@ -178,13 +154,11 @@ Cluster* Clusters::create_empty_cluster(bool is_r, int l, int emission) {
 
     rs[l].push_back(ptr);
     ++nR;
-    if (emit_mode != EmitMode::soft) {
-        rs_by_emit[idx2d(l, emission, HP.K)].push_back(ptr);
-    }
+    rs_by_emit[HP.emission_idx(l, emission)].push_back(ptr);
     return ptr;
 }
 
-void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
+void Clusters::cluster_add(Cluster* cluster, int idx) {
     ++cluster->n;
 
     if (cluster->is_r) {
@@ -192,16 +166,6 @@ void Clusters::cluster_add(Cluster* cluster, int idx, int emission) {
             throw std::runtime_error("seq already assigned to r cluster");
         };
         r_assign[idx2d(idx, cluster->l, HP.L)] = cluster;
-        if (emit_mode != EmitMode::hard && (emission != -1)) {
-            ++cluster->nk[emission];
-            ++cluster->n_obs;
-        }
-        if (emit_mode == EmitMode::noisy && (emission != -1)) {
-            ++n_obs;
-            if (emission == cluster->emission) {
-                ++n_matches;
-            }
-        }
         return;
     }
     if (q_assign[idx2d(idx, cluster->l, HP.L-1)] != nullptr) {
@@ -216,22 +180,11 @@ void erase_cluster(std::vector<Cluster*>& clusters, Cluster* cluster) {
     clusters.pop_back();
 }
 
-void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
+void Clusters::cluster_remove(Cluster* cluster, int idx) {
     --cluster->n;
 
     if (cluster->is_r) {
         r_assign[idx2d(idx, cluster->l, HP.L)] = nullptr;
-        if (emit_mode != EmitMode::hard && (emission != -1)) {
-            --cluster->nk[emission];
-            --cluster->n_obs;
-        }
-        if (emit_mode == EmitMode::noisy && (emission != -1)) {
-            --n_obs;
-            if (emission == cluster->emission) {
-                --n_matches;
-            }
-        }
-
     }
     else {
         q_assign[idx2d(idx, cluster->l, HP.L-1)] = nullptr;
@@ -250,9 +203,7 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
         }
         erase_cluster(rs[cluster->l], cluster);
         --nR;
-        if (emit_mode != EmitMode::soft) {
-            erase_cluster(rs_by_emit[idx2d(cluster->l, cluster->emission, HP.K)], cluster);
-        }
+        erase_cluster(rs_by_emit[HP.emission_idx(cluster->l, cluster->emission)], cluster);
     }
     else {
         if (cluster->q_parent != nullptr) {
@@ -266,33 +217,4 @@ void Clusters::cluster_remove(Cluster* cluster, int idx, int emission) {
 
     free_cluster_ids.push_back(cluster->id);
     all_clusters[cluster->id].reset();
-}
-
-void Clusters::set_emission(Cluster* c, int new_emission) {
-    if (emit_mode != EmitMode::noisy || !c->is_r) {
-        throw std::runtime_error("set_emission can only be called for noisy R clusters.");
-    }
-    if (c->emission == new_emission) {
-        return;
-    }
-    erase_cluster(rs_by_emit[idx2d(c->l,c->emission,HP.K)], c);
-    rs_by_emit[idx2d(c->l,new_emission,HP.K)].push_back(c);
-    n_matches += c->nk[new_emission];
-    n_matches -= c->nk[c->emission];
-    c->emission = new_emission;
-}
-
-int Clusters::cluster_mode(int l) const {
-    if (emit_mode == EmitMode::soft) {
-        throw std::runtime_error("Soft clusters don't have emissions, no cluster emission mode");
-    }
-    int max_k = 0;
-    size_t max_nk = rs_by_emit[idx2d(l, 0, HP.K)].size();
-    for (int k = 1; k < HP.K; ++k) {
-        if (rs_by_emit[idx2d(l, k, HP.K)].size() > max_nk) {
-            max_k = k;
-            max_nk = rs_by_emit[idx2d(l, k, HP.K)].size();
-        }
-    }
-    return max_k;
 }
