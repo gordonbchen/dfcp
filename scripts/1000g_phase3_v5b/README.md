@@ -89,10 +89,10 @@ OMP_NUM_THREADS=1 scripts/1000g_phase3_v5b/impute.sh \
   --name greedy64 --n-parallel 4 --block_max_k 64 --init emission
 ```
 
-It takes the longest prefix with at most 64 reference patterns for which every
-target haplotype matches at least one pattern at its observed markers. Masked
-target truth is never consulted. The fitted boundaries are consequently
-specific to the supplied observed target panel. A positive `--block_max_k`
+It takes the longest prefix with at most 64 reference patterns for which the
+current target haplotype matches at least one pattern at its observed markers.
+Each target haplotype gets its own block boundaries and fitted model. Masked
+target truth is never consulted. A positive `--block_max_k`
 requires `emission` or `viterbi` initialization.
 
 `impute.sh` builds DFCP once and runs the same options on every window. `--name NAME` writes `NAME.bin`,
@@ -107,6 +107,42 @@ overlap to retain every shared locus exactly once; an odd overlap retains the ce
 `OMP_NUM_THREADS`, but make the maximization update approximate because every path in a batch sees the same
 reduced cluster graph. Account for both levels of parallelism: simultaneous processes times OpenMP threads
 should not greatly exceed the available hardware threads.
+
+## Target-specific block comparison
+
+`output/targetwise_compare.html` compares Beagle with paired joint and individual greedy-block
+K=256, 512, 1024, and 2048 runs, plus an individual K=3000 run, on the
+64-window chromosome 20 panel in `data/1000g_phase3_v5b/windows_64`. Every DFCP run uses emission
+initialization, one training step, `--max_batch_size 64`, and one OpenMP thread per window worker.
+The `joint_k*_step1` results were generated with the former shared-target block fit before this change;
+the active block-mode interface fits each target separately and writes `individual_k*_step1` results.
+The joint outputs are retained as benchmark data, not as a supported fitting mode.
+
+To regenerate an individual-target run and its pooled evaluation:
+
+```bash
+OMP_NUM_THREADS=1 scripts/1000g_phase3_v5b/impute.sh \
+  data/1000g_phase3_v5b/windows_64 \
+  --name individual_k1024_step1 --n-parallel 8 --init emission \
+  --block_max_k 1024 --max_batch_size 64 --max_train_steps 1
+./build/eval_impute data/1000g_phase3_v5b/windows_64 \
+  individual_k1024_step1 output/individual_k1024_step1.tsv
+```
+
+After evaluating the runs, regenerate the plot with:
+
+```bash
+.venv/bin/python scripts/impute_viz.py \
+  data/1000g_phase3_v5b/windows/eval_impute_beagle.tsv \
+  output/joint_k{256,512,1024,2048}_step1.tsv \
+  output/individual_k{256,512,1024,2048}_step1.tsv \
+  output/individual_k3000_step1.tsv \
+  --output output/targetwise_compare.html
+```
+
+Each per-window JSON stores `t_total` and per-target fit and imputation times. With eight workers,
+the sum of window `t_total` values is CPU-worker time rather than elapsed wall time. The original
+joint-fit JSON recorded initialization, training, and imputation times, but not block construction.
 
 ## Beagle baseline
 

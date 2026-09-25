@@ -113,36 +113,37 @@ void train_dfcp(
 }
 
 
-void impute(
+void impute_blocked_target(
+    const SeqArray& target, int target_idx,
+    const std::unordered_map<int, int>& obs_ls, bool viterbi,
+    const ModelArray& ref, const Clusters& clusters, const Params& params,
+    const HyperParams& HP, std::vector<double>& seq_probs
+) {
+    BlockObs obs{ref, target, target_idx, obs_ls, clusters, params, HP};
+    if (viterbi) {
+        ViterbiBuffers buffers(clusters.next_cluster_id, HP.L);
+        get_blocked_viterbi_impute_probs(
+            ref, obs, obs_ls, buffers, seq_probs, clusters, params, HP
+        );
+    }
+    else {
+        FwdBkwdBuffers buffers(clusters.next_cluster_id, HP.L);
+        fwd_bkwd_blocks(ref, obs, obs_ls, buffers, seq_probs, clusters, params, HP);
+    }
+}
+
+
+void impute_unblocked(
     const SeqArray& x_val, const std::unordered_map<int, int>& obs_ls,
     bool viterbi,
-    const ModelArray& ref,
     const Clusters& clusters, const Params& params, const HyperParams& HP,
     const char* prob_file
 ) {
-    int n_masked_ls = ref.snps.L - static_cast<int>(obs_ls.size());
+    int n_masked_ls = HP.L - static_cast<int>(obs_ls.size());
     ImputeProbWriter prob_writer(prob_file, x_val.N, n_masked_ls);
     std::vector<double> seq_probs(n_masked_ls * 2);
 
-    if (ref.is_blocked() && viterbi) {
-        ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
-        for (int i = 0; i < x_val.N; ++i) {
-            BlockObs obs{ref, x_val, i, obs_ls, clusters, params, HP};
-            get_blocked_viterbi_impute_probs(
-                ref, obs, obs_ls, viterbi_bufs, seq_probs, clusters, params, HP
-            );
-            prob_writer.write_row(seq_probs);
-        }
-    }
-    else if (ref.is_blocked()) {
-        FwdBkwdBuffers fwd_bkwd_bufs(clusters.next_cluster_id, HP.L);
-        for (int i = 0; i < x_val.N; ++i) {
-            BlockObs obs{ref, x_val, i, obs_ls, clusters, params, HP};
-            fwd_bkwd_blocks(ref, obs, obs_ls, fwd_bkwd_bufs, seq_probs, clusters, params, HP);
-            prob_writer.write_row(seq_probs);
-        }
-    }
-    else if (viterbi) {
+    if (viterbi) {
         ViterbiBuffers viterbi_bufs(clusters.next_cluster_id, HP.L);
         for (int i = 0; i < x_val.N; ++i) {
             get_viterbi_impute_probs(x_val, i, obs_ls, viterbi_bufs, seq_probs, clusters, params, HP);
@@ -272,21 +273,76 @@ int main(int argc, char *argv[]) {
     if (block_max_k > 0 && init_mode == InitMode::pbwt) {
         throw std::invalid_argument("PBWT initialization does not support blocks.");
     }
-    ModelArray model_x{
-        x_train, block_max_k,
-        run_imputation ? &*x_val : nullptr, run_imputation ? &obs_ls : nullptr
-    };
-    std::vector<int> n_emissions(model_x.L);
-    for (int l = 0; l < model_x.L; ++l) {
-        n_emissions[l] = model_x.n_emissions(l);
+    if (block_max_k > 0 && run_imputation && r_assign_file != nullptr) {
+        throw std::invalid_argument("R assignments require one fit; omit target inputs in block mode.");
     }
-    HyperParams HP{x_train.N, std::move(n_emissions)};
-    HP.tau_1 = tau_1;
-    HP.tau_2 = tau_2;
-    HP.v_1 = v_1;
-    HP.v_2 = v_2;
-    HP.phi_1 = phi_1;
-    HP.phi_2 = phi_2;
+
+    auto make_hyperparams = [&](const ModelArray& model) {
+        std::vector<int> n_emissions(model.L);
+        for (int l = 0; l < model.L; ++l) {
+            n_emissions[l] = model.n_emissions(l);
+        }
+        HyperParams HP{x_train.N, std::move(n_emissions)};
+        HP.tau_1 = tau_1;
+        HP.tau_2 = tau_2;
+        HP.v_1 = v_1;
+        HP.v_2 = v_2;
+        HP.phi_1 = phi_1;
+        HP.phi_2 = phi_2;
+        return HP;
+    };
+
+    if (block_max_k > 0 && run_imputation) {
+        int n_masked_ls = x_train.L - static_cast<int>(obs_ls.size());
+        ImputeProbWriter prob_writer(argv[4], x_val->N, n_masked_ls);
+        std::vector<double> seq_probs(n_masked_ls * 2);
+        std::vector<Json> target_runs;
+        target_runs.reserve(x_val->N);
+        auto t_start = std::chrono::steady_clock::now();
+
+        for (int target_idx = 0; target_idx < x_val->N; ++target_idx) {
+            auto t_fit_start = std::chrono::steady_clock::now();
+            ModelArray model_x{x_train, block_max_k, &*x_val, target_idx, &obs_ls};
+            HyperParams HP = make_hyperparams(model_x);
+            std::cerr << "target=" << target_idx << ' ' << HP << '\n';
+
+            Json target_log;
+            target_log.add("target_index", target_idx).add("n_blocks", model_x.L);
+            add_block_stats(target_log, model_x);
+            target_log.add("block_snp_offsets", model_x.blocks->snp_offsets);
+
+            Params params{HP};
+            Clusters clusters{HP};
+            train_dfcp(
+                clusters, params, HP, init_mode, pbwt_match_len,
+                model_x, max_batch_size, max_train_steps, target_log
+            );
+            auto t_fit_end = std::chrono::steady_clock::now();
+
+            impute_blocked_target(
+                *x_val, target_idx, obs_ls, viterbi_impute,
+                model_x, clusters, params, HP, seq_probs
+            );
+            prob_writer.write_row(seq_probs);
+            auto t_target_end = std::chrono::steady_clock::now();
+            target_log.add("t_fit", std::chrono::duration_cast<std::chrono::milliseconds>(
+                t_fit_end - t_fit_start).count());
+            target_log.add("t_impute", std::chrono::duration_cast<std::chrono::milliseconds>(
+                t_target_end - t_fit_end).count());
+            target_runs.push_back(std::move(target_log));
+        }
+        prob_writer.finish();
+        auto t_end = std::chrono::steady_clock::now();
+        auto t_total = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
+        std::cerr << "t_total=" << t_total << "ms\n";
+        json.add("n_snps", x_train.L).add("block_max_k", block_max_k)
+            .add("n_targets", x_val->N).add("target_runs", target_runs).add("t_total", t_total);
+        std::cout << json.str() << '\n';
+        return 0;
+    }
+
+    ModelArray model_x{x_train, block_max_k, nullptr, 0, nullptr};
+    HyperParams HP = make_hyperparams(model_x);
     std::cerr << HP << '\n';
 
     json.add("n_snps", x_train.L).add("n_blocks", model_x.L).add("block_max_k", block_max_k);
@@ -309,7 +365,7 @@ int main(int argc, char *argv[]) {
 
     if (run_imputation) {
         auto t0 = std::chrono::steady_clock::now();
-        impute(*x_val, obs_ls, viterbi_impute, model_x, clusters, params, HP, argv[4]);
+        impute_unblocked(*x_val, obs_ls, viterbi_impute, clusters, params, HP, argv[4]);
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
         std::cerr << "t_impute=" << t_impute << "ms\n";

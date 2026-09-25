@@ -108,6 +108,8 @@ current executable.
 - `scripts/impute_viz.py` and `cluster_viz.py`: Plotly reports for pooled
   imputation and cluster metrics; the latter switches exact-tract units between
   bp and loci.
+- `scripts/test_targetwise_impute.py`: tiny end-to-end fixture checking
+  target-specific block boundaries, row order, and the unblocked path.
 - `scripts/plotly_html.py`: shared local Plotly bundle support for reports.
 
 ## Mathematical Model
@@ -139,9 +141,10 @@ locus-level categorical probabilities under the symmetric Dirichlet prior.
 In block mode, a model locus is a consecutive SNP interval and its emission
 is the dense PBWT group labeling one exact reference haplotype pattern in that
 interval. `--block_max_k` greedily takes the longest interval whose number of
-patterns does not exceed that maximum and, when targets are present, for which
-every target has at least one compatible reference pattern. Only observed target
-alleles affect those boundaries. The alphabet size `K_l` is ragged. The
+patterns does not exceed that maximum and, during imputation, for which the
+current target has at least one compatible reference pattern. Each target gets
+its own block boundaries and fitted model. Only observed target alleles affect
+those boundaries. The alphabet size `K_l` is ragged. The
 implementation stores one representative reference haplotype and its count per
 emission and uses the representative to recover SNP alleles without copying
 patterns.
@@ -232,16 +235,19 @@ it.
    in-memory sequence-major `SeqArray`. If requested, stream PBWT over it and
    label exact haplotype patterns at greedy block boundaries. Greedy
    construction first finds boundaries and then makes a second streaming pass
-   to write sequence-major labels without retaining full PBWT tables.
+   to write sequence-major labels without retaining full PBWT tables. In block
+   mode with target inputs, repeat construction and fitting for each target.
 2. If target imputation was requested, read the target and observed-loci files.
 3. Parse all optional arguments as option/value pairs.
 4. Initialize parameters and clusters as one cluster per emission, with SNP
    PBWT groups, or by adding sequences through Viterbi.
 5. Run Expectation-Maximization until early stopping or `--max_train_steps`.
 6. Optionally write the final R assignment at every reference sequence and
-   locus.
+   locus. This is unavailable during block-mode target imputation because
+   there is no single fitted model.
 7. If target inputs were provided, impute loci absent from the observed-target
-   map without inserting target sequences into the fitted graph.
+   map without inserting target sequences into the fitted graph. Block mode
+   writes each probability row after fitting its target-specific model.
 8. Write diagnostics to stderr and one JSON object to stdout.
 
 Target sequence, observed-loci, and probability output paths are one optional
@@ -398,8 +404,8 @@ Every option requires a value, including booleans. There is no `--help` path.
   `2 * match_len - 1` loci centered on its locus. Defaults to `20`.
 - `--block_max_k`: enable variable-length greedy PBWT blocks and cap the
   number of exact reference patterns in every block. A value of `0` disables
-  it. With target inputs, a block is also extended only while every target has
-  a compatible reference pattern. It supports `emission` or `viterbi`
+  it. With target inputs, each target is fitted separately, and a block extends
+  only while that target has a compatible reference pattern. It supports `emission` or `viterbi`
   initialization; SNP PBWT initialization is invalid on the block grid.
 - `--max_batch_size`: sequences removed before parallel Viterbi searches and
   sequential reinsertion; defaults to `4`. Batches above one use paths computed
@@ -409,6 +415,7 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
   imputation only when the value is exactly `1`.
 - `--output_r_assign`: write final reference R assignments to the given path.
+  It cannot be combined with block-mode target imputation.
 
 A prepared 1000 Genomes invocation is:
 
@@ -472,7 +479,7 @@ original positions and locus order.
 The executable emits progress and human-readable metrics to stderr. Stdout is
 one JSON object suitable for scripts.
 
-Always-present fields include:
+Shared-fit output fields include:
 
 - `ref_file`
 - `t_init`
@@ -482,7 +489,10 @@ Always-present fields include:
 
 Block runs report mean block length, mean emissions per block, the singleton
 block fraction, and the numbers of maximum-K and target-compatibility cuts.
-One boundary can satisfy both cut reasons.
+One boundary can satisfy both cut reasons. Block-mode target imputation reports
+`n_snps`, `block_max_k`, `n_targets`, and `t_total` at the root. Its
+`target_runs` array contains each target index, block offsets and statistics,
+training log, fitted parameters, fit time, and imputation time.
 
 `target_file`, `observed_loci_file`, and `t_impute` are present only when
 imputation was requested.
@@ -606,6 +616,7 @@ After a C++ change, at minimum run:
 
 ```bash
 ./build.sh
+.venv/bin/python scripts/test_targetwise_impute.py
 ```
 
 After changing fastsimcoal preparation, regenerate a temporary fixture and

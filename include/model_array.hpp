@@ -15,7 +15,7 @@ struct ModelArray {
 
     ModelArray(
         const SeqArray& snps_, int block_max_k_,
-        const SeqArray* target,
+        const SeqArray* target, int target_idx,
         const std::unordered_map<int, int>* obs_ls
     ) :
         snps(snps_), L(snps_.L)
@@ -24,7 +24,7 @@ struct ModelArray {
             throw std::invalid_argument("block_max_k must be nonnegative.");
         }
         if (block_max_k_ > 0) {
-            blocks = pbwt_blocks_greedy(snps, block_max_k_, target, obs_ls);
+            blocks = pbwt_blocks_greedy(snps, block_max_k_, target, target_idx, obs_ls);
             L = blocks->L;
         }
     }

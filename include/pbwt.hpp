@@ -46,6 +46,6 @@ struct PbwtBlocks {
 std::pair<std::vector<int>, std::vector<int>> pbwt(const SeqArray& x);
 PbwtBlocks pbwt_blocks_greedy(
     const SeqArray& ref, int max_k,
-    const SeqArray* target,
+    const SeqArray* target, int target_idx,
     const std::unordered_map<int, int>* obs_ls
 );

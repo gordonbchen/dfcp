@@ -13,12 +13,15 @@ from plotly_html import ensure_plotly_asset
 
 FIELDS = ["mac", "n_loci", "n_predictions", "r2"]
 Evaluation = tuple[list[int], list[int], list[float]]
+PAIRED_RUN = re.compile(r"(joint|individual)_k(\d+)_step1")
 
 
 def display_name(path: Path) -> str:
     name = path.stem
     if name in {"beagle", "eval_impute_beagle"}:
         return "Beagle"
+    if match := PAIRED_RUN.fullmatch(name):
+        return f"Greedy K={match.group(2)}, {match.group(1)} targets"
     if match := re.fullmatch(r"pbwt(\d+)", name):
         return f"PBWT r={match.group(1)}"
     if match := re.fullmatch(r"greedy(\d+)(?:_(init|step\d+|converged))?", name):
@@ -72,15 +75,29 @@ def make_figure(evaluations: list[tuple[Path, Evaluation]]) -> go.Figure:
         "<br>n_loci=%{customdata:,}<extra></extra>"
     )
     figure = go.Figure()
+    paired_ks = set()
+    for path, _ in evaluations:
+        if match := PAIRED_RUN.fullmatch(path.stem):
+            paired_ks.add(int(match.group(2)))
+    paired_colors = {
+        k: qualitative.Plotly[i % len(qualitative.Plotly)]
+        for i, k in enumerate(sorted(paired_ks))
+    }
+
     for i, (path, (macs, n_loci, r2)) in enumerate(evaluations):
-        color = qualitative.Plotly[i % len(qualitative.Plotly)]
+        line = {"color": qualitative.Plotly[i % len(qualitative.Plotly)], "width": 2}
+        if match := PAIRED_RUN.fullmatch(path.stem):
+            line["color"] = paired_colors[int(match.group(2))]
+            line["dash"] = "dash" if match.group(1) == "individual" else "solid"
+        elif paired_ks and display_name(path) == "Beagle":
+            line["color"] = "#111111"
         figure.add_trace(go.Scatter(
             x=macs,
             y=[None if value < 0.0 else value for value in r2],
             customdata=n_loci,
             mode="lines",
             name=display_name(path),
-            line={"color": color, "width": 2},
+            line=line,
             hovertemplate=hover,
         ))
     figure.update_layout(
