@@ -2001,6 +2001,10 @@ DFCP PBWT: Same but with cluster $l$ over blocks instead of loci.
 = TODO
 - shapeit eval
 
+split dfcp loci based on target
+
+
+
 = read
 - The Power of Amnesia: Ron et al
 - Eagle

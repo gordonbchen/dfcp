@@ -144,6 +144,10 @@ Each per-window JSON stores `t_total` and per-target fit and imputation times. W
 the sum of window `t_total` values is CPU-worker time rather than elapsed wall time. The original
 joint-fit JSON recorded initialization, training, and imputation times, but not block construction.
 
+For the whole-window surprise-weighted reference filtering experiment at
+`--block_max_k 1024`, including the top-K sweep and results, see `FILTER.md` at
+the repository root.
+
 ## Beagle baseline
 
 Run full-chromosome Beagle imputation with the same reference, observed target markers, genetic map, and

@@ -14,6 +14,7 @@ from plotly_html import ensure_plotly_asset
 FIELDS = ["mac", "n_loci", "n_predictions", "r2"]
 Evaluation = tuple[list[int], list[int], list[float]]
 PAIRED_RUN = re.compile(r"(joint|individual)_k(\d+)_step1")
+REF_FILTER_RUN = re.compile(r"ref(\d+)_b(\d+)_step1")
 
 
 def display_name(path: Path) -> str:
@@ -22,6 +23,8 @@ def display_name(path: Path) -> str:
         return "Beagle"
     if match := PAIRED_RUN.fullmatch(name):
         return f"Greedy K={match.group(2)}, {match.group(1)} targets"
+    if match := REF_FILTER_RUN.fullmatch(name):
+        return f"Greedy blocks K={match.group(2)}, top {match.group(1)} refs/target"
     if match := re.fullmatch(r"pbwt(\d+)", name):
         return f"PBWT r={match.group(1)}"
     if match := re.fullmatch(r"greedy(\d+)(?:_(init|step\d+|converged))?", name):

@@ -13,6 +13,7 @@
 #include "hyperparams.hpp"
 #include "pbwt.hpp"
 #include "r_assign_io.hpp"
+#include "ref_filter.hpp"
 #include "impute_io.hpp"
 #include "params.hpp"
 #include "clusters.hpp"
@@ -234,6 +235,7 @@ int main(int argc, char *argv[]) {
 
     int max_train_steps = 3;
     int block_max_k = 0;
+    int ref_top_k = 0;
 
     bool viterbi_impute = false;
     const char* r_assign_file = nullptr;
@@ -259,6 +261,7 @@ int main(int argc, char *argv[]) {
         }
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
         else if (arg == "--block_max_k") { block_max_k = parse_int(argv[i+1]); }
+        else if (arg == "--ref_top_k") { ref_top_k = parse_int(argv[i+1]); }
         else if (arg == "--max_batch_size") { max_batch_size = parse_int(argv[i+1]); }
 
         else if (arg == "--max_train_steps") { max_train_steps = parse_int(argv[i+1]); }
@@ -276,13 +279,16 @@ int main(int argc, char *argv[]) {
     if (block_max_k > 0 && run_imputation && r_assign_file != nullptr) {
         throw std::invalid_argument("R assignments require one fit; omit target inputs in block mode.");
     }
+    if (ref_top_k < 0 || (ref_top_k > 0 && (block_max_k == 0 || !run_imputation))) {
+        throw std::invalid_argument("ref_top_k requires block-mode target imputation.");
+    }
 
     auto make_hyperparams = [&](const ModelArray& model) {
         std::vector<int> n_emissions(model.L);
         for (int l = 0; l < model.L; ++l) {
             n_emissions[l] = model.n_emissions(l);
         }
-        HyperParams HP{x_train.N, std::move(n_emissions)};
+        HyperParams HP{model.snps.N, std::move(n_emissions)};
         HP.tau_1 = tau_1;
         HP.tau_2 = tau_2;
         HP.v_1 = v_1;
@@ -298,16 +304,32 @@ int main(int argc, char *argv[]) {
         std::vector<double> seq_probs(n_masked_ls * 2);
         std::vector<Json> target_runs;
         target_runs.reserve(x_val->N);
+        std::optional<RefFilter> ref_filter;
+        if (ref_top_k > 0 && ref_top_k < x_train.N) {
+            ref_filter.emplace(x_train, obs_ls);
+        }
         auto t_start = std::chrono::steady_clock::now();
 
         for (int target_idx = 0; target_idx < x_val->N; ++target_idx) {
             auto t_fit_start = std::chrono::steady_clock::now();
-            ModelArray model_x{x_train, block_max_k, &*x_val, target_idx, &obs_ls};
+            std::optional<SeqArray> selected_ref;
+            if (ref_filter.has_value()) {
+                auto indexes = ref_filter->top_references(*x_val, target_idx, ref_top_k);
+                selected_ref.emplace(select_references(x_train, indexes));
+            }
+            auto t_filter_end = std::chrono::steady_clock::now();
+            const SeqArray& target_ref = selected_ref.has_value() ? *selected_ref : x_train;
+            ModelArray model_x{target_ref, block_max_k, &*x_val, target_idx, &obs_ls};
             HyperParams HP = make_hyperparams(model_x);
             std::cerr << "target=" << target_idx << ' ' << HP << '\n';
 
             Json target_log;
             target_log.add("target_index", target_idx).add("n_blocks", model_x.L);
+            if (ref_top_k > 0) {
+                target_log.add("n_ref_selected", target_ref.N)
+                    .add("t_filter", std::chrono::duration_cast<std::chrono::milliseconds>(
+                        t_filter_end - t_fit_start).count());
+            }
             add_block_stats(target_log, model_x);
             target_log.add("block_snp_offsets", model_x.blocks->snp_offsets);
 
@@ -337,6 +359,9 @@ int main(int argc, char *argv[]) {
         std::cerr << "t_total=" << t_total << "ms\n";
         json.add("n_snps", x_train.L).add("block_max_k", block_max_k)
             .add("n_targets", x_val->N).add("target_runs", target_runs).add("t_total", t_total);
+        if (ref_top_k > 0) {
+            json.add("ref_top_k", ref_top_k);
+        }
         std::cout << json.str() << '\n';
         return 0;
     }

@@ -39,6 +39,8 @@ current executable.
 - `include/params.hpp`: moments for the continuous variational approximation.
 - `include/seq_array.hpp`: sequence-major bitpacked observations and the binary
   sequence-file reader.
+- `include/ref_filter.hpp`: whole-window target/reference agreement weights
+  and target-specific top-K reference selection.
 - `include/model_array.hpp`: SNP-locus or PBWT-block model observations and the
   mapping from model blocks back to source SNPs.
 - `include/obs.hpp`: scalar and compatible-block observations for one target
@@ -66,6 +68,8 @@ current executable.
   imputation, timings, and JSON output.
 - `src/seq_array.cpp`: binary sequence loading and the 64-by-64 bit transpose
   from locus-major file words to sequence-major memory words.
+- `src/ref_filter.cpp`: surprise-weighted observed-allele agreement and
+  selected-panel copying for target-specific fits.
 - `src/obs.cpp`: reads scalar target alleles and matches block observations to
   compatible reference patterns.
 - `src/io.cpp`: exact binary reads/writes and atomic file output.
@@ -108,6 +112,10 @@ current executable.
 - `scripts/impute_viz.py` and `cluster_viz.py`: Plotly reports for pooled
   imputation and cluster metrics; the latter switches exact-tract units between
   bp and loci.
+- `scripts/ref_match_viz.py`: histogram of observed-allele agreement between
+  target and reference haplotypes.
+- `scripts/test_ref_filter.cpp`: small hand-checked weighted-selection and
+  observed-allele coverage test.
 - `scripts/test_targetwise_impute.py`: tiny end-to-end fixture checking
   target-specific block boundaries, row order, and the unblocked path.
 - `scripts/plotly_html.py`: shared local Plotly bundle support for reports.
@@ -236,7 +244,8 @@ it.
    label exact haplotype patterns at greedy block boundaries. Greedy
    construction first finds boundaries and then makes a second streaming pass
    to write sequence-major labels without retaining full PBWT tables. In block
-   mode with target inputs, repeat construction and fitting for each target.
+   mode with target inputs, optionally select a target-specific reference
+   subset, then repeat construction and fitting for each target.
 2. If target imputation was requested, read the target and observed-loci files.
 3. Parse all optional arguments as option/value pairs.
 4. Initialize parameters and clusters as one cluster per emission, with SNP
@@ -407,6 +416,14 @@ Every option requires a value, including booleans. There is no `--help` path.
   it. With target inputs, each target is fitted separately, and a block extends
   only while that target has a compatible reference pattern. It supports `emission` or `viterbi`
   initialization; SNP PBWT initialization is invalid on the block grid.
+- `--ref_top_k`: retain the top K reference haplotypes for each target by
+  whole-window surprise-weighted agreement at observed loci. A value of `0`
+  disables filtering. This option requires block-mode target imputation and
+  is distinct from `--block_max_k`, which caps patterns per PBWT block. Each
+  observed match contributes `-log` of the target allele's frequency in the
+  full reference panel; mismatches contribute zero. No smoothing or cap is
+  applied. Additional carriers are selected if the top K omit an observed
+  target allele. See `FILTER.md` for the experiment and results.
 - `--max_batch_size`: sequences removed before parallel Viterbi searches and
   sequential reinsertion; defaults to `4`. Batches above one use paths computed
   against the same reduced graph, so they are an approximate maximization step.
@@ -493,6 +510,9 @@ One boundary can satisfy both cut reasons. Block-mode target imputation reports
 `n_snps`, `block_max_k`, `n_targets`, and `t_total` at the root. Its
 `target_runs` array contains each target index, block offsets and statistics,
 training log, fitted parameters, fit time, and imputation time.
+With `--ref_top_k`, the root also records `ref_top_k`; each target run records
+`n_ref_selected` and `t_filter`. The selected panel can exceed the requested
+top K when additional carriers are needed for observed target alleles.
 
 `target_file`, `observed_loci_file`, and `t_impute` are present only when
 imputation was requested.
@@ -617,6 +637,10 @@ After a C++ change, at minimum run:
 ```bash
 ./build.sh
 .venv/bin/python scripts/test_targetwise_impute.py
+c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Iinclude \
+  scripts/test_ref_filter.cpp src/ref_filter.cpp src/seq_array.cpp src/io.cpp \
+  -o /tmp/dfcp-test-ref-filter
+/tmp/dfcp-test-ref-filter
 ```
 
 After changing fastsimcoal preparation, regenerate a temporary fixture and
