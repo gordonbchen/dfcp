@@ -2004,7 +2004,6 @@ DFCP PBWT: Same but with cluster $l$ over blocks instead of loci.
 = read
 - The Power of Amnesia: Ron et al
 - Eagle
-- Clark phase
 
 = coresets
 - beagle composite
