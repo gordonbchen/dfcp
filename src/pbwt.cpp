@@ -88,7 +88,8 @@ struct StreamingPbwt {
 
 class TargetCompat {
     const SeqArray* target;
-    int target_idx;
+    int first_target;
+    int n_targets;
     const std::unordered_map<int, int>* obs_ls;
     int n_ref;
     int n_ref_words;
@@ -102,17 +103,18 @@ class TargetCompat {
             const std::unordered_map<int, int>* obs_ls_
         ) :
             target(target_),
-            target_idx(target_idx_),
+            first_target(target_idx_ < 0 ? 0 : target_idx_),
+            n_targets(target_ == nullptr ? 0 : (target_idx_ < 0 ? target_->N : 1)),
             obs_ls(obs_ls_),
             n_ref(n_ref_),
             n_ref_words((n_ref_ + 63) / 64),
-            candidates(target == nullptr ? 0 : n_ref_words),
+            candidates(static_cast<std::size_t>(n_targets) * n_ref_words),
             ref_ones(target == nullptr ? 0 : n_ref_words)
         {
             if ((target == nullptr) != (obs_ls == nullptr)) {
                 throw std::invalid_argument("target and obs_ls must either be both present or absent.");
             }
-            if (target != nullptr && (target_idx < 0 || target_idx >= target->N)) {
+            if (target != nullptr && (target_idx_ < -1 || target_idx_ >= target->N)) {
                 throw std::invalid_argument("target_idx is outside the target sequence array.");
             }
             reset();
@@ -128,7 +130,9 @@ class TargetCompat {
                 return;
             }
             std::uint64_t tail_mask = (std::uint64_t{1} << tail_bits) - 1;
-            candidates.back() = tail_mask;
+            for (int target_row = 0; target_row < n_targets; ++target_row) {
+                candidates[static_cast<std::size_t>(target_row) * n_ref_words + n_ref_words - 1] = tail_mask;
+            }
         }
 
         bool constrain(const SeqArray& ref, int snp) {
@@ -147,14 +151,20 @@ class TargetCompat {
                 }
             }
 
-            bool any = false;
-            bool allele = (*target)(target_idx, obs_it->second) != 0;
-            for (int w = 0; w < n_ref_words; ++w) {
-                std::uint64_t allele_mask = allele ? ref_ones[w] : ~ref_ones[w];
-                candidates[w] &= allele_mask;
-                any = any || candidates[w] != 0;
+            for (int target_row = 0; target_row < n_targets; ++target_row) {
+                bool any = false;
+                bool allele = (*target)(first_target + target_row, obs_it->second) != 0;
+                for (int w = 0; w < n_ref_words; ++w) {
+                    std::uint64_t allele_mask = allele ? ref_ones[w] : ~ref_ones[w];
+                    std::size_t candidate_idx = static_cast<std::size_t>(target_row) * n_ref_words + w;
+                    candidates[candidate_idx] &= allele_mask;
+                    any = any || candidates[candidate_idx] != 0;
+                }
+                if (!any) {
+                    return false;
+                }
             }
-            return any;
+            return true;
         }
 };
 

@@ -101,6 +101,10 @@ current executable.
   chromosome 20 pipeline.
 - `scripts/1000g_phase3_v5b/beagle.py`: full-chromosome Beagle imputation and
   pooled MAC-stratified evaluation using the same target truth panel.
+- `scripts/1000g_phase3_v5b/prepare_maf1.sh`: prepare the reference-MAF >=1%
+  panel and eight nonoverlapping windows.
+- `scripts/1000g_phase3_v5b/run_pbwt_study.sh`: run the joint-fit greedy-block
+  K sweep and partition snapshots on those windows.
 - `scripts/fsc_sim/run.sh` and `prep_data.py`: run the configured fastsimcoal
   simulation and convert its haploid `.gen` table to `ref.bin` and
   `variant_pos.txt`.
@@ -114,10 +118,12 @@ current executable.
   bp and loci.
 - `scripts/ref_match_viz.py`: histogram of observed-allele agreement between
   target and reference haplotypes.
+- `scripts/pbwt_study_viz.py`: Plotly comparison of imputation, greedy-block
+  sizes, and partition changes during fitting.
 - `scripts/test_ref_filter.cpp`: small hand-checked weighted-selection and
   observed-allele coverage test.
-- `scripts/test_targetwise_impute.py`: tiny end-to-end fixture checking
-  target-specific block boundaries, row order, and the unblocked path.
+- `scripts/test_joint_blocks.cpp`: hand-checked multi-target block compatibility
+  and absent-allele test.
 - `scripts/plotly_html.py`: shared local Plotly bundle support for reports.
 
 ## Mathematical Model
@@ -150,10 +156,12 @@ In block mode, a model locus is a consecutive SNP interval and its emission
 is the dense PBWT group labeling one exact reference haplotype pattern in that
 interval. `--block_max_k` greedily takes the longest interval whose number of
 patterns does not exceed that maximum and, during imputation, for which the
-current target has at least one compatible reference pattern. Each target gets
-its own block boundaries and fitted model. Only observed target alleles affect
-those boundaries. The alphabet size `K_l` is ragged. The
-implementation stores one representative reference haplotype and its count per
+current target has at least one compatible reference pattern. By default each
+target gets its own block boundaries and fitted model. With `--target_fit joint`,
+all targets share a block grid and fitted model; every target must retain a
+compatible reference pattern in each block. Only observed target alleles affect
+those boundaries. The alphabet size `K_l` is ragged. The implementation stores
+one representative reference haplotype and its count per
 emission and uses the representative to recover SNP alleles without copying
 patterns.
 
@@ -413,9 +421,11 @@ Every option requires a value, including booleans. There is no `--help` path.
   `2 * match_len - 1` loci centered on its locus. Defaults to `20`.
 - `--block_max_k`: enable variable-length greedy PBWT blocks and cap the
   number of exact reference patterns in every block. A value of `0` disables
-  it. With target inputs, each target is fitted separately, and a block extends
-  only while that target has a compatible reference pattern. It supports `emission` or `viterbi`
-  initialization; SNP PBWT initialization is invalid on the block grid.
+  it. It supports `emission` or `viterbi` initialization; SNP PBWT
+  initialization is invalid on the block grid.
+- `--target_fit`: `individual` (default) or `joint` for block-mode target
+  imputation. Joint mode fits once on a block grid compatible with all targets;
+  it cannot be combined with `--ref_top_k`.
 - `--ref_top_k`: retain the top K reference haplotypes for each target by
   whole-window surprise-weighted agreement at observed loci. A value of `0`
   disables filtering. This option requires block-mode target imputation and
@@ -432,7 +442,7 @@ Every option requires a value, including booleans. There is no `--help` path.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
   imputation only when the value is exactly `1`.
 - `--output_r_assign`: write final reference R assignments to the given path.
-  It cannot be combined with block-mode target imputation.
+  In block-mode target imputation it requires `--target_fit joint`.
 
 A prepared 1000 Genomes invocation is:
 
@@ -504,12 +514,15 @@ Shared-fit output fields include:
 - `n_blocks`
 - `block_max_k`
 
-Block runs report mean block length, mean emissions per block, the singleton
-block fraction, and the numbers of maximum-K and target-compatibility cuts.
+Block runs report mean block length, mean emissions per block, per-block
+emission counts, the singleton block fraction, and the numbers of maximum-K
+and target-compatibility cuts. Shared fits also report `block_snp_offsets`.
 One boundary can satisfy both cut reasons. Block-mode target imputation reports
 `n_snps`, `block_max_k`, `n_targets`, and `t_total` at the root. Its
 `target_runs` array contains each target index, block offsets and statistics,
 training log, fitted parameters, fit time, and imputation time.
+Joint block-mode target imputation instead reports one shared fit at the root,
+including `target_fit=joint`, `n_targets`, and `t_impute`.
 With `--ref_top_k`, the root also records `ref_top_k`; each target run records
 `n_ref_selected` and `t_filter`. The selected panel can exceed the requested
 top K when additional carriers are needed for observed target alleles.
@@ -636,11 +649,14 @@ After a C++ change, at minimum run:
 
 ```bash
 ./build.sh
-.venv/bin/python scripts/test_targetwise_impute.py
 c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Iinclude \
   scripts/test_ref_filter.cpp src/ref_filter.cpp src/seq_array.cpp src/io.cpp \
   -o /tmp/dfcp-test-ref-filter
 /tmp/dfcp-test-ref-filter
+c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Iinclude \
+  scripts/test_joint_blocks.cpp src/pbwt.cpp src/seq_array.cpp src/io.cpp \
+  -o /tmp/dfcp-test-joint-blocks
+/tmp/dfcp-test-joint-blocks
 ```
 
 After changing fastsimcoal preparation, regenerate a temporary fixture and

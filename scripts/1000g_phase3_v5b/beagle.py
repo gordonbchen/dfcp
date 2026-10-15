@@ -62,9 +62,9 @@ def advance(row, iterator, key):
     return row
 
 
-def evaluate(vcf: Path, output: Path) -> None:
-    ref_process = query(REF, "%CHROM\t%POS\t%REF\t%ALT\t%AC\t%AN\n")
-    true_process = query(TRUE, "%CHROM\t%POS\t%REF\t%ALT[\t%GT]\n")
+def evaluate(vcf: Path, output: Path, ref: Path, truth: Path) -> None:
+    ref_process = query(ref, "%CHROM\t%POS\t%REF\t%ALT\t%AC\t%AN\n")
+    true_process = query(truth, "%CHROM\t%POS\t%REF\t%ALT[\t%GT]\n")
     prob_process = query(vcf, "%CHROM\t%POS\t%REF\t%ALT[\t%AP1\t%AP2]\n", "INFO/IMP=1")
     processes = [ref_process, true_process, prob_process]
     ref_rows, true_rows, prob_rows = map(rows, processes)
@@ -111,15 +111,25 @@ def main() -> None:
     parser.add_argument("--nthreads", type=int, default=os.cpu_count())
     parser.add_argument("--heap", default="16g")
     parser.add_argument("--eval-only", action="store_true")
+    parser.add_argument("--ref", type=Path, default=REF)
+    parser.add_argument("--observed", type=Path, default=OBS)
+    parser.add_argument("--truth", type=Path, default=TRUE)
+    parser.add_argument("--map", type=Path, default=MAP)
+    parser.add_argument("--out", type=Path, default=OUT,
+                        help="Beagle output prefix (without .vcf.gz)")
+    parser.add_argument("--jar", type=Path, default=JAR)
+    parser.add_argument("--eval-output", type=Path,
+                        help="pooled MAC TSV (defaults beside --out)")
     args = parser.parse_args()
 
     if not args.eval_only:
         subprocess.run([
-            "java", f"-Xmx{args.heap}", "-jar", str(JAR), f"gt={OBS}", f"ref={REF}",
-            f"map={MAP}", f"out={OUT}", "ap=true", "seed=1", f"nthreads={args.nthreads}",
+            "java", f"-Xmx{args.heap}", "-jar", str(args.jar),
+            f"gt={args.observed}", f"ref={args.ref}", f"map={args.map}",
+            f"out={args.out}", "ap=true", "seed=1", f"nthreads={args.nthreads}",
         ], check=True)
-    output = OUT.parent / "eval_impute_beagle.tsv"
-    evaluate(OUT.with_suffix(".vcf.gz"), output)
+    output = args.eval_output or args.out.parent / "eval_impute_beagle.tsv"
+    evaluate(args.out.with_suffix(".vcf.gz"), output, args.ref, args.truth)
     print(f"wrote {output}")
 
 

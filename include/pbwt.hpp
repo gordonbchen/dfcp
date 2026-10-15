@@ -44,6 +44,7 @@ struct PbwtBlocks {
 
 
 std::pair<std::vector<int>, std::vector<int>> pbwt(const SeqArray& x);
+// target_idx == -1 requires every target to retain a compatible reference pattern.
 PbwtBlocks pbwt_blocks_greedy(
     const SeqArray& ref, int max_k,
     const SeqArray* target, int target_idx,

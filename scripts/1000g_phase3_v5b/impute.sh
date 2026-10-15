@@ -7,6 +7,7 @@ windows_dir=${1:?Usage: impute.sh WINDOWS_DIR [--name NAME] [OPTION VALUE]...}
 shift
 n_parallel=1
 name=probs
+save_r_assign=0
 impute_args=()
 while (( $# )); do
     if [[ $1 == --n-parallel ]]; then
@@ -15,6 +16,9 @@ while (( $# )); do
     elif [[ $1 == --name ]]; then
         name=${2:?--name requires a value}
         shift 2
+    elif [[ $1 == --save-r-assign ]]; then
+        save_r_assign=1
+        shift
     else
         impute_args+=("$1")
         shift
@@ -34,12 +38,16 @@ fi
 run_window() {
     local window_dir=$1
     shift
+    local assign_args=()
+    if (( save_r_assign )); then
+        assign_args=(--output_r_assign "$window_dir/impute/$name.r_assign.bin")
+    fi
     exec ./build/impute \
         "$window_dir/ref.bin" \
         "$window_dir/target_observed.bin" \
         "$window_dir/observed_loci.txt" \
         "$window_dir/impute/$name.bin" \
-        "$@" > "$window_dir/impute/$name.json"
+        "$@" "${assign_args[@]}" > "$window_dir/impute/$name.json"
 }
 
 stop_jobs() {

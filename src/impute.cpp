@@ -37,8 +37,11 @@ void add_block_stats(Json& json, const ModelArray& model) {
     const PbwtBlocks& blocks = *model.blocks;
     std::size_t total_n_emissions = 0;
     std::size_t n_singleton_emissions = 0;
+    std::vector<int> block_emission_counts;
+    block_emission_counts.reserve(model.L);
     for (int l = 0; l < model.L; ++l) {
         int n_emissions = model.n_emissions(l);
+        block_emission_counts.push_back(n_emissions);
         total_n_emissions += n_emissions;
         for (int emission = 0; emission < n_emissions; ++emission) {
             std::uint32_t emission_size = blocks.emission_size(l, emission);
@@ -51,7 +54,8 @@ void add_block_stats(Json& json, const ModelArray& model) {
         .add("singleton_block_frac",
              static_cast<double>(n_singleton_emissions) / (static_cast<double>(model.snps.N) * model.L))
         .add("n_block_max_k_cuts", blocks.n_max_k_cuts)
-        .add("n_block_compatibility_cuts", blocks.n_compat_cuts);
+        .add("n_block_compatibility_cuts", blocks.n_compat_cuts)
+        .add("block_emission_counts", block_emission_counts);
 }
 
 void train_dfcp(
@@ -236,6 +240,7 @@ int main(int argc, char *argv[]) {
     int max_train_steps = 3;
     int block_max_k = 0;
     int ref_top_k = 0;
+    bool joint_target_fit = false;
 
     bool viterbi_impute = false;
     const char* r_assign_file = nullptr;
@@ -262,6 +267,12 @@ int main(int argc, char *argv[]) {
         else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
         else if (arg == "--block_max_k") { block_max_k = parse_int(argv[i+1]); }
         else if (arg == "--ref_top_k") { ref_top_k = parse_int(argv[i+1]); }
+        else if (arg == "--target_fit") {
+            std::string_view value{argv[i+1]};
+            if (value == "joint") { joint_target_fit = true; }
+            else if (value == "individual") { joint_target_fit = false; }
+            else { throw std::invalid_argument("target_fit must be joint or individual."); }
+        }
         else if (arg == "--max_batch_size") { max_batch_size = parse_int(argv[i+1]); }
 
         else if (arg == "--max_train_steps") { max_train_steps = parse_int(argv[i+1]); }
@@ -276,11 +287,14 @@ int main(int argc, char *argv[]) {
     if (block_max_k > 0 && init_mode == InitMode::pbwt) {
         throw std::invalid_argument("PBWT initialization does not support blocks.");
     }
-    if (block_max_k > 0 && run_imputation && r_assign_file != nullptr) {
-        throw std::invalid_argument("R assignments require one fit; omit target inputs in block mode.");
+    if (block_max_k > 0 && run_imputation && !joint_target_fit && r_assign_file != nullptr) {
+        throw std::invalid_argument("R assignments require one fit; use --target_fit joint.");
     }
     if (ref_top_k < 0 || (ref_top_k > 0 && (block_max_k == 0 || !run_imputation))) {
         throw std::invalid_argument("ref_top_k requires block-mode target imputation.");
+    }
+    if (joint_target_fit && (block_max_k == 0 || !run_imputation || ref_top_k > 0)) {
+        throw std::invalid_argument("joint target fit requires block-mode imputation without ref_top_k.");
     }
 
     auto make_hyperparams = [&](const ModelArray& model) {
@@ -298,7 +312,7 @@ int main(int argc, char *argv[]) {
         return HP;
     };
 
-    if (block_max_k > 0 && run_imputation) {
+    if (block_max_k > 0 && run_imputation && !joint_target_fit) {
         int n_masked_ls = x_train.L - static_cast<int>(obs_ls.size());
         ImputeProbWriter prob_writer(argv[4], x_val->N, n_masked_ls);
         std::vector<double> seq_probs(n_masked_ls * 2);
@@ -366,12 +380,23 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    ModelArray model_x{x_train, block_max_k, nullptr, 0, nullptr};
+    ModelArray model_x{
+        x_train, block_max_k,
+        joint_target_fit ? &*x_val : nullptr,
+        joint_target_fit ? -1 : 0,
+        joint_target_fit ? &obs_ls : nullptr
+    };
     HyperParams HP = make_hyperparams(model_x);
     std::cerr << HP << '\n';
 
     json.add("n_snps", x_train.L).add("n_blocks", model_x.L).add("block_max_k", block_max_k);
     add_block_stats(json, model_x);
+    if (model_x.is_blocked()) {
+        json.add("block_snp_offsets", model_x.blocks->snp_offsets);
+    }
+    if (joint_target_fit) {
+        json.add("target_fit", "joint").add("n_targets", x_val->N);
+    }
 
     // Init params and clusters.
     Params params{HP};
@@ -390,7 +415,22 @@ int main(int argc, char *argv[]) {
 
     if (run_imputation) {
         auto t0 = std::chrono::steady_clock::now();
-        impute_unblocked(*x_val, obs_ls, viterbi_impute, clusters, params, HP, argv[4]);
+        if (joint_target_fit) {
+            int n_masked_ls = x_train.L - static_cast<int>(obs_ls.size());
+            ImputeProbWriter prob_writer(argv[4], x_val->N, n_masked_ls);
+            std::vector<double> seq_probs(n_masked_ls * 2);
+            for (int target_idx = 0; target_idx < x_val->N; ++target_idx) {
+                impute_blocked_target(
+                    *x_val, target_idx, obs_ls, viterbi_impute,
+                    model_x, clusters, params, HP, seq_probs
+                );
+                prob_writer.write_row(seq_probs);
+            }
+            prob_writer.finish();
+        }
+        else {
+            impute_unblocked(*x_val, obs_ls, viterbi_impute, clusters, params, HP, argv[4]);
+        }
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
         std::cerr << "t_impute=" << t_impute << "ms\n";

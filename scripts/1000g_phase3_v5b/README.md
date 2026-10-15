@@ -160,3 +160,37 @@ python3 scripts/1000g_phase3_v5b/beagle.py --nthreads 8
 The script writes Beagle's VCF under `data/1000g_phase3_v5b/windows/` and pooled MAC statistics to
 `data/1000g_phase3_v5b/windows/eval_impute_beagle.tsv`. Use `--eval-only` to re-evaluate an existing Beagle
 VCF without rerunning Java. Pass that TSV alongside DFCP TSVs to `impute_viz.py` to compare the curves.
+
+## MAF 1% comparison panel
+
+Prepare a reference-panel MAF >= 1% dataset, split it into eight nonoverlapping windows, and create the
+DFCP binaries with:
+
+```bash
+THREADS=8 scripts/1000g_phase3_v5b/prepare_maf1.sh
+```
+
+This writes the filtered chromosome-wide VCFs to `data/1000g_phase3_v5b/maf1/` and the window inputs to
+`data/1000g_phase3_v5b/windows_8_maf1/`. MAF is computed from the reference samples only; the target VCF
+is intersected with those selected reference variants before splitting observed markers from masked truth.
+The script checks the MAF threshold and verifies the expected retained count from the source genotypes.
+Use empty output directories when regenerating the windows. `N_WINDOWS`, `OVERLAP`, `THREADS`,
+`FILTERED_DIR`, and `WINDOWS_DIR` can override the defaults.
+
+Run Beagle on the same filtered full-chromosome panel and evaluate it with:
+
+```bash
+python3 scripts/1000g_phase3_v5b/beagle.py \
+  --ref data/1000g_phase3_v5b/maf1/ref.vcf.gz \
+  --observed data/1000g_phase3_v5b/maf1/target_observed.vcf.gz \
+  --truth data/1000g_phase3_v5b/maf1/target_masked_true.vcf.gz \
+  --out data/1000g_phase3_v5b/maf1/beagle \
+  --eval-output data/1000g_phase3_v5b/maf1/eval_impute_beagle.tsv \
+  --nthreads 8
+```
+
+Evaluate DFCP window runs against the matching target truth and reference MAC values with:
+
+```bash
+./build/eval_impute data/1000g_phase3_v5b/windows_8_maf1 RUN_NAME output/maf1_RUN_NAME.tsv
+```
