@@ -2,6 +2,8 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <format>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -286,9 +288,9 @@ void eval_trees(
 
 int main(int argc, char* argv[]) {
     if (argc < 5) {
-        throw std::invalid_argument(
-            "Requires reference, R assignments, variant positions, and tree files."
-        );
+        std::cerr << "Error: Invalid number of arguments.\n"
+            << "Usage: " << argv[0] << " <ref_bin> <r_assign> <variant_pos> <true_trees>\n";
+        return EXIT_FAILURE;
     }
 
     double clade_beta = 2.0;
@@ -296,25 +298,29 @@ int main(int argc, char* argv[]) {
     const char* clade_times_file = nullptr;
     const char* cluster_tracts_file = nullptr;
     for (int i = 5; i < argc; i += 2) {
-        if (i + 1 >= argc) { throw std::invalid_argument("Arg has no value."); }
+        if (i + 1 >= argc) {
+            throw std::invalid_argument(std::format("Arg '{}' has no value.", argv[i]));
+        }
         std::string_view arg{argv[i]};
 
-        if (arg == "--clade_beta") { clade_beta = parse_double(argv[i + 1]); }
+        if (arg == "--clade_beta") {
+            clade_beta = parse_double(argv[i + 1]);
+            if (clade_beta < 1.0) {
+                throw std::invalid_argument(std::format("clade_beta={} < 1.", clade_beta));
+            }
+        }
         else if (arg == "--tree_vis") { tree_vis_file = argv[i + 1]; }
         else if (arg == "--clade_times") { clade_times_file = argv[i + 1]; }
         else if (arg == "--cluster_tracts") { cluster_tracts_file = argv[i + 1]; }
 
-        else { throw std::invalid_argument("Arg not recognized."); }
+        else { throw std::invalid_argument(std::format("Arg '{}' not recognized.", argv[i])); }
     }
-    if (clade_beta < 1.0) { throw std::invalid_argument("clade_beta must be at least 1."); }
 
     SeqArray x = read_seq_file(argv[1]);
     RAssign r_assign = read_r_assign(argv[2]);
     std::vector<int> variant_pos = read_variant_pos(argv[3]);
     if (r_assign.N != x.N || r_assign.L != x.L || static_cast<int>(variant_pos.size()) != x.L) {
-        throw std::runtime_error(
-            "Reference, R assignments, and variant positions have different dimensions."
-        );
+        throw std::runtime_error("ref, r_assign, and variant_pos have different dimensions.");
     }
 
     Json json;
