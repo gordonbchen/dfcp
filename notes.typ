@@ -2011,12 +2011,22 @@ Questions:
 
 - how to guide dfcp resolution: pbwt match len init, $alpha$ prior
 
+- comparing true vs estimated trees (topology, can we also derive / compare branch lengths)
+
 Read:
 - Relate paper
 
 
 #pagebreak()
 = Todo
+
+== done
+- changing directions from dfcp imputation to marginal tree recon
+  - impuation is not the right task for dfcp, ignores most special thing about dfcp the clustering,
+    getting better imputation converges to extremely long pbwt match len, clusters of size 1,
+    no point in dfcp
+  - marginal tree recon is a good task, can vary cluster resolution w/ dfcp hyperparams
+- code cleanup (removing dfcp over pbwt blocks, filtering, individual inference) + qol (CLI11 arg parse)
 
 == read
 
