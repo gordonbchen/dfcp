@@ -81,6 +81,22 @@ struct ClusterTract {
     std::vector<int> members;
     int start_l;
     int end_l;
+
+    void end(
+        const std::vector<int>& variant_pos, AtomicBinaryWriter* writer,
+        double& loci_sum, double& span_sum, uint64_t& n_tracts
+    ) const {
+        int n_loci = end_l - start_l + 1;
+        int span_bp = variant_pos[end_l] - variant_pos[start_l];
+        loci_sum += n_loci;
+        span_sum += span_bp;
+        ++n_tracts;
+        if (writer != nullptr) {
+            writer->stream() << start_l << '\t' << end_l << '\t'
+                << variant_pos[start_l] << '\t' << variant_pos[end_l] << '\t'
+                << members.size() << '\t' << n_loci << '\t' << span_bp << '\n';
+        }
+    };
 };
 
 void eval_cluster_tracts(
@@ -96,18 +112,6 @@ void eval_cluster_tracts(
     double loci_sum = 0.0;
     double span_sum = 0.0;
     std::uint64_t n_tracts = 0;
-    auto finish = [&](const ClusterTract& tract) {
-        int n_loci = tract.end_l - tract.start_l + 1;
-        int span_bp = variant_pos[tract.end_l] - variant_pos[tract.start_l];
-        loci_sum += n_loci;
-        span_sum += span_bp;
-        ++n_tracts;
-        if (writer) {
-            writer->stream() << tract.start_l << '\t' << tract.end_l << '\t'
-                << variant_pos[tract.start_l] << '\t' << variant_pos[tract.end_l] << '\t'
-                << tract.members.size() << '\t' << n_loci << '\t' << span_bp << '\n';
-        }
-    };
 
     std::vector<ClusterTract> active;
     for (int l = 0; l < r_assign.L; ++l) {
@@ -132,11 +136,15 @@ void eval_cluster_tracts(
             }
         }
         for (std::size_t i = 0; i < active.size(); ++i) {
-            if (!continued[i]) { finish(active[i]); }
+            if (!continued[i]) {
+                active[i].end(variant_pos, writer.get(), loci_sum, span_sum, n_tracts);
+            }
         }
         active = std::move(next);
     }
-    for (const ClusterTract& tract : active) { finish(tract); }
+    for (const ClusterTract& tract : active) {
+        tract.end(variant_pos, writer.get(), loci_sum, span_sum, n_tracts);
+    }
     if (writer) { writer->finish(); }
 
     double mean_loci = loci_sum / n_tracts;
