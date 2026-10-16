@@ -262,15 +262,15 @@ void eval_trees(
         : weighted_emission_clade_iou / emission_clade_weight_sum;
 
     std::cerr << "mean_excess_parsimony=" << mean_excess_parsimony
-        << " mean_emission_excess_parsimony=" << mean_emission_excess_parsimony
-        << " clade_iou=" << clade_iou << " emission_clade_iou=" << emission_clade_iou << '\n';
+        << "\nmean_emission_excess_parsimony=" << mean_emission_excess_parsimony
+        << "\nclade_iou=" << clade_iou
+        << "\nemission_clade_iou=" << emission_clade_iou << '\n';
     json.add("mean_excess_parsimony", mean_excess_parsimony)
         .add("mean_emission_excess_parsimony", mean_emission_excess_parsimony)
         .add("clade_iou", clade_iou).add("emission_clade_iou", emission_clade_iou)
         .add("clade_beta", clade_beta);
     if (clade_times) { clade_times->finish(); }
 }
-
 }
 
 
