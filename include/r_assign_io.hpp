@@ -2,9 +2,9 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <filesystem>
 #include <vector>
 #include "clusters.hpp"
-#include "model_array.hpp"
 
 
 struct RAssign {
@@ -18,5 +18,5 @@ struct RAssign {
 };
 
 
-RAssign read_r_assign(const char* fname);
-void write_r_assign(const char* fname, const Clusters& clusters, const ModelArray& x);
+RAssign read_r_assign(const std::filesystem::path& fname);
+void write_r_assign(const std::filesystem::path& fname, const Clusters& clusters);

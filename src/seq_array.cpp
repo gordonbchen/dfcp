@@ -40,7 +40,7 @@ SeqArray::SeqArray(int N_, int L_) :
     x(static_cast<std::size_t>(N_) * words_for_loci(L_), 0), N(N_), L(L_)
 {}
 
-SeqArray read_seq_file(const char *filename) {
+SeqArray read_seq_file(const std::filesystem::path& filename) {
     std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open seq file.");

@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -12,7 +11,6 @@
 #include "r_assign_io.hpp"
 #include "clusters.hpp"
 #include "io.hpp"
-#include "model_array.hpp"
 #include "util.hpp"
 
 
@@ -24,7 +22,7 @@ constexpr std::size_t r_assign_header_size = r_assign_magic.size() + 2 * sizeof(
 }
 
 
-RAssign read_r_assign(const char* fname) {
+RAssign read_r_assign(const std::filesystem::path& fname) {
     std::ifstream input(fname, std::ios::binary);
     if (!input.is_open()) { throw std::runtime_error("Failed to open R assignment file."); }
 
@@ -55,20 +53,19 @@ RAssign read_r_assign(const char* fname) {
     return r_assign;
 }
 
-void write_r_assign(const char* fname, const Clusters& clusters, const ModelArray& x) {
+void write_r_assign(const std::filesystem::path& fname, const Clusters& clusters) {
     AtomicBinaryWriter output(fname);
     std::ostream& stream = output.stream();
     write_bytes(stream, r_assign_magic.data(), r_assign_magic.size());
     std::array<std::uint32_t, 2> dimensions{
-        static_cast<std::uint32_t>(clusters.HP.N), static_cast<std::uint32_t>(x.snps.L)
+        static_cast<std::uint32_t>(clusters.HP.N), static_cast<std::uint32_t>(clusters.HP.L)
     };
     write_bytes(stream, dimensions.data(), sizeof(dimensions));
 
-    std::vector<std::uint32_t> row(x.snps.L);
+    std::vector<std::uint32_t> row(clusters.HP.L);
     for (int i = 0; i < clusters.HP.N; ++i) {
         for (int l = 0; l < clusters.HP.L; ++l) {
-            std::fill(row.begin() + x.snp_start(l), row.begin() + x.snp_end(l),
-                      clusters.r_assign[idx2d(i, l, clusters.HP.L)]->id);
+            row[l] = clusters.r_assign[idx2d(i, l, clusters.HP.L)]->id;
         }
         write_bytes(stream, row.data(), row.size() * sizeof(std::uint32_t));
     }

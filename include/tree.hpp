@@ -1,11 +1,12 @@
 #pragma once
 
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 
-std::vector<int> read_variant_pos(const char* fname);
+std::vector<int> read_variant_pos(const std::string& fname);
 
 struct CoalNode {
     int left;
@@ -15,7 +16,7 @@ struct CoalNode {
 };
 
 std::pair<std::vector<std::unordered_map<int, CoalNode>>, std::vector<int>> parse_tree_file(
-    const char *fname
+    const std::string& fname
 );
 
 std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::vector<int>& recomb_pos);
@@ -40,7 +41,7 @@ double calc_node_height(const std::unordered_map<int, CoalNode>& coal_tree, int 
 
 
 void tree_to_dot(
-    const char *file,
+    const std::string& file,
     const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& r_assign,
     const std::vector<int>& emissions,

@@ -17,7 +17,7 @@ class AtomicBinaryWriter {
     bool finished = false;
 
     public:
-        explicit AtomicBinaryWriter(const char* filename);
+        explicit AtomicBinaryWriter(std::filesystem::path filename);
         ~AtomicBinaryWriter();
 
         AtomicBinaryWriter(const AtomicBinaryWriter&) = delete;

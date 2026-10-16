@@ -7,8 +7,8 @@
 #include "hyperparams.hpp"
 #include "seq_array.hpp"
 
-struct BlockObs;
-struct ModelArray;
+
+void normalize_ll(std::vector<double>& ll, int L, int K);
 
 struct FwdBkwdMsgs {
     std::vector<double> a;
@@ -26,13 +26,6 @@ struct FwdBkwdBuffers {
 
 void fwd_bkwd(
     const SeqArray& x, int i, const std::unordered_map<int, int>& obs_ls,
-    FwdBkwdBuffers& fwd_bkwd_bufs, std::vector<double>& seq_probs,
-    const Clusters& clusters, const Params& params, const HyperParams& HP
-);
-
-void fwd_bkwd_blocks(
-    const ModelArray& ref, const BlockObs& obs,
-    const std::unordered_map<int, int>& obs_ls,
     FwdBkwdBuffers& fwd_bkwd_bufs, std::vector<double>& seq_probs,
     const Clusters& clusters, const Params& params, const HyperParams& HP
 );

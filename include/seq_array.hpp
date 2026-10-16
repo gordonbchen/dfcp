@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <vector>
 
 
@@ -27,4 +28,4 @@ struct SeqArray {
 };
 
 
-SeqArray read_seq_file(const char *filename);
+SeqArray read_seq_file(const std::filesystem::path& filename);
