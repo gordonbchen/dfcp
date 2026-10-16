@@ -26,34 +26,18 @@ std::uint64_t choose_two(std::uint64_t n) {
     return n * (n - 1) / 2;
 }
 
-double clade_weight(int cluster_size, int n_sequences, double beta) {
-    double z = static_cast<double>(cluster_size - 1) / (n_sequences - 1);
-    return std::pow(z * (1.0 - z), beta - 1.0);
-}
-
-std::pair<double, double> adjacent_ious(const RAssign& r_assign, const SeqArray& x) {
+double adjacent_ious(const RAssign& r_assign) {
     double cluster_sum = 0.0;
-    double emission_sum = 0.0;
     for (int l = 0; l < r_assign.L - 1; ++l) {
         std::unordered_map<std::uint32_t, std::uint64_t> left;
         std::unordered_map<std::uint32_t, std::uint64_t> right;
         std::unordered_map<std::uint64_t, std::uint64_t> joint;
-        std::array<std::uint64_t, 2> emission_left{};
-        std::array<std::uint64_t, 2> emission_right{};
-        std::array<std::uint64_t, 4> emission_joint{};
-
         for (int i = 0; i < r_assign.N; ++i) {
             std::uint32_t a = r_assign(i, l);
             std::uint32_t b = r_assign(i, l + 1);
             ++left[a];
             ++right[b];
             ++joint[(static_cast<std::uint64_t>(a) << 32) | b];
-
-            int left_x = x(i, l);
-            int right_x = x(i, l + 1);
-            ++emission_left[left_x];
-            ++emission_right[right_x];
-            ++emission_joint[2 * left_x + right_x];
         }
 
         std::uint64_t intersection = 0;
@@ -64,23 +48,12 @@ std::pair<double, double> adjacent_ious(const RAssign& r_assign, const SeqArray&
         for (const auto& [key, count] : right) { right_pairs += choose_two(count); }
         std::uint64_t union_size = left_pairs + right_pairs - intersection;
         cluster_sum += union_size == 0 ? 1.0 : static_cast<double>(intersection) / union_size;
-
-        std::uint64_t emission_intersection = 0;
-        std::uint64_t emission_left_pairs = 0;
-        std::uint64_t emission_right_pairs = 0;
-        for (std::uint64_t count : emission_joint) { emission_intersection += choose_two(count); }
-        for (std::uint64_t count : emission_left) { emission_left_pairs += choose_two(count); }
-        for (std::uint64_t count : emission_right) { emission_right_pairs += choose_two(count); }
-        std::uint64_t emission_union = emission_left_pairs + emission_right_pairs
-            - emission_intersection;
-        emission_sum += emission_union == 0 ? 1.0
-            : static_cast<double>(emission_intersection) / emission_union;
     }
-    return {cluster_sum / (r_assign.L - 1), emission_sum / (r_assign.L - 1)};
+    return cluster_sum / (r_assign.L - 1);
 }
 
 void eval_partitions(const RAssign& r_assign, const SeqArray& x, Json& json) {
-    auto [mean_adj_iou, mean_adj_emission_iou] = adjacent_ious(r_assign, x);
+    auto mean_adj_iou = adjacent_ious(r_assign);
 
     std::uint64_t n_clusters = 0;
     std::uint64_t majority_alleles = 0;
@@ -97,11 +70,12 @@ void eval_partitions(const RAssign& r_assign, const SeqArray& x, Json& json) {
 
     double mean_clusters = static_cast<double>(n_clusters) / r_assign.L;
     double purity = static_cast<double>(majority_alleles) / r_assign.ids.size();
-    std::cerr << "mean_adj_iou=" << mean_adj_iou << " mean_adj_emission_iou=" << mean_adj_emission_iou
-        << " mean_clusters=" << mean_clusters << " cluster_purity=" << purity << '\n';
-    json.add("mean_adj_iou", mean_adj_iou).add("mean_adj_emission_iou", mean_adj_emission_iou)
+    std::cerr << "mean_adj_iou=" << mean_adj_iou
+        << "\nmean_clusters=" << mean_clusters << "\ncluster_purity=" << purity << '\n';
+    json.add("mean_adj_iou", mean_adj_iou)
         .add("mean_clusters", mean_clusters).add("cluster_purity", purity);
 }
+
 
 struct ClusterTract {
     std::vector<int> members;
@@ -169,6 +143,12 @@ void eval_cluster_tracts(
     double mean_span_bp = span_sum / n_tracts;
     std::cerr << "mean_cluster_tract_loci=" << mean_loci << '\n';
     json.add("mean_cluster_tract_loci", mean_loci).add("mean_cluster_tract_span_bp", mean_span_bp);
+}
+
+
+double clade_weight(int cluster_size, int n_sequences, double beta) {
+    double z = static_cast<double>(cluster_size - 1) / (n_sequences - 1);
+    return std::pow(z * (1.0 - z), beta - 1.0);
 }
 
 void eval_trees(
