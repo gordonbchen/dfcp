@@ -1996,22 +1996,35 @@ DFCP PBWT: Same but with cluster $l$ over blocks instead of loci.
            and a sequence must hard match to the entire block.
 
 
+#pagebreak()
+= Marginal Tree Recon
+
+Idea: run dfcp at different cluster resolutions, then reconstruct marginal tree
+
+Questions:
+- how to build marginal tree from clusters with varying resolution (and handle incompatibilities)
+  - building a marginal tree with no incompatibility, characterize the conditions when there
+    will be no incompatibilities
+
+- want marginal tree at every recomb and then same marginal tree between recombs,
+  we will do recon at every variant position
+
+- how to guide dfcp resolution: pbwt match len init, $alpha$ prior
+
+Read:
+- Relate paper
+
 
 #pagebreak()
-= TODO
-- shapeit eval
+= Todo
 
-= read
-- The Power of Amnesia: Ron et al
-- Eagle
-
-= coresets
-- beagle composite
-- ref filtering w/ pbwt
-- coreset based on dfcp clustering?
+== read
 
 == ideas
 - dfcp on pbwt match blocks instead of locs
 - correlation b/t $d_l$ and genetic dist (then adding to model)
-- phasing
-- clustering on transformer embeddings
+
+== coresets
+- beagle composite
+- ref filtering w/ pbwt
+- coreset based on dfcp clustering?
