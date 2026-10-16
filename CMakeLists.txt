@@ -9,6 +9,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenMP REQUIRED)
 
+include(FetchContent)
+FetchContent_Declare(
+    CLI11
+    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+    GIT_TAG v2.5.0
+)
+FetchContent_MakeAvailable(CLI11)
+
+
 add_executable(impute
     src/impute.cpp
     src/seq_array.cpp
@@ -40,6 +49,7 @@ target_link_libraries(impute PRIVATE
     OpenMP::OpenMP_CXX
 )
 
+
 add_executable(eval_impute
     src/eval_impute.cpp
     src/impute_io.cpp
@@ -57,6 +67,7 @@ target_compile_options(eval_impute PRIVATE
     -Wpedantic
     -O3
 )
+
 
 add_executable(eval_clusters
     src/eval_clusters.cpp
@@ -76,4 +87,8 @@ target_compile_options(eval_clusters PRIVATE
     -Wextra
     -Wpedantic
     -O3
+)
+
+target_link_libraries(eval_clusters PRIVATE
+    CLI11::CLI11
 )

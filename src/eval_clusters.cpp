@@ -8,16 +8,16 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
-#include <string_view>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <CLI/CLI.hpp>
 #include "io.hpp"
 #include "json.hpp"
 #include "r_assign_io.hpp"
 #include "seq_array.hpp"
 #include "tree.hpp"
-#include "util.hpp"
 
 
 namespace {
@@ -100,11 +100,11 @@ struct ClusterTract {
 };
 
 void eval_cluster_tracts(
-    const RAssign& r_assign, const std::vector<int>& variant_pos, const char* tract_file, Json& json
+    const RAssign& r_assign, const std::vector<int>& variant_pos, std::string tract_file, Json& json
 ) {
     std::unique_ptr<AtomicBinaryWriter> writer;
-    if (tract_file != nullptr) {
-        writer = std::make_unique<AtomicBinaryWriter>(tract_file);
+    if (!tract_file.empty()) {
+        writer = std::make_unique<AtomicBinaryWriter>(tract_file.c_str());
         writer->stream() << "start_locus\tend_locus\tstart_position\tend_position\tsize\tn_loci"
             "\tspan_bp\n" << std::setprecision(17);
     }
@@ -161,15 +161,15 @@ double clade_weight(int cluster_size, int n_sequences, double beta) {
 
 void eval_trees(
     const RAssign& r_assign, const SeqArray& x,
-    const std::vector<int>& variant_pos, const char* tree_file,
-    double clade_beta, const char* tree_vis_file, const char* clade_times_file, Json& json
+    const std::vector<int>& variant_pos, std::string tree_file,
+    double clade_beta, std::string tree_vis_file, std::string clade_times_file, Json& json
 ) {
-    auto [trees, recomb_pos] = parse_tree_file(tree_file);
+    auto [trees, recomb_pos] = parse_tree_file(tree_file.c_str());
     std::vector<int> tree_idxs = get_tree_idxs(variant_pos, recomb_pos);
 
     std::unique_ptr<AtomicBinaryWriter> clade_times;
-    if (clade_times_file != nullptr) {
-        clade_times = std::make_unique<AtomicBinaryWriter>(clade_times_file);
+    if (!clade_times_file.empty()) {
+        clade_times = std::make_unique<AtomicBinaryWriter>(clade_times_file.c_str());
         clade_times->stream() << "locus\tposition\tr_id\tsize\tweight\tiou\ttime\n"
             << std::setprecision(17);
     }
@@ -247,10 +247,8 @@ void eval_trees(
             emission_clade_weight_sum += weight;
         }
 
-        if (tree_vis_file != nullptr && l < visualized_loci) {
-            tree_to_dot(
-                tree_vis_file, tree, dense_r_assign, emissions, l, visualized_loci
-            );
+        if ((!tree_vis_file.empty()) && (l < visualized_loci)) {
+            tree_to_dot(tree_vis_file.c_str(), tree, dense_r_assign, emissions, l, visualized_loci);
         }
     }
 
@@ -275,49 +273,50 @@ void eval_trees(
 
 
 int main(int argc, char* argv[]) {
-    if (argc < 5) {
-        std::cerr << "Error: Invalid number of arguments.\n"
-            << "Usage: " << argv[0] << " <ref_bin> <r_assign> <variant_pos> <true_trees>\n";
-        return EXIT_FAILURE;
-    }
+    // Parse args.
+    CLI::App app{"Eval Clusters"};
+
+    std::string ref_file;
+    std::string r_assign_file;
+    std::string variant_pos_file;
+    std::string tree_file;
+    app.add_option("ref_bin", ref_file, "Reference haplotype panel bin.")->required();
+    app.add_option("r_assign", r_assign_file, "Cluster assignments bin.")->required();
+    app.add_option("variant_pos", variant_pos_file, "Variant positions file.")->required();
+    app.add_option("tree", tree_file, "True trees file.")->required();
 
     double clade_beta = 2.0;
-    const char* tree_vis_file = nullptr;
-    const char* clade_times_file = nullptr;
-    const char* cluster_tracts_file = nullptr;
-    for (int i = 5; i < argc; i += 2) {
-        if (i + 1 >= argc) {
-            throw std::invalid_argument(std::format("Arg '{}' has no value.", argv[i]));
-        }
-        std::string_view arg{argv[i]};
+    std::string tree_vis_file;
+    std::string clade_times_file;
+    std::string tract_lens_file;
+    app.add_option("--clade_beta", clade_beta, "Beta parameter for weighted clade eval.");
+    app.add_option("--tree_vis", tree_vis_file, "Tree vis out file");
+    app.add_option("--clade_times", clade_times_file, "Clade times out file.");
+    app.add_option("--tract_lens", tract_lens_file, "Cluster tract length out file.");
 
-        if (arg == "--clade_beta") {
-            clade_beta = parse_double(argv[i + 1]);
-            if (clade_beta < 1.0) {
-                throw std::invalid_argument(std::format("clade_beta={} < 1.", clade_beta));
-            }
-        }
-        else if (arg == "--tree_vis") { tree_vis_file = argv[i + 1]; }
-        else if (arg == "--clade_times") { clade_times_file = argv[i + 1]; }
-        else if (arg == "--cluster_tracts") { cluster_tracts_file = argv[i + 1]; }
+    CLI11_PARSE(app, argc, argv);
 
-        else { throw std::invalid_argument(std::format("Arg '{}' not recognized.", argv[i])); }
+    if (clade_beta < 1.0) {
+        throw std::invalid_argument(std::format("clade_beta={} < 1.", clade_beta));
     }
 
-    SeqArray x = read_seq_file(argv[1]);
-    RAssign r_assign = read_r_assign(argv[2]);
-    std::vector<int> variant_pos = read_variant_pos(argv[3]);
+    // Read files.
+    SeqArray x = read_seq_file(ref_file.c_str());
+    RAssign r_assign = read_r_assign(r_assign_file.c_str());
+    std::vector<int> variant_pos = read_variant_pos(variant_pos_file.c_str());
     if (r_assign.N != x.N || r_assign.L != x.L || static_cast<int>(variant_pos.size()) != x.L) {
         throw std::runtime_error("ref, r_assign, and variant_pos have different dimensions.");
     }
 
     Json json;
-    json.add("ref_file", argv[1]).add("r_assign_file", argv[2])
-        .add("variant_pos_file", argv[3]).add("tree_file", argv[4]);
+    json.add("ref_file", ref_file).add("r_assign_file", r_assign_file)
+        .add("variant_pos_file", variant_pos_file).add("tree_file", tree_file);
 
+    // Eval clusters.
     eval_partitions(r_assign, x, json);
-    eval_cluster_tracts(r_assign, variant_pos, cluster_tracts_file, json);
-    eval_trees(r_assign, x, variant_pos, argv[4], clade_beta, tree_vis_file, clade_times_file, json);
+    eval_cluster_tracts(r_assign, variant_pos, tract_lens_file, json);
+    eval_trees(r_assign, x, variant_pos, tree_file, clade_beta,
+               tree_vis_file, clade_times_file, json);
 
     std::cout << json.str() << '\n';
 }
