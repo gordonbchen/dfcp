@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/../.." && pwd)
-windows_dir=${1:?Usage: impute.sh WINDOWS_DIR [--name NAME] [OPTION VALUE]...}
+windows_dir=${1:?Usage: impute.sh WINDOWS_DIR [--name NAME] [--n-parallel N] [IMPUTE_OPTIONS]}
 shift
 n_parallel=1
 name=probs

@@ -27,7 +27,7 @@ def evaluate(root: Path, output: Path, name: str, log_file: Path) -> dict[str, o
     cluster_tracts = output / f"{name}.cluster_tracts.tsv"
     command = [
         str(root / "build/eval_clusters"), str(ref), str(r_assign), str(positions), str(trees),
-        "--clade_times", str(clade_times), "--cluster_tracts", str(cluster_tracts),
+        "--clade_times", str(clade_times), "--tract_lens", str(cluster_tracts),
     ]
     with eval_file.open("w") as stdout, log_file.open("a") as stderr:
         subprocess.run(command, cwd=root, stdout=stdout, stderr=stderr, check=True)

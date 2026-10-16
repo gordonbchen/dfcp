@@ -370,10 +370,12 @@ Build and run from the repository root. Target imputation is optional:
 
 ```bash
 ./build.sh
-./build/impute REF_FILE [TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE] [OPTION VALUE]...
+./build/impute REF_FILE [TARGET_FILE OBS_LOCI_FILE PROB_FILE] [OPTIONS]
 ```
 
-Every option requires a value, including booleans. CLI11 provides `--help`.
+The target, observed-loci, and probability paths must be supplied together or
+omitted together. CLI11 provides `--help` for all three executables. Options
+take values except for flags such as `--viterbi_impute`.
 
 - `--tau_1`, `--tau_2`: Gamma shape/rate for `alpha`.
 - `--v_1`, `--v_2`: Beta shapes for each `d_l`.
@@ -391,7 +393,7 @@ Every option requires a value, including booleans. CLI11 provides `--help`.
 - `--max_train_steps`: maximum ME iterations; `0` keeps the initialization
   unchanged. Defaults to `3`.
 - `--viterbi_impute`: use the Viterbi path rather than forward-backward
-  imputation only when the value is exactly `1`.
+  imputation; this is a flag with no value.
 - `--output_r_assign`: write final reference R assignments to the given path.
 
 A prepared 1000 Genomes invocation is:
@@ -443,7 +445,7 @@ python3 scripts/fsc_sim/beagle4.py \
   data/fsc/prepared/variant_pos.txt \
   data/fsc/ex_0_pop_1/ex_0_pop_1_1_true_trees.trees \
   --clade_times output/fsc_clusters/beagle4.clade_times.tsv \
-  --cluster_tracts output/fsc_clusters/beagle4.cluster_tracts.tsv \
+  --tract_lens output/fsc_clusters/beagle4.cluster_tracts.tsv \
   > output/fsc_clusters/beagle4.eval.json
 ```
 
@@ -461,7 +463,7 @@ Always-present fields include:
 - `ref_file`
 - `t_init`
 
-`target_file`, `observed_loci_file`, and `t_impute` are present only when
+`target_file`, `obs_loci_file`, and `t_impute` are present only when
 imputation was requested.
 
 Output includes `train_log` and the fitted parameter moments under `params`.
@@ -475,7 +477,7 @@ and accuracy are emitted by `eval_impute`.
 
 `eval_clusters` accepts `--clade_times FILE` to write one row per inferred
 cluster and locus with its best-matching true-clade time, IoU, size, and clade
-weight. `--cluster_tracts FILE` writes maximal runs over which an R cluster has
+weight. `--tract_lens FILE` writes maximal runs over which an R cluster has
 exactly the same member set. Each tract records its locus length and physical
 span. Both outputs are TSVs and are written atomically.
 
@@ -527,8 +529,6 @@ The clade maximization uses a postorder traversal for each cluster.
 
 `mean_adj_iou` compares the relations "sequence pair is co-clustered" at
 adjacent loci. It is not a mean of Jaccard scores between individual clusters.
-`mean_adj_emission_iou` applies the same pairwise relation to equal observed
-emissions.
 
 ### Exact R-cluster tracts
 
@@ -573,8 +573,8 @@ The build enables `-Wall -Wextra -Wpedantic -O3`. There is no install target,
 library target, automated test target, or CI configuration.
 
 The maintained Plotly reports require Python, NumPy, SciPy, and Plotly.
-`window_viz.py` additionally uses `bcftools`; `beagle.py` requires Java and
-the local Beagle JAR. Historical notebook work may additionally require
+`beagle.py` requires Java and the local Beagle JAR. Historical notebook work
+may additionally require
 Matplotlib, PyTorch, BoTorch, GPyTorch, Graphviz, Jupyter, and line-profiler.
 There is no tracked Python package or lock manifest.
 

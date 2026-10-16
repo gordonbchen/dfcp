@@ -58,17 +58,6 @@ scripts/1000g_phase3_v5b/dfcp_prep.sh data/1000g_phase3_v5b/windows_200_o32
 This adds `ref.bin`, `target_observed.bin`, `target_masked_true.bin`, and `observed_loci.txt` to each
 window directory. The observed-loci file contains zero-based indexes into that window's reference VCF.
 
-## Window visualization
-
-Reproduce the interactive selection report directly from the chromosome-wide reference and observed
-target VCFs:
-
-```bash
-.venv/bin/python scripts/1000g_phase3_v5b/window_viz.py --output docs/window.html
-```
-
-Use `--physical-only` to build the report in Mb without the genetic map.
-
 ## Imputation and evaluation
 
 ```bash
@@ -83,6 +72,8 @@ scripts/1000g_phase3_v5b/impute.sh data/1000g_phase3_v5b/windows_200_o32 \
 `impute.sh` builds DFCP once and runs the same options on every window. `--name NAME` writes `NAME.bin`,
 `NAME.json`, and `NAME.log` under each window's `impute/` directory; it defaults to `probs`. Pass the same
 name to `eval_impute`. `--n-parallel` controls the number of simultaneous DFCP processes and defaults to one.
+Other arguments are forwarded to `impute`; pass `--viterbi_impute` without a value to use Viterbi
+imputation. Run `./build/impute --help` for the full option list.
 Each process's stderr is printed as one block when it finishes. `Ctrl-C` stops every active process.
 `eval_impute` reads `AC` and `AN` from each reference VCF, discards half of every internal overlap at each
 window edge, and pools r-squared and accuracy over all retained target alleles at each MAC. Use an even
