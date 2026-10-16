@@ -18,6 +18,7 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <CLI/CLI.hpp>
 #include "impute_io.hpp"
 #include "io.hpp"
 #include "seq_array.hpp"
@@ -198,9 +199,9 @@ std::vector<bool> read_observed_loci(const std::filesystem::path& path, int n_lo
 void evaluate_window(
     const Window& window, int left_trim, int right_trim, std::vector<MacStats>& stats
 ) {
-    ImputeProbReader prob_reader(window.prob_file.c_str());
+    ImputeProbReader prob_reader(window.prob_file);
     const ImputeProbHeader& header = prob_reader.header();
-    SeqArray x_true{read_seq_file((window.dir / "target_masked_true.bin").c_str())};
+    SeqArray x_true{read_seq_file(window.dir / "target_masked_true.bin")};
     if (header.n_sequences != static_cast<std::uint32_t>(x_true.N)
         || header.n_loci != static_cast<std::uint32_t>(x_true.L)) {
         throw std::runtime_error(
@@ -245,8 +246,8 @@ void evaluate_window(
 }
 
 
-void write_tsv(const std::filesystem::path& path, const std::vector<MacStats>& stats) {
-    AtomicBinaryWriter output(path.c_str());
+void write_tsv(const std::string& path, const std::vector<MacStats>& stats) {
+    AtomicBinaryWriter output(path);
     std::ostream& stream = output.stream();
     stream << "mac\tn_loci\tn_predictions\tr2\taccuracy\n" << std::setprecision(10);
     for (std::size_t mac = 0; mac < stats.size(); ++mac) {
@@ -262,12 +263,16 @@ void write_tsv(const std::filesystem::path& path, const std::vector<MacStats>& s
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        throw std::invalid_argument("Usage: eval_impute WINDOWS_DIR NAME OUTPUT.tsv");
-    }
+    CLI::App app{"Eval Impute"};
+    std::string windows_dir;
+    std::string name;
+    std::string output_file;
+    app.add_option("windows_dir", windows_dir, "Window root containing windows.tsv.")->required();
+    app.add_option("name", name, "Imputation run name.")->required();
+    app.add_option("output", output_file, "Evaluation TSV output.")->required();
+    CLI11_PARSE(app, argc, argv);
 
-    std::filesystem::path root = argv[1];
-    std::vector<Window> windows = read_windows(root, argv[2]);
+    std::vector<Window> windows = read_windows(windows_dir, name);
     int overlap = windows.size() > 1 ? windows[0].end - windows[1].start : 0;
     std::vector<MacStats> stats;
     for (std::size_t w = 0; w < windows.size(); ++w) {
@@ -275,13 +280,13 @@ int main(int argc, char* argv[]) {
         int right_trim = w + 1 == windows.size() ? 0 : overlap / 2;
         evaluate_window(windows[w], left_trim, right_trim, stats);
     }
-    write_tsv(argv[3], stats);
+    write_tsv(output_file, stats);
 
     std::uint64_t n_masked_loci = 0;
     for (const MacStats& stat : stats) {
         n_masked_loci += stat.n_loci;
     }
     std::cerr << "windows=" << windows.size() << " n_masked_loci=" << n_masked_loci
-        << " output=" << argv[3] << '\n';
+        << " output=" << output_file << '\n';
     return 0;
 }

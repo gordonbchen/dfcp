@@ -1,27 +1,11 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <iterator>
-#include <stdexcept>
 #include <vector>
 #include "util.hpp"
 #include "seq_array.hpp"
 
-
-double parse_double(const char* value) {
-    char* end = nullptr;
-    double parsed = std::strtod(value, &end);
-    if (end == value) { throw std::invalid_argument("Failed to parse double arg value."); }
-    return parsed;
-}
-
-int parse_int(const char* value) {
-    char* end = nullptr;
-    int parsed = std::strtol(value, &end, 10);
-    if (end == value) { throw std::invalid_argument("Failed to parse int arg value."); }
-    return parsed;
-}
 
 std::vector<size_t> count_emissions(const SeqArray& x, int K) {
     std::vector<size_t> counts(x.L * K, 0);

@@ -6,6 +6,7 @@
 #include <ostream>
 #include <stdexcept>
 #include <system_error>
+#include <utility>
 #include "io.hpp"
 
 
@@ -24,8 +25,8 @@ void write_bytes(std::ostream& stream, const void* data, std::size_t size) {
 }
 
 
-AtomicBinaryWriter::AtomicBinaryWriter(const char* filename) :
-    output_path(filename), temporary_path(output_path.string() + ".tmp"),
+AtomicBinaryWriter::AtomicBinaryWriter(std::filesystem::path filename) :
+    output_path(std::move(filename)), temporary_path(output_path.string() + ".tmp"),
     output(temporary_path, std::ios::binary | std::ios::trunc)
 {
     if (!output.is_open()) {

@@ -8,6 +8,7 @@
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <utility>
 #include "impute_io.hpp"
 #include "io.hpp"
 
@@ -20,7 +21,8 @@ constexpr std::uint32_t fixed_point_max = std::numeric_limits<std::uint16_t>::ma
 }
 
 
-ImputeProbReader::ImputeProbReader(const char* filename) : input(filename, std::ios::binary) {
+ImputeProbReader::ImputeProbReader(const std::filesystem::path& filename)
+    : input(filename, std::ios::binary) {
     if (!input.is_open()) {
         throw std::runtime_error("Failed to open imputation probability file.");
     }
@@ -55,8 +57,8 @@ void ImputeProbReader::read_row(std::span<std::uint16_t> values) {
 }
 
 
-ImputeProbWriter::ImputeProbWriter(const char* filename, int n_sequences_, int n_loci_) :
-    output(filename), n_sequences(n_sequences_), n_loci(n_loci_), row_buffer(n_loci)
+ImputeProbWriter::ImputeProbWriter(std::filesystem::path filename, int n_sequences_, int n_loci_) :
+    output(std::move(filename)), n_sequences(n_sequences_), n_loci(n_loci_), row_buffer(n_loci)
 {
     write_bytes(output.stream(), prob_magic.data(), prob_magic.size());
     std::array<std::uint32_t, 2> dimensions{n_sequences, n_loci};

@@ -52,7 +52,7 @@ current executable.
 - `include/math.hpp`: second-order delta-method helpers.
 - `include/tree.hpp`: reference-tree parsing and tree-based metrics.
 - `include/util.hpp`: flat indexing, observed-target mapping, emission counts,
-  modes, and numeric argument parsing.
+  and modes.
 - `include/json.hpp`: small write-only JSON builder used for stdout results.
 
 ### C++ sources
@@ -373,7 +373,7 @@ Build and run from the repository root. Target imputation is optional:
 ./build/impute REF_FILE [TARGET_FILE OBSERVED_LOCI_FILE PROB_FILE] [OPTION VALUE]...
 ```
 
-Every option requires a value, including booleans. There is no `--help` path.
+Every option requires a value, including booleans. CLI11 provides `--help`.
 
 - `--tau_1`, `--tau_2`: Gamma shape/rate for `alpha`.
 - `--v_1`, `--v_2`: Beta shapes for each `d_l`.
@@ -615,7 +615,6 @@ cases are:
   position. Preparation preserves them in their original order; consumers must
   not assume positions are unique.
 - The executable assumes `L >= 2`; adjacent-locus metrics divide by `L-1`.
-- Numeric argument parsing accepts a valid numeric prefix followed by junk.
 - The transformed Laplace searches use fixed bounds `[-10,10]` and fixed
   precision.
 - Unordered containers and exact score ties can make fitting nondeterministic.

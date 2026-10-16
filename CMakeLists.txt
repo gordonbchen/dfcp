@@ -47,6 +47,7 @@ target_compile_options(impute PRIVATE
 
 target_link_libraries(impute PRIVATE
     OpenMP::OpenMP_CXX
+    CLI11::CLI11
 )
 
 
@@ -66,6 +67,10 @@ target_compile_options(eval_impute PRIVATE
     -Wextra
     -Wpedantic
     -O3
+)
+
+target_link_libraries(eval_impute PRIVATE
+    CLI11::CLI11
 )
 
 

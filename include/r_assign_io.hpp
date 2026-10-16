@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <filesystem>
 #include <vector>
 #include "clusters.hpp"
 
@@ -17,5 +18,5 @@ struct RAssign {
 };
 
 
-RAssign read_r_assign(const char* fname);
-void write_r_assign(const char* fname, const Clusters& clusters);
+RAssign read_r_assign(const std::filesystem::path& fname);
+void write_r_assign(const std::filesystem::path& fname, const Clusters& clusters);

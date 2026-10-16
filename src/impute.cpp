@@ -4,9 +4,10 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
-#include <string_view>
+#include <string>
 #include <unordered_map>
 #include <vector>
+#include <CLI/CLI.hpp>
 #include "hyperparams.hpp"
 #include "r_assign_io.hpp"
 #include "impute_io.hpp"
@@ -145,7 +146,7 @@ void impute(
     const SeqArray& x_val, const std::unordered_map<int, int>& obs_ls,
     bool viterbi,
     const Clusters& clusters, const Params& params, const HyperParams& HP,
-    const char* prob_file
+    const std::string& prob_file
 ) {
     int n_masked_ls = HP.L - static_cast<int>(obs_ls.size());
     ImputeProbWriter prob_writer(prob_file, x_val.N, n_masked_ls);
@@ -169,8 +170,8 @@ void impute(
 }
 
 
-std::unordered_map<int, int> read_obs_ls(const char *filename, int n_obs_ls, int n_total_loci) {
-    std::ifstream file(filename);
+std::unordered_map<int, int> read_obs_ls(const std::string& fname, int n_obs_ls, int n_total_loci) {
+    std::ifstream file(fname);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open observed loci file.");
     }
@@ -202,89 +203,85 @@ std::unordered_map<int, int> read_obs_ls(const char *filename, int n_obs_ls, int
 }
 
 int main(int argc, char *argv[]) {
-    Json json;
+    // Parse args.
+    CLI::App app{"DFCP imputation"};
 
-    if (argc < 2) { throw std::invalid_argument("Requires a reference sequence file."); }
+    std::string ref_file;
+    app.add_option("ref_file", ref_file, "Reference sequence file.")->required();
 
-    bool run_imputation = argc > 2 && argv[2][0] != '-';
-    if (run_imputation && argc < 5) {
-        throw std::invalid_argument("Imputation requires target, observed loci, and probability files.");
-    }
+    std::optional<std::string> target_file;
+    std::optional<std::string> obs_loci_file;
+    std::optional<std::string> prob_file;
+    app.add_option("target_file", target_file, "Target sequence file.");
+    app.add_option("obs_loci_file", obs_loci_file, "Observed loci file.");
+    app.add_option("prob_file", prob_file, "Imputation probability output.");
 
-    SeqArray x_train{read_seq_file(argv[1])};
-    std::optional<SeqArray> x_val;
-    std::unordered_map<int, int> obs_ls;
-    if (run_imputation) {
-        x_val.emplace(read_seq_file(argv[2]));
-        obs_ls = read_obs_ls(argv[3], x_val->L, x_train.L);
-    }
+    HyperParams HP{.N=0, .L=0, .K=2};
+    app.add_option("--tau_1", HP.tau_1, "Alpha prior shape.");
+    app.add_option("--tau_2", HP.tau_2, "Alpha prior rate.");
+    app.add_option("--v_1", HP.v_1, "Discount prior first shape.");
+    app.add_option("--v_2", HP.v_2, "Discount prior second shape.");
+    app.add_option("--phi_1", HP.phi_1, "Gamma prior shape.");
+    app.add_option("--phi_2", HP.phi_2, "Gamma prior rate.");
 
-    std::cerr << "ref_file=" << argv[1];
-    json.add("ref_file", argv[1]);
-    if (run_imputation) {
-        std::cerr << " target_file=" << argv[2] << " observed_loci_file=" << argv[3]
-            << " prob_file=" << argv[4];
-        json.add("target_file", argv[2]).add("observed_loci_file", argv[3]);
-    }
-    std::cerr << '\n';
+    std::string mode = "hard";
+    app.add_option("--mode", mode, "Emission mode: hard, noisy, or soft.")
+        ->check(CLI::IsMember({"hard", "noisy", "soft"}));
+    app.add_option("--lambda_1", HP.lambda_1, "Noisy emission prior first shape.");
+    app.add_option("--lambda_2", HP.lambda_2, "Noisy emission prior second shape.");
 
-    HyperParams HP{.N=x_train.N, .L=x_train.L, .K=2};
-
-    // Parse optional args.
-    EmitMode emit_mode = EmitMode::hard;
-
-    InitMode init_mode = InitMode::pbwt;
+    std::string init = "pbwt";
     int pbwt_match_len = 20;
-    int max_batch_size = 4;
+    app.add_option("--init", init, "Initialization: viterbi, block, or pbwt.")
+        ->check(CLI::IsMember({"viterbi", "block", "pbwt"}));
+    app.add_option("--pbwt_match_len", pbwt_match_len, "PBWT match len.");
 
+    int max_batch_size = 4;
     int max_train_steps = 3;
+    app.add_option("--max_batch_size", max_batch_size, "Maximum sequence batch size.");
+    app.add_option("--max_train_steps", max_train_steps, "Maximum training steps.");
 
     bool viterbi_impute = false;
-    const char* r_assign_file = nullptr;
+    app.add_flag("--viterbi_impute", viterbi_impute, "Viterbi impute (default Forward-Backward).");
 
-    int i = run_imputation ? 5 : 2;
-    while (i < argc) {
-        if (i+1 >= argc) { throw std::invalid_argument("Arg has no value."); };
+    std::optional<std::string> r_assign_file;
+    app.add_option("--output_r_assign", r_assign_file, "Final R assignment file.");
 
-        std::string_view arg{argv[i]};
-        if (arg == "--tau_1") { HP.tau_1 = parse_double(argv[i+1]); }
-        else if (arg == "--tau_2") { HP.tau_2 = parse_double(argv[i+1]); }
-        else if (arg == "--v_1") { HP.v_1 = parse_double(argv[i+1]); }
-        else if (arg == "--v_2") { HP.v_2 = parse_double(argv[i+1]); }
-        else if (arg == "--phi_1") { HP.phi_1 = parse_double(argv[i+1]); }
-        else if (arg == "--phi_2") { HP.phi_2 = parse_double(argv[i+1]); }
+    CLI11_PARSE(app, argc, argv);
 
-        else if (arg == "--mode") {
-            std::string_view value{argv[i+1]};
-            if (value == "hard") { emit_mode = EmitMode::hard; }
-            else if (value == "noisy") { emit_mode = EmitMode::noisy; }
-            else if (value == "soft") { emit_mode = EmitMode::soft; }
-            else { throw std::invalid_argument("mode must be hard, noisy, or soft."); }
-        }
-        else if (arg == "--lambda_1") { HP.lambda_1 = parse_double(argv[i+1]); }
-        else if (arg == "--lambda_2") { HP.lambda_2 = parse_double(argv[i+1]); }
-
-        else if (arg == "--init") {
-            std::string_view value{argv[i+1]};
-            if (value == "viterbi") { init_mode = InitMode::viterbi; }
-            else if (value == "block") { init_mode = InitMode::block; }
-            else if (value == "pbwt") { init_mode = InitMode::pbwt; }
-            else { throw std::invalid_argument("init must be viterbi, block, or pbwt."); }
-        }
-        else if (arg == "--pbwt_match_len") { pbwt_match_len = parse_int(argv[i+1]); }
-        else if (arg == "--max_batch_size") { max_batch_size = parse_int(argv[i+1]); }
-
-        else if (arg == "--max_train_steps") { max_train_steps = parse_int(argv[i+1]); }
-
-        else if (arg == "--viterbi_impute") { viterbi_impute = (parse_int(argv[i+1]) == 1); }
-        else if (arg == "--output_r_assign") { r_assign_file = argv[i+1]; }
-
-        else { throw std::invalid_argument("Arg not recognized."); }
-        i += 2;
+    bool run_impute = target_file.has_value();
+    if (run_impute != obs_loci_file.has_value() || run_impute != prob_file.has_value()) {
+        throw std::invalid_argument("Imputation requires target, observed loci, and prob files.");
     }
+    EmitMode emit_mode = mode == "hard" ? EmitMode::hard
+        : mode == "noisy" ? EmitMode::noisy : EmitMode::soft;
+    InitMode init_mode = init == "viterbi" ? InitMode::viterbi
+        : init == "block" ? InitMode::block : InitMode::pbwt;
+
+    // Read files.
+    SeqArray x_train{read_seq_file(ref_file)};
+    std::optional<SeqArray> x_val;
+    std::unordered_map<int, int> obs_ls;
+    if (run_impute) {
+        x_val.emplace(read_seq_file(*target_file));
+        obs_ls = read_obs_ls(*obs_loci_file, x_val->L, x_train.L);
+    }
+
+    Json json;
+    json.add("ref_file", ref_file);
+
+    std::cerr << "ref_file=" << ref_file << '\n';
+    if (run_impute) {
+        std::cerr << " target_file=" << *target_file
+            << "\nobs_loci_file=" << *obs_loci_file
+            << "\nprob_file=" << *prob_file << '\n';
+        json.add("target_file", *target_file).add("obs_loci_file", *obs_loci_file);
+    }
+    HP.N = x_train.N;
+    HP.L = x_train.L;
     std::cerr << HP << '\n';
 
-    // Init params and clusters.
+    // Init params and clusters, train, impute.
     Params params{HP};
     Clusters clusters{HP, emit_mode};
 
@@ -295,13 +292,13 @@ int main(int argc, char *argv[]) {
         json
     );
 
-    if (r_assign_file != nullptr) {
-        write_r_assign(r_assign_file, clusters);
+    if (r_assign_file) {
+        write_r_assign(*r_assign_file, clusters);
     }
 
-    if (run_imputation) {
+    if (run_impute) {
         auto t0 = std::chrono::steady_clock::now();
-        impute(*x_val, obs_ls, viterbi_impute, clusters, params, HP, argv[4]);
+        impute(*x_val, obs_ls, viterbi_impute, clusters, params, HP, *prob_file);
         auto t1 = std::chrono::steady_clock::now();
         auto t_impute = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
         std::cerr << "t_impute=" << t_impute << "ms\n";

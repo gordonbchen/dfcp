@@ -14,7 +14,7 @@
 #include "tree.hpp"
 
 
-std::vector<int> read_variant_pos(const char* fname) {
+std::vector<int> read_variant_pos(const std::string& fname) {
     std::ifstream input(fname);
     if (!input.is_open()) { throw std::runtime_error("Failed to open variant position file."); }
 
@@ -82,7 +82,7 @@ int parse_coal_tree(const char *s, std::unordered_map<int, CoalNode>& coal_tree)
 }
 
 std::pair<std::vector<std::unordered_map<int, CoalNode>>, std::vector<int>> parse_tree_file(
-    const char *fname
+    const std::string& fname
 ) {
     std::ifstream tree_file{fname};
     if (!tree_file.is_open()) { throw std::runtime_error("Failed to open tree file."); };
@@ -342,7 +342,7 @@ void label_leaf(
 }
 
 void tree_to_dot(
-    const char *file,
+    const std::string& file,
     const std::unordered_map<int, CoalNode>& coal_tree,
     const std::vector<int>& r_assign,
     const std::vector<int>& emissions,

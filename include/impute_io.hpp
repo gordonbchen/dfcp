@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <span>
 #include <vector>
@@ -21,7 +22,7 @@ class ImputeProbReader {
     ImputeProbHeader file_header;
 
     public:
-        explicit ImputeProbReader(const char* filename);
+        explicit ImputeProbReader(const std::filesystem::path& filename);
 
         const ImputeProbHeader& header() const;
         void read_row(std::span<std::uint16_t> values);
@@ -36,7 +37,7 @@ class ImputeProbWriter {
     std::vector<std::uint16_t> row_buffer;
 
     public:
-        ImputeProbWriter(const char* filename, int n_sequences_, int n_loci_);
+        ImputeProbWriter(std::filesystem::path filename, int n_sequences_, int n_loci_);
 
         ImputeProbWriter(const ImputeProbWriter&) = delete;
         ImputeProbWriter& operator=(const ImputeProbWriter&) = delete;
