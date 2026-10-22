@@ -1998,22 +1998,52 @@ DFCP PBWT: Same but with cluster $l$ over blocks instead of loci.
 
 #pagebreak()
 = Marginal Tree Recon
-
 Idea: run dfcp at different cluster resolutions, then reconstruct marginal tree
 
-Questions:
-- how to build marginal tree from clusters with varying resolution (and handle incompatibilities)
-  - building a marginal tree with no incompatibility, characterize the conditions when there
-    will be no incompatibilities
+== Questions:
+- how to build marginal tree from clusters with varying resolution
+  - characterize the conditions when there are no incompatibilities: all clusters are clades
+  - algorithm for building a marginal tree (can we get perfect reconstruction in ideal case?)
 
+- comparing true vs estimated tree topology
+
+== Algorithm 1: Recursive Minimal Disjoint Set Cover
++ pick the fewest number of disjoint clusters that covers all leaves
++ add clusters to the tree
++ recurse on the chosen clusters
+
+Properties:
+- perfect reconstruction if all clusters are clades.
+- top-down
+- intuition: the minimal disjoint vertex cover on a DAG is the next coherent partition
+
+Problems:
+- tree is binary, cannot handle a cover with more than 2 clusters.
+  but we don't necessarily want to just take the largest cluster and allow that to be the
+  next internal node, because it could be 1 big cluster + many fractured clusters vs
+  multiple large clusters. we can try to fix this by just ordering the partition by cluster
+  size and then making a partition "backbone".
+- minimal set cover is NP-hard, minimal disjoint set cover is...#emoji.skull
+
+== Algorithm 2: Agglomerative Construction
++ find the 2 leaves that are inside the most clusters
+  - weight smaller clusters heavier: -log(cluster size / population size),
+    b/c being inside a super large cluster tells you less about relatedness
++ join them
++ repeat until done
+
+Properties:
+- perfect reconstruction under ideal clade conditions
+- bottom-up
+- intuition: the 2 leaves in the most (weighted) clusters together are the most closely related
+
+== Later
+- how to guide dfcp resolution: pbwt match len init, $alpha$ prior
+- can we derive / compare branch lengths
 - want marginal tree at every recomb and then same marginal tree between recombs,
   we will do recon at every variant position
 
-- how to guide dfcp resolution: pbwt match len init, $alpha$ prior
-
-- comparing true vs estimated trees (topology, can we also derive / compare branch lengths)
-
-Read:
+== Read:
 - Relate paper
 
 
