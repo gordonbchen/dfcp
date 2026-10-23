@@ -1,4 +1,5 @@
 #set text(size: 12pt)
+#show link: it => underline(text(fill: blue)[#it])
 
 #let todo(body) = box(
   fill: rgb("#ff6666"),
@@ -2000,65 +2001,72 @@ DFCP PBWT: Same but with cluster $l$ over blocks instead of loci.
 = Marginal Tree Recon
 Idea: run dfcp at different cluster resolutions, then reconstruct marginal tree
 
-== Questions:
-- how to build marginal tree from clusters with varying resolution
-  - characterize the conditions when there are no incompatibilities: all clusters are clades
-  - algorithm for building a marginal tree (can we get perfect reconstruction in ideal case?)
+== #link("https://en.wikipedia.org/wiki/UPGMA")[UPGMA]
+Let $C$ be the set of DFCP clusters and $N$ be the number of haplotypes.
 
-- comparing true vs estimated tree topology
+Let $S(i, j) = sum_(c in C) w(c) bold(1){i, j in c}$ be the score for merging a
+pair of haplotypes $i, j$ for some choice of weighting function over clusters $w(c)$.
+For example, $w(c) = -log (|c|)/N$.
 
-== Algorithm 1: Recursive Minimal Disjoint Set Cover
++ Compute $S(i,j)$ over all $N(N-1)$ pairs of haplotypes.
++ Find the pair of leaves with the highest score: $i_0, j_0 = "argmax"_(i,j) S(i,j)$.
++ Join the pair into a new leaf $A = (i, j)$.
++ Update scores $S(A, B) = (|A_0|S(A_0, B) + |A_1|S(A_1, B)) / (|A_0| + |A_1|)$
++ Repeat until a single leaf (the root) is left.
+
+Time complexity: $O(N^2)$
+
+
+== Tree / laminar family search
+
+
+== Recursive Minimal Disjoint Set Cover
 + pick the fewest number of disjoint clusters that covers all leaves
 + add clusters to the tree
 + recurse on the chosen clusters
 
-Properties:
-- perfect reconstruction if all clusters are clades.
-- top-down
-- intuition: the minimal disjoint vertex cover on a DAG is the next coherent partition
-
 Problems:
-- tree is binary, cannot handle a cover with more than 2 clusters.
-  but we don't necessarily want to just take the largest cluster and allow that to be the
-  next internal node, because it could be 1 big cluster + many fractured clusters vs
-  multiple large clusters. we can try to fix this by just ordering the partition by cluster
-  size and then making a partition "backbone".
-- minimal set cover is NP-hard, minimal disjoint set cover is...#emoji.skull
+- nary not binary tree (set cover can be > 2 clusters)
+- minimal set cover is NP-hard
 
-== Algorithm 2: Agglomerative Construction
-+ find the 2 leaves that are inside the most clusters
-  - weight smaller clusters heavier: -log(cluster size / population size),
-    b/c being inside a super large cluster tells you less about relatedness
-+ join them
-+ repeat until done
 
-Properties:
-- perfect reconstruction under ideal clade conditions
-- bottom-up
-- intuition: the 2 leaves in the most (weighted) clusters together are the most closely related
+= Tree metrics
+Robinson-Foulds
+- \# clades in either tree and not in the other
+- max RF distance for binary tree with $n >= 3$ leaves is $2(n-2)$
 
-== Later
-- how to guide dfcp resolution: pbwt match len init, $alpha$ prior
-- can we derive / compare branch lengths
-- want marginal tree at every recomb and then same marginal tree between recombs,
-  we will do recon at every variant position
+Clade IOU
+- let $cal(C)(T)$ be the clades of tree $T$.
 
-== Read:
-- Relate paper
+  $P = 1/(|cal(C)(hat(T))|) sum_(hat(c) in cal(C)(hat(T))) max_(c in cal(C)(T)) J(hat(c), c)$
+
+  $R = 1/(|cal(C)(T)|) sum_(c in cal(C)(T)) max_(hat(c) in cal(C)(hat(T))) J(c, hat(c))$
+
+  $"F1" = (2 P R) / (P+R)$
+
+- bipartite matching b/t estimated clades and true clades
+
+  $S = 2/(|cal(C)(T)|+|cal(C)(hat(T))|) max_M sum_((c, hat(c)) in M) J(c, hat(c))$
+
+Cophenetic metrics
+- $d_"coph"(T, hat(T)) = sqrt(2/(n(n-1)) sum_(i,j) (h_T (i,j) - h_hat(T)(i,j))^2)$
+  where $h_T (i,j)$ is the \# nodes from root to MRCA of $i,j$.
+- $d_"tri"(T, hat(T)) = sum_(i,j,k) bold(1){r_T (i,j,k) = r_(hat(T)) (i,j,k)}$
+  where $r_T (i,j,k)$ selects the 2 nodes with the more recent common ancestor
 
 
 #pagebreak()
 = Todo
 
 == done
-- changing directions from dfcp imputation to marginal tree recon
-  - impuation is not the right task for dfcp, ignores most special thing about dfcp the clustering,
-    getting better imputation converges to extremely long pbwt match len, clusters of size 1,
-    no point in dfcp
-  - marginal tree recon is a good task, can vary cluster resolution w/ dfcp hyperparams
-- code cleanup (removing dfcp over pbwt blocks, filtering, individual inference) + qol (CLI11 arg parse)
+
+== later
+- how to guide dfcp resolution: pbwt match len init, $alpha$ prior
+- can we derive / compare branch lengths
+- marginal tree at every variant pos vs recomb pos
 
 == read
+- Relate paper
 
 == ideas
 - dfcp on pbwt match blocks instead of locs
