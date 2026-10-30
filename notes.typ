@@ -2020,16 +2020,6 @@ Time complexity: $O(N^2)$
 == Tree / laminar family search
 
 
-== Recursive Minimal Disjoint Set Cover
-+ pick the fewest number of disjoint clusters that covers all leaves
-+ add clusters to the tree
-+ recurse on the chosen clusters
-
-Problems:
-- nary not binary tree (set cover can be > 2 clusters)
-- minimal set cover is NP-hard
-
-
 = Tree metrics
 Robinson-Foulds
 - \# clades in either tree and not in the other
@@ -2051,12 +2041,16 @@ Clade IOU
 Cophenetic metrics
 - $d_"coph"(T, hat(T)) = sqrt(2/(n(n-1)) sum_(i,j) (h_T (i,j) - h_hat(T)(i,j))^2)$
   where $h_T (i,j)$ is the \# nodes from root to MRCA of $i,j$.
-- $d_"tri"(T, hat(T)) = sum_(i,j,k) bold(1){r_T (i,j,k) = r_(hat(T)) (i,j,k)}$
+- $d_"tri"(T, hat(T)) = sum_(i,j,k) bold(1){r_T (i,j,k) != r_(hat(T)) (i,j,k)}$
   where $r_T (i,j,k)$ selects the 2 nodes with the more recent common ancestor
 
 
 #pagebreak()
 = Todo
+
+== ideas
+- indication of recombination from not being able to make a tree
+- sequentially markov coalescent to condition tree on previous tree
 
 == done
 
