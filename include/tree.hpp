@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -43,8 +44,8 @@ double calc_node_height(const std::unordered_map<int, CoalNode>& coal_tree, int 
 void tree_to_dot(
     const std::string& file,
     const std::unordered_map<int, CoalNode>& coal_tree,
-    const std::vector<int>& r_assign,
-    const std::vector<int>& emissions,
+    const std::optional<std::vector<int>>& r_assign,
+    const std::optional<std::vector<int>>& emissions,
     int l,
     int L
 );

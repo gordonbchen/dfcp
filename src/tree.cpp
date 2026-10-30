@@ -1,17 +1,18 @@
 #include <algorithm>
-#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <ios>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <optional>
 #include <cmath>
 #include <utility>
 #include <vector>
 #include <cstring>
 #include <format>
 #include "tree.hpp"
+#include "util.hpp"
 
 
 std::vector<int> read_variant_pos(const std::string& fname) {
@@ -118,48 +119,6 @@ std::vector<int> get_tree_idxs(const std::vector<int>& variant_pos, const std::v
     return tree_idxs;
 }
 
-
-struct BitSet {
-    size_t size;
-    size_t n_words;
-    std::vector<uint64_t> bm;
-
-    BitSet(size_t size_) : size(size_), n_words((size_ + 63) >> 6), bm((size_ + 63) >> 6, 0) {}
-
-    void set(size_t idx) {
-        if (idx >= size) {
-            throw std::invalid_argument("idx is too large for bit set.");
-        }
-        bm[idx >> 6] |= 1ULL << (((1 << 6) - 1) & idx);
-    }
-
-    bool is_empty() {
-        for (size_t i = 0; i < n_words; ++i) {
-            if (bm[i] != 0) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    void intersect(const BitSet& l, const BitSet& r) {
-        if (!((size == l.size) && (l.size == r.size))) {
-            throw std::invalid_argument("BitSets must be the same size.");
-        }
-        for (size_t i = 0; i < n_words; ++i) {
-            bm[i] = l.bm[i] & r.bm[i];
-        }
-    }
-
-    void sunion(const BitSet& l, const BitSet& r) {
-        if (!((size == l.size) && (l.size == r.size))) {
-            throw std::invalid_argument("BitSets must be the same size.");
-        }
-        for (size_t i = 0; i < n_words; ++i) {
-            bm[i] = l.bm[i] | r.bm[i];
-        }
-    }
-};
 
 struct ParsimonyMsg {
     int score;
@@ -330,13 +289,13 @@ const std::vector<std::string>shapes = {"oval", "box", "polygon", "house"};
 void label_leaf(
     const std::string& name,
     int idx,
-    const std::vector<int>& r_assign,
-    const std::vector<int>& emissions,
+    const std::optional<std::vector<int>>& r_assign,
+    const std::optional<std::vector<int>>& emissions,
     const std::string& indent,
     std::ofstream& s
 ) {
-    const std::string& color = cluster_color(r_assign[idx]);
-    const std::string& shape = shapes[emissions[idx] % shapes.size()];
+    const std::string& color = r_assign ? cluster_color((*r_assign)[idx]) : "#FFFFFF";
+    const std::string& shape = emissions ? shapes[(*emissions)[idx] % shapes.size()] : "circle";
     s << indent << name << " [label=\"" << idx << "\", fillcolor=\"" << color
         << "\", fontcolor=\"black\", shape=" << shape << "];\n";
 }
@@ -344,8 +303,8 @@ void label_leaf(
 void tree_to_dot(
     const std::string& file,
     const std::unordered_map<int, CoalNode>& coal_tree,
-    const std::vector<int>& r_assign,
-    const std::vector<int>& emissions,
+    const std::optional<std::vector<int>>& r_assign,
+    const std::optional<std::vector<int>>& emissions,
     int l, int L
 ) {
     std::ofstream s = (l == 0) ? std::ofstream{file} : std::ofstream{file, std::ios::app};

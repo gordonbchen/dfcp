@@ -97,3 +97,26 @@ target_compile_options(eval_clusters PRIVATE
 target_link_libraries(eval_clusters PRIVATE
     CLI11::CLI11
 )
+
+
+add_executable(tree_recon
+    src/tree_recon.cpp
+    src/tree.cpp
+    src/r_assign_io.cpp
+    src/io.cpp
+)
+
+target_include_directories(tree_recon PRIVATE
+    include
+)
+
+target_compile_options(tree_recon PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -O3
+)
+
+target_link_libraries(tree_recon PRIVATE
+    CLI11::CLI11
+)

@@ -5,7 +5,6 @@
 #include <utility>
 #include <vector>
 #include <unordered_map>
-#include <functional>
 #include <stdexcept>
 #include "clusters.hpp"
 #include "seq_array.hpp"
@@ -79,15 +78,6 @@ void Clusters::block_init(const SeqArray& x) {
         q->add_child(r);
     }
 }
-
-struct PairPointerHash {
-    template <typename T, typename U>
-    std::size_t operator()(const std::pair<T*, U*>& p) const {
-        auto hash1 = std::hash<T*>{}(p.first);
-        auto hash2 = std::hash<U*>{}(p.second);
-        return hash1 ^ (hash2 + 0x9e3779b9 + (hash1 << 6) + (hash1 >> 2));
-    }
-};
 
 void Clusters::pbwt_init(const SeqArray& x, int match_len) {
     r_assign.resize(HP.N * HP.L, nullptr);
