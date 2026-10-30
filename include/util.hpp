@@ -1,6 +1,5 @@
 #pragma once
 
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -38,31 +37,32 @@ struct BitSet {
     size_t size;
     size_t n_words;
     std::vector<uint64_t> bm;
-    size_t n_set;
 
     BitSet(size_t size_) : size(size_), n_words((size_ + 63) >> 6),
-                           bm((size_ + 63) >> 6, 0), n_set(0) {}
+                           bm((size_ + 63) >> 6, 0) {}
 
     void set(size_t idx) {
         if (idx >= size) {
             throw std::invalid_argument("idx is too large for bit set.");
         }
-        n_set += (bm[idx >> 6] & (1ULL << (((1 << 6) - 1) & idx))) == 0;
         bm[idx >> 6] |= 1ULL << (((1 << 6) - 1) & idx);
     }
 
     bool is_empty() {
-        return n_set == 0;
+        for (uint64_t word : bm) {
+            if (word != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     void intersect(const BitSet& l, const BitSet& r) {
         if (!((size == l.size) && (l.size == r.size))) {
             throw std::invalid_argument("BitSets must be the same size.");
         }
-        n_set = 0;
         for (size_t i = 0; i < n_words; ++i) {
             bm[i] = l.bm[i] & r.bm[i];
-            n_set += std::popcount(bm[i]);
         }
     }
 
@@ -70,15 +70,13 @@ struct BitSet {
         if (!((size == l.size) && (l.size == r.size))) {
             throw std::invalid_argument("BitSets must be the same size.");
         }
-        n_set = 0;
         for (size_t i = 0; i < n_words; ++i) {
             bm[i] = l.bm[i] | r.bm[i];
-            n_set += std::popcount(bm[i]);
         }
     }
 
     bool operator==(const BitSet& other) const {
-        if ((size != other.size) || (n_set != other.n_set)) { return false; }
+        if (size != other.size) { return false; }
         for (size_t i = 0; i < n_words; ++i) {
             if (bm[i] != other.bm[i]) {
                 return false;

@@ -79,6 +79,9 @@ current executable.
 - `src/math.cpp`: reusable delta approximations.
 - `src/tree.cpp`: fastsimcoal tree parsing, Fitch parsimony, clade metrics,
   coordinate alignment, and DOT output.
+- `src/tree_recon.cpp`: UPGMA reconstruction from R assignments, building a
+  `CoalNode` map directly with a separate active-node size map. Internal IDs
+  increase from `-(N-1)` to the root `-1`; leaves retain sequence indexes.
 - `src/util.cpp`: emission counts and locus modes.
 
 ### Scripts
