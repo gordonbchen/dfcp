@@ -29,19 +29,20 @@ std::pair<const BitSet*, const BitSet*> get_ord_pair(const BitSet *a, const BitS
 void to_coal_tree_recur(
     int curr_int, const BitSet* curr_bs,
     std::unordered_map<int, CoalNode>& coal_tree,
+    int& next_internal_id,
     std::unordered_map<BitSet, Node, BitSetHash>& tree,
     std::unordered_map<const BitSet*, int>& leaves_map
 ) {
     Node& node = tree[*curr_bs];
-    int left_int = leaves_map.contains(node.left) ? leaves_map[node.left] : curr_int*2;
-    int right_int = leaves_map.contains(node.right) ? leaves_map[node.right] : curr_int*2-1;
+    int left_int = leaves_map.contains(node.left) ? leaves_map[node.left] : next_internal_id--;
+    int right_int = leaves_map.contains(node.right) ? leaves_map[node.right] : next_internal_id--;
     coal_tree[curr_int] = CoalNode{right_int, left_int, 0.0, 0.0};
 
     if (left_int < 0) {
-        to_coal_tree_recur(left_int, node.left, coal_tree, tree, leaves_map);
+        to_coal_tree_recur(left_int, node.left, coal_tree, next_internal_id, tree, leaves_map);
     }
     if (right_int < 0) {
-        to_coal_tree_recur(right_int, node.right, coal_tree, tree, leaves_map);
+        to_coal_tree_recur(right_int, node.right, coal_tree, next_internal_id, tree, leaves_map);
     }
 }
 
@@ -51,7 +52,8 @@ std::unordered_map<int, CoalNode> to_coal_tree(
     std::unordered_map<const BitSet*, int>& leaves_map
 ) {
     std::unordered_map<int, CoalNode> coal_tree;
-    to_coal_tree_recur(-1, root, coal_tree, tree, leaves_map);
+    int next_internal_id = -2;
+    to_coal_tree_recur(-1, root, coal_tree, next_internal_id, tree, leaves_map);
     return coal_tree;
 }
 

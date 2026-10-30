@@ -35,14 +35,16 @@ std::vector<int> read_variant_pos(const std::string& fname) {
     return variant_pos;
 }
 
-const char* parse_coal_subtree(const char *s, std::unordered_map<int, CoalNode>& coal_tree, int idx) {
+const char* parse_coal_subtree(
+    const char *s, std::unordered_map<int, CoalNode>& coal_tree, int idx, int& next_internal_id
+) {
     while (*s != '(') { ++s; }
     ++s;
 
     int left_idx;
     if (*s == '(') {
-        left_idx = -(2 * std::abs(idx));
-        s = parse_coal_subtree(s, coal_tree, left_idx);
+        left_idx = next_internal_id--;
+        s = parse_coal_subtree(s, coal_tree, left_idx, next_internal_id);
     }
     else {
         left_idx = std::strtol(s, nullptr, 10) - 1;
@@ -57,8 +59,8 @@ const char* parse_coal_subtree(const char *s, std::unordered_map<int, CoalNode>&
 
     int right_idx;
     if (*s == '(') {
-        right_idx = -(2*std::abs(idx) + 1);
-        s = parse_coal_subtree(s, coal_tree, right_idx);
+        right_idx = next_internal_id--;
+        s = parse_coal_subtree(s, coal_tree, right_idx, next_internal_id);
     }
     else {
         right_idx = std::strtol(s, nullptr, 10) - 1;
@@ -78,7 +80,8 @@ int parse_coal_tree(const char *s, std::unordered_map<int, CoalNode>& coal_tree)
     s += 4;
 
     int recomb_pos = std::strtol(s, nullptr, 10);
-    parse_coal_subtree(s, coal_tree, -1);
+    int next_internal_id = -2;
+    parse_coal_subtree(s, coal_tree, -1, next_internal_id);
     return recomb_pos;
 }
 
